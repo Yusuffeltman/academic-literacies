@@ -42,23 +42,19 @@ const REC_TYPE_CONFIG = {
   celebrate: { icon: '🏆', borderColor: '#fbbf24', bg: 'rgba(251,191,36,0.1)',     btnBg: '#fbbf24', btnColor: '#0f172a' },
 };
 
-// micro-module id → which AI tool tab to open
-const MODULE_TO_TOOL = {
-  'evidence-booster':   'writing',
-  'argument-builder':   'argument',
-  'tone-workshop':      'writing',
-  'source-skills':      'source',
-  'citation-guide':     null,   // Study Buddy (AI Tutor)
-  'reading-strategies': null,
-};
+// Set of known micro-module ids — these open the full micro-module page
+const MICRO_MODULE_IDS = new Set([
+  'evidence-booster', 'argument-builder', 'tone-workshop',
+  'source-skills', 'citation-guide', 'reading-strategies',
+]);
 
 const MODULE_LABELS = {
-  'evidence-booster':   'Writing Coach',
-  'argument-builder':   'Argument Mapper',
-  'tone-workshop':      'Writing Coach',
-  'source-skills':      'Source Evaluator',
-  'citation-guide':     'Study Buddy',
-  'reading-strategies': 'Study Buddy',
+  'evidence-booster':   'Evidence Booster',
+  'argument-builder':   'Argument Builder',
+  'tone-workshop':      'Tone Workshop',
+  'source-skills':      'Source Skills',
+  'citation-guide':     'Citation Guide',
+  'reading-strategies': 'Reading Strategies',
 };
 
 // ── Main render ───────────────────────────────
@@ -225,17 +221,16 @@ async function _loadRecommendation() {
     let btnHtml = '';
     if (rec.action_label) {
       const target  = rec.action_target;
-      const toolTab = target ? MODULE_TO_TOOL[target] : null;
-      const toolLbl = target ? MODULE_LABELS[target]  : null;
+      const toolLbl = target ? (MODULE_LABELS[target] ?? target) : null;
 
-      if (toolTab !== undefined && toolTab !== null) {
-        // Opens a specific AI tools tab
+      if (target && MICRO_MODULE_IDS.has(target)) {
+        // Opens the full micro-module page
         btnHtml = `<button class="rec-btn"
           style="background:${cfg.btnBg};color:${cfg.btnColor}"
-          onclick="window._openAIToolsTab('${toolTab}')">
+          onclick="window.goToMicroModule('${target}')">
           ${rec.action_label} — ${toolLbl}
         </button>`;
-      } else if (toolLbl === 'Study Buddy') {
+      } else if (target === 'study_buddy' || target === 'ai_tutor') {
         // Opens the AI Tutor
         btnHtml = `<button class="rec-btn"
           style="background:${cfg.btnBg};color:${cfg.btnColor}"

@@ -12,6 +12,7 @@ import { initAITools, updateAIToolsContext } from './components/ai-tools.js';
 import { renderLecturerDashboard }    from './dashboards/lecturer.js';
 import { renderTutorDashboard }       from './dashboards/tutor.js';
 import { renderStudentDashboard }     from './dashboards/student.js';
+import { renderMicroModule }          from './components/micro-module.js';
 import { ER_TIERS }                   from '../content/readings.js';
 import { _aiChat }                     from './ai.js';
 
@@ -51,6 +52,8 @@ export function initApp(user) {
 
   // Default: student view
   renderStudentDashboard();
+  window.renderStudentDashboard = renderStudentDashboard;
+  window.goToMicroModule = renderMicroModule;
   window.goToCourse = () => {
     renderShell();
     initAITutor();
@@ -62,6 +65,8 @@ export function initApp(user) {
 export function switchToStudentView() {
   window._viewAsStudent = true;
   renderStudentDashboard();
+  window.renderStudentDashboard = renderStudentDashboard;
+  window.goToMicroModule = renderMicroModule;
   window.goToCourse = () => {
     renderShell();
     initAITutor();
