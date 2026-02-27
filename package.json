@@ -1,0 +1,23 @@
+{
+  "name": "academic-literacies",
+  "version": "1.0.0",
+  "description": "Academic Literacies in the Age of AI — modular learning platform",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:android": "vite build && npx cap sync android && cd android && gradlew assembleDebug"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
+    "he": "^1.2.0",
+    "node-html-parser": "^7.0.2",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "firebase": "^12.9.0"
+  }
+}
