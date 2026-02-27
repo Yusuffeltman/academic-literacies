@@ -339,6 +339,8 @@ async function _loadAnalytics() {
       const frustrationIdx = adaptiveData.frustration_index || 0;
       const highPerformer  = adaptiveData.high_performer || false;
       const studyTopics    = adaptiveData.study_topics   || [];
+      const escalations    = (s.escalations || []).filter(e => !e.resolved);
+      const studentOutcomes = adaptiveData.outcomes || [];
 
       // Per-skill averages for this student
       const skillAvgs = {};
@@ -380,6 +382,7 @@ async function _loadAnalytics() {
         // adaptive
         skillStatus, skillScores, skillAvgs, needsRem,
         frustrationIdx, highPerformer, studyTopics,
+        escalations, outcomes: studentOutcomes,
       });
     }
 
@@ -434,6 +437,12 @@ async function _loadAnalytics() {
       </div>`;
     }).join('');
 
+    // ── Escalation & curriculum alert data ───────
+    const escalatedStudents = _cachedStudents.filter(s => s.escalations.length > 0);
+    const curriculumAlerts  = Object.entries(classSkillData)
+      .filter(([, d]) => d.assessed > 0 && (d.weakCount / _cachedStudents.length) >= 0.6)
+      .map(([id]) => SKILL_LABELS_LEC[id]);
+
     const studentRows = _cachedStudents.map((s, index) => {
       const frustDots = Array.from({length: 5}, (_, i) =>
         `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:2px;background:${i < Math.round(s.frustrationIdx) ? '#f59e0b' : '#e2e8f0'}"></span>`
@@ -477,6 +486,42 @@ async function _loadAnalytics() {
           ${_metricCard('⚠️', 'At-Risk Students', atRiskCount, atRiskCount > 0 ? 'var(--red)' : 'var(--green)')}
           ${_metricCard('😤', 'High Frustration', frustCount, frustCount > 0 ? '#f59e0b' : 'var(--green)')}
         </div>
+
+        <!-- Students Needing Attention -->
+        ${escalatedStudents.length ? `
+        <div style="background:white;border-radius:16px;border:2px solid rgba(239,68,68,0.3);padding:24px;margin-bottom:28px;">
+          <h2 style="font-size:16px;color:#ef4444;margin-bottom:4px;font-family:'DM Sans',sans-serif;">
+            🔔 Students Needing Attention (${escalatedStudents.length})
+          </h2>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">
+            These students have crossed escalation thresholds. Consider reaching out directly.
+          </p>
+          ${escalatedStudents.map(st => `
+            <div style="padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;margin-bottom:8px;display:flex;gap:16px;align-items:flex-start;">
+              <div style="flex:1;">
+                <div style="font-weight:700;color:var(--navy);font-size:14px;margin-bottom:4px;">${st.name.split(' [')[0]}</div>
+                ${st.escalations.map(e => `<div style="font-size:12px;color:#dc2626;">⚠ <strong>${e.trigger.replace(/-/g,' ')}</strong> — ${e.message}</div>`).join('')}
+              </div>
+              <span style="font-size:10px;color:#ef4444;background:#fecaca;padding:2px 8px;border-radius:4px;white-space:nowrap;font-weight:700;flex-shrink:0;">
+                ${(st.escalations[0]?.severity || 'alert').toUpperCase()}
+              </span>
+            </div>
+          `).join('')}
+        </div>` : ''}
+
+        <!-- Curriculum alerts -->
+        ${curriculumAlerts.length ? `
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;margin-bottom:28px;display:flex;gap:14px;align-items:flex-start;">
+          <div style="font-size:20px;flex-shrink:0;">⚡</div>
+          <div>
+            <div style="font-weight:700;color:#92400e;font-size:14px;margin-bottom:4px;">Curriculum Alert</div>
+            <p style="font-size:13px;color:#78350f;line-height:1.6;margin:0;">
+              More than 60% of the class is struggling with:
+              <strong>${curriculumAlerts.join(', ')}</strong>.
+              Consider adjusting upcoming session plans to address this gap directly.
+            </p>
+          </div>
+        </div>` : ''}
 
         <!-- Skill heatmap -->
         <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:32px;">
@@ -660,6 +705,18 @@ window._loadSkillAnalytics = async () => {
   const deltaData = {};
   Object.entries(MODULE_NAMES).forEach(([mod]) => { deltaData[mod] = { deltas: [], count: 0 }; });
 
+  // Outcome effectiveness from outcome records
+  const effectivenessData = {};
+  Object.keys(MODULE_NAMES).forEach(mod => {
+    const closed = _cachedStudents.flatMap(st =>
+      (st.outcomes || []).filter(o => o.moduleId === mod && o.status !== 'pending')
+    );
+    if (closed.length) {
+      const improved = closed.filter(o => o.status === 'improved').length;
+      effectivenessData[mod] = { pct: Math.round((improved / closed.length) * 100), total: closed.length };
+    }
+  });
+
   _cachedStudents.forEach(st => {
     Object.entries(MODULE_SKILL).forEach(([mod, skillId]) => {
       const entries = st.skillScores[skillId] || [];
@@ -686,10 +743,15 @@ window._loadSkillAnalytics = async () => {
     const avg   = d.deltas.reduce((a, b) => a + b, 0) / d.deltas.length;
     const color = avg > 0 ? '#10b981' : avg < 0 ? '#ef4444' : '#94a3b8';
     const sign  = avg > 0 ? '+' : '';
+    const eff   = effectivenessData[mod];
+    const effBadge = eff
+      ? `<span style="font-size:11px;background:${eff.pct >= 60 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)'};color:${eff.pct >= 60 ? '#10b981' : '#ef4444'};padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;">${eff.pct}% effective · ${eff.total}</span>`
+      : '';
     return `<div class="lec-delta-row">
       <span class="lec-delta-name">${name}</span>
       <span style="font-size:20px;font-weight:800;color:${color};min-width:70px;">${sign}${avg.toFixed(2)}</span>
       <span style="font-size:13px;color:var(--muted);">${d.count} student${d.count !== 1 ? 's' : ''}</span>
+      ${effBadge}
       <div style="flex:1;background:var(--cream2);border-radius:4px;height:6px;overflow:hidden;max-width:200px;">
         <div style="width:${Math.min(100,Math.abs(avg)/2*100)}%;height:100%;background:${color};border-radius:4px;"></div>
       </div>

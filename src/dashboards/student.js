@@ -1,5 +1,5 @@
 // src/dashboards/student.js
-import { STATE } from '../state.js';
+import { STATE, recordOutcome } from '../state.js';
 import { UNITS } from '../../content/units/index.js';
 import { DASHBOARD_CONTENT } from '../../content/dashboard.js';
 import { getCoordinatorRecommendation } from '../ai.js';
@@ -97,12 +97,15 @@ export function renderStudentDashboard() {
           </div>
         </div>
 
+        ${_renderEscalationNotice(STATE.escalations || [])}
+
         <!-- Skill map -->
         <section class="dash-section">
           <h2 class="dash-section-heading">Your Skill Profile</h2>
           <div class="skill-map-grid">
             ${renderSkillMap(adaptive)}
           </div>
+          <div id="cohort-strip"></div>
         </section>
 
         <!-- Standard info grid -->
@@ -165,8 +168,9 @@ export function renderStudentDashboard() {
     </div>
   `;
 
-  // Populate recommendation card after render
+  // Populate recommendation card and cohort strip after render
   _loadRecommendation();
+  _loadCohortContext();
 }
 
 // ── Skill map renderer ────────────────────────
@@ -215,6 +219,13 @@ async function _loadRecommendation() {
     const rec = await getCoordinatorRecommendation();
     if (!rec) { card.style.display = 'none'; return; }
 
+    // Track outcome for remediation recommendations with a micro-module target
+    if (rec.action_target && MICRO_MODULE_IDS.has(rec.action_target) && rec.skill_focus) {
+      const skillScores = STATE.adaptive?.skill_scores?.[rec.skill_focus] || [];
+      const scoreBefore = skillScores.length ? skillScores[skillScores.length - 1].score : null;
+      recordOutcome(rec.action_target, rec.skill_focus, scoreBefore);
+    }
+
     const cfg = REC_TYPE_CONFIG[rec.type] || REC_TYPE_CONFIG.continue;
 
     // Build action button
@@ -260,5 +271,67 @@ async function _loadRecommendation() {
     `;
   } catch {
     if (card) card.style.display = 'none';
+  }
+}
+
+// ── Escalation notice ─────────────────────────
+function _renderEscalationNotice(escalations) {
+  const active = escalations.filter(e => !e.resolved);
+  if (!active.length) return '';
+  return `
+    <div class="escalation-notice" style="
+      display:flex;align-items:flex-start;gap:16px;
+      background:rgba(99,102,241,0.06);
+      border:1px solid rgba(99,102,241,0.2);
+      border-radius:12px;padding:18px 20px;margin-bottom:24px;">
+      <div style="font-size:24px;flex-shrink:0;">💙</div>
+      <div>
+        <p style="font-size:14px;color:var(--navy);margin:0;line-height:1.6;">
+          <strong>A gentle note:</strong> We've noticed you may be finding some areas challenging.
+          Your lecturer has been notified and is here to support you. Feel free to reach out during
+          consultation hours or through the student support portal. You're doing better than you think.
+        </p>
+      </div>
+    </div>`;
+}
+
+// ── Cohort context strip ───────────────────────
+async function _loadCohortContext() {
+  try {
+    const { getCohortAverages } = await import('../cohort.js');
+    const data = await getCohortAverages();
+    if (!data) return;
+
+    const strip = document.getElementById('cohort-strip');
+    if (!strip) return;
+
+    const adaptive = STATE.adaptive;
+    const candidates = [];
+
+    Object.entries(data.skillPercentages).forEach(([skillId, pct]) => {
+      const status = adaptive?.skill_status?.[skillId];
+      if ((status === 'weak' || status === 'developing') && pct >= 30) {
+        candidates.push({ skillId, pct, label: SKILL_LABELS[skillId] });
+      }
+    });
+
+    if (!candidates.length) return;
+
+    const top = candidates.sort((a, b) => b.pct - a.pct)[0];
+
+    strip.innerHTML = `
+      <div style="
+        display:flex;align-items:center;gap:12px;
+        background:rgba(16,185,129,0.06);
+        border:1px solid rgba(16,185,129,0.2);
+        border-radius:10px;padding:12px 16px;margin-top:16px;">
+        <span style="font-size:20px;">👥</span>
+        <span style="font-size:13px;color:var(--navy);line-height:1.5;">
+          <strong>${top.pct}% of students</strong> in your group are also working on
+          <strong>${top.label}</strong>. You're not alone — keep going!
+        </span>
+      </div>`;
+  } catch {
+    // Fail silently — cohort data is optional
   }
 }

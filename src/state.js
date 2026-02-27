@@ -22,6 +22,7 @@ function defaultAdaptive() {
     study_topics:        [],
     last_recommendation: null,
     recommendation_at:   null,
+    outcomes:            [],
     high_performer:      false,
   };
 }
@@ -35,6 +36,7 @@ export const STATE = {
   deviceInfo: null,
   aiUsage:    { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
   adaptive:   defaultAdaptive(),
+  escalations: [],
 };
 
 export async function saveState() {
@@ -47,6 +49,7 @@ export async function saveState() {
       deviceInfo: STATE.deviceInfo,
       aiUsage:    STATE.aiUsage,
       adaptive:   STATE.adaptive,
+      escalations: STATE.escalations,
     }));
     return;
   }
@@ -57,6 +60,7 @@ export async function saveState() {
     deviceInfo: STATE.deviceInfo,
     aiUsage:    STATE.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
     adaptive:   STATE.adaptive,
+    escalations: STATE.escalations,
   });
 }
 
@@ -71,6 +75,7 @@ export async function loadState() {
       STATE.deviceInfo = data.deviceInfo || null;
       STATE.aiUsage    = data.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 };
       STATE.adaptive   = _mergeAdaptive(data.adaptive);
+      STATE.escalations = data.escalations || [];
     }
     return;
   }
@@ -84,6 +89,7 @@ export async function loadState() {
     STATE.deviceInfo = data.deviceInfo || null;
     STATE.aiUsage    = data.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 };
     STATE.adaptive   = _mergeAdaptive(data.adaptive);
+    STATE.escalations = data.escalations || [];
   }
 }
 
@@ -96,6 +102,7 @@ function _mergeAdaptive(saved) {
     ...saved,
     skill_scores:  { ...def.skill_scores,  ...(saved.skill_scores  || {}) },
     skill_status:  { ...def.skill_status,  ...(saved.skill_status  || {}) },
+    outcomes:      Array.isArray(saved.outcomes) ? saved.outcomes : [],
   };
 }
 
@@ -123,6 +130,8 @@ export function recordSkillScore(skillId, score, maxScore, source, triggeredBy =
   if (!STATE.adaptive.skill_scores[skillId]) STATE.adaptive.skill_scores[skillId] = [];
   STATE.adaptive.skill_scores[skillId].push(entry);
   _updateSkillStatus(skillId);
+  closeOutcomes(skillId, normalised);
+  checkEscalationTriggers();
   saveState().catch(console.error);
 }
 
@@ -199,6 +208,7 @@ export function logFrustration(text) {
       STATE.adaptive.frustration_triggers = STATE.adaptive.frustration_triggers.slice(-50);
     }
     saveState().catch(console.error);
+    if (STATE.adaptive.frustration_index >= 3) checkEscalationTriggers();
   }
 }
 
@@ -214,4 +224,154 @@ export function logStudyTopic(text) {
       break;
     }
   }
+}
+
+// ── Outcome Effectiveness Tracking ───────────
+
+/**
+ * Record a pending outcome when a micro-module recommendation is shown.
+ * @param {string} moduleId      - micro-module id (e.g. 'evidence-booster')
+ * @param {string} skillId       - associated skill
+ * @param {number|null} scoreBefore - student's most recent score before the module
+ */
+export function recordOutcome(moduleId, skillId, scoreBefore) {
+  if (!STATE.adaptive.outcomes) STATE.adaptive.outcomes = [];
+  // Avoid duplicate pending outcomes for the same module + skill
+  const existing = STATE.adaptive.outcomes.find(
+    o => o.moduleId === moduleId && o.skill === skillId && o.status === 'pending'
+  );
+  if (existing) return;
+  STATE.adaptive.outcomes.push({
+    id:            `out_${Date.now()}`,
+    moduleId,
+    skill:         skillId,
+    scoreBefore:   scoreBefore ?? null,
+    recommendedAt: new Date().toISOString(),
+    scoreAfter:    null,
+    improvement:   null,
+    status:        'pending',
+  });
+  saveState().catch(console.error);
+}
+
+/**
+ * Close all pending outcomes for a skill when a new score arrives.
+ * Called automatically from recordSkillScore — caller handles the saveState.
+ */
+export function closeOutcomes(skillId, newScore) {
+  if (!STATE.adaptive.outcomes?.length) return;
+  STATE.adaptive.outcomes = STATE.adaptive.outcomes.map(o => {
+    if (o.skill === skillId && o.status === 'pending') {
+      const improvement = o.scoreBefore != null ? +(newScore - o.scoreBefore).toFixed(2) : null;
+      return {
+        ...o,
+        scoreAfter:  newScore,
+        improvement,
+        status:      improvement == null ? 'unchanged'
+                   : improvement > 0     ? 'improved'
+                   : improvement < 0     ? 'declined'
+                   :                       'unchanged',
+        closedAt:    new Date().toISOString(),
+      };
+    }
+    return o;
+  });
+}
+
+// ── Escalation System ─────────────────────────
+
+/**
+ * Create a new escalation record, deduplicated by trigger+skill.
+ */
+export function createEscalation(trigger, skill, severity, message) {
+  if (!Array.isArray(STATE.escalations)) STATE.escalations = [];
+  // Avoid duplicate active escalations of the same type for the same skill
+  const existing = STATE.escalations.find(
+    e => e.trigger === trigger && e.skill === (skill || null) && !e.resolved
+  );
+  if (existing) return;
+  STATE.escalations.push({
+    id:        `esc_${Date.now()}`,
+    trigger,
+    skill:     skill || null,
+    severity,
+    timestamp: new Date().toISOString(),
+    resolved:  false,
+    message,
+  });
+  saveState().catch(console.error);
+}
+
+/**
+ * Check all escalation triggers against current adaptive state.
+ * Called after skill score updates and high-frustration events.
+ */
+export function checkEscalationTriggers() {
+  const adaptive = STATE.adaptive;
+  if (!adaptive) return;
+
+  // Trigger 1: Persistent failure — 4 consecutive weak scores for a flagged skill
+  SKILLS.forEach(skillId => {
+    if (
+      adaptive.skill_status[skillId] === 'weak' &&
+      adaptive.needs_remediation.includes(skillId)
+    ) {
+      const entries = adaptive.skill_scores[skillId] || [];
+      if (entries.length >= 4) {
+        const last4 = entries.slice(-4).map(e => e.score);
+        if (last4.every(s => s < 2.5)) {
+          createEscalation(
+            'persistent-failure',
+            skillId,
+            'high',
+            `Persistent weak performance in ${skillId.replace(/_/g, ' ')} — 4 consecutive low scores.`
+          );
+        }
+      }
+    }
+  });
+
+  // Trigger 2: Declining performance — last score < first score by >0.5, ≥6 entries
+  SKILLS.forEach(skillId => {
+    const entries = adaptive.skill_scores[skillId] || [];
+    if (entries.length >= 6) {
+      const first = entries[0].score;
+      const last  = entries[entries.length - 1].score;
+      if (last < first - 0.5) {
+        createEscalation(
+          'declining-performance',
+          skillId,
+          'high',
+          `${skillId.replace(/_/g, ' ')} is declining — dropped from ${first} to ${last}.`
+        );
+      }
+    }
+  });
+
+  // Trigger 3: Disengaged — no engagement for more than 10 days
+  if (adaptive.recommendation_at) {
+    const age     = Date.now() - new Date(adaptive.recommendation_at).getTime();
+    const tenDays = 10 * 24 * 60 * 60 * 1000;
+    if (age > tenDays) {
+      createEscalation(
+        'disengaged',
+        null,
+        'medium',
+        'No platform engagement detected for over 10 days.'
+      );
+    }
+  }
+
+  // Trigger 4: Intervention ineffective — skill still in remediation after 3+ module attempts
+  (adaptive.needs_remediation || []).forEach(skillId => {
+    const moduleAttempts = (adaptive.skill_scores[skillId] || []).filter(e => e.triggered_by);
+    if (moduleAttempts.length >= 3) {
+      createEscalation(
+        'intervention-ineffective',
+        skillId,
+        'medium',
+        `3+ micro-module attempts for ${skillId.replace(/_/g, ' ')} with no resolution.`
+      );
+    }
+  });
 }

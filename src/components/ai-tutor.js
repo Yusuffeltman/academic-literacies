@@ -1,7 +1,8 @@
-import { STATE, saveState, logFrustration, logStudyTopic } from '../state.js';
-import { _aiChatMultiTurn } from '../ai.js';
+import { STATE, saveState, logFrustration, logStudyTopic, createEscalation } from '../state.js';
+import { _aiChatMultiTurn, studyBuddyDistressCheck } from '../ai.js';
 
 let tutorIsOpen = false;
+let _lastDistressCheck = 0;
 let currentUnitContext = null;
 
 /**
@@ -225,11 +226,44 @@ PEDAGOGY:
     messages.push({ role: 'assistant', content: response });
     saveState();
     renderMessages();
+
+    // Distress check — student mode only, when frustration is elevated
+    if (role !== 'lecturer' && role !== 'tutor') {
+      const fi  = STATE.adaptive?.frustration_index || 0;
+      const now = Date.now();
+      if (fi >= 1.5 && now - _lastDistressCheck > 5 * 60 * 1000) {
+        _lastDistressCheck = now;
+        studyBuddyDistressCheck(messages.slice(-8)).then(result => {
+          if (result?.distressDetected && (result.severity === 'moderate' || result.severity === 'high')) {
+            createEscalation(
+              'distress-signal',
+              null,
+              result.severity === 'high' ? 'high' : 'medium',
+              `Distress signals in Study Buddy conversation. Signals: ${(result.signals || []).join(', ')}`
+            );
+            _showDistressCard();
+          }
+        }).catch(() => {});
+      }
+    }
   } catch (err) {
     container.querySelector('.loading').remove();
     messages.push({ role: 'assistant', content: `*Error: ${err.message}*` });
     renderMessages();
   }
+}
+
+function _showDistressCard() {
+  const container = document.getElementById('ai-tutor-messages');
+  if (!container || container.querySelector('.distress-card')) return;
+  container.insertAdjacentHTML('beforeend', `
+    <div class="ai-tutor-msg assistant distress-card">
+      <div class="ai-tutor-msg-content">
+        <strong>💙 A gentle check-in:</strong> I notice you may be feeling stressed or overwhelmed — that's completely understandable. Academic writing is challenging! Remember, your lecturer and tutor are here to support you. You're doing better than you think. 🌟
+      </div>
+    </div>
+  `);
+  scrollToBottom();
 }
 
 // ── Panel resize (top-left drag handle) ───────

@@ -122,6 +122,7 @@ ADAPTATION RULES (apply all that match, prioritise highest urgency):
 6. LEVERAGE: If a skill is "strong", use it as a bridge to scaffold a weaker related skill. urgency: low
 7. TOPIC MATCH: If study_topics contains a skill ID in needs_remediation → surface that micro-module proactively. urgency: medium
 8. CELEBRATE: If all tested skills are "strong" → trigger achievement. urgency: low
+9. AVOID_INEFFECTIVE: If module_outcomes shows a module tried 2+ times as "unchanged" or "declined", suggest a different module or study_buddy instead. urgency: medium
 
 MICRO-MODULES (use these as targets):
 evidence_use → "evidence-booster", argument_structure → "argument-builder",
@@ -152,6 +153,13 @@ export async function getCoordinatorRecommendation() {
     }
   });
 
+  // Summarise outcome effectiveness so coordinator avoids repeating failed modules
+  const moduleOutcomes = {};
+  (adaptive.outcomes || []).filter(o => o.status !== 'pending').forEach(o => {
+    if (!moduleOutcomes[o.moduleId]) moduleOutcomes[o.moduleId] = { improved: 0, unchanged: 0, declined: 0 };
+    moduleOutcomes[o.moduleId][o.status] = (moduleOutcomes[o.moduleId][o.status] || 0) + 1;
+  });
+
   const summary = {
     skill_status:      adaptive.skill_status,
     skill_averages:    skillAverages,
@@ -160,6 +168,7 @@ export async function getCoordinatorRecommendation() {
     frustration_index: adaptive.frustration_index,
     study_topics:      (adaptive.study_topics || []).slice(-5),
     active_unit:       window.STATE?.activeUnit ?? 0,
+    module_outcomes:   moduleOutcomes,
   };
 
   try {
@@ -200,5 +209,30 @@ async function _logAIUsage(type, usageMetadata) {
   if (window.saveState) {
     // Fire and forget save so it doesn't block the UI
     window.saveState().catch(console.error);
+  }
+}
+
+// ── Study Buddy Distress Check ─────────────────
+/**
+ * Analyse recent Study Buddy messages for signs of academic distress.
+ * @param {Array<{role:string, content:string}>} history - last several messages
+ * @returns {Promise<{distressDetected:boolean, severity:string, signals:string[]}>}
+ */
+export async function studyBuddyDistressCheck(history) {
+  const userMessages = history
+    .filter(m => m.role === 'user')
+    .map(m => m.content)
+    .join('\n');
+  if (!userMessages.trim()) return { distressDetected: false, severity: 'none', signals: [] };
+
+  try {
+    const raw = await _aiChat(
+      `Analyse these student messages for signs of academic distress, anxiety, or emotional difficulty:\n\n"${userMessages}"\n\nReturn ONLY this JSON (no markdown): {"distressDetected": true/false, "severity": "none|mild|moderate|high", "signals": ["brief", "signal", "list"]}`,
+      { maxTokens: 150 }
+    );
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch {
+    return { distressDetected: false, severity: 'none', signals: [] };
   }
 }
