@@ -7,6 +7,8 @@ import { SESSIONS, SESSION_META } from '../../content/sessions/sessions.js';
 import { renderSessionPlan }      from '../components/session-plan.js';
 import { db } from '../firebase.js';
 import { ref, get } from 'firebase/database';
+import { SEED_RESOURCES } from '../../content/resources.js';
+import { addResource, vettResource, removeResource } from '../resources.js';
 
 let _activeSession = 'c1';
 
@@ -262,8 +264,12 @@ function _buildAnalyticsSidebar() {
           <div class="dash-nav-id">🔍</div>
           <div class="dash-nav-label">Phase Robust Analysis</div>
         </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadResourceManager()">
+          <div class="dash-nav-id">📚</div>
+          <div class="dash-nav-label">Resource Library</div>
+        </div>
       </div>
-      
+
       <div class="dash-sidebar-footer" style="padding:20px; text-align:center;">
         <div style="font-size:12px; color:var(--muted); line-height:1.4;">
           Data is pulled securely from Firebase in real-time. Only active students are shown.
@@ -920,3 +926,221 @@ window._loadPhaseAnalysis = async () => {
     mount.innerHTML = `<div style="padding:40px;color:red;text-align:center;">Failed to run analysis: ${err.message}</div>`;
   }
 };
+
+// ── Resource Manager ──────────────────────────
+const SKILL_LABELS_RES = {
+  critical_reading:   'Critical Reading',
+  evidence_use:       'Using Evidence',
+  argument_structure: 'Argument Structure',
+  academic_tone:      'Academic Tone',
+  source_evaluation:  'Source Evaluation',
+  citation_practice:  'Citation & Integrity',
+  research_skills:    'Research Skills',
+  ai_literacy:        'AI Literacy',
+};
+
+window._loadResourceManager = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+
+  mount.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">⏳ Loading resource library…</div>';
+
+  // Fetch all Firebase resources including unvetted (to show pending queue)
+  let allFbRaw = [];
+  try {
+    const snap = await get(ref(db, 'resources'));
+    if (snap.exists()) {
+      allFbRaw = Object.entries(snap.val()).map(([id, d]) => ({ id, ...d }));
+    }
+  } catch { /* silent — no resources yet or no permission */ }
+
+  const pending  = allFbRaw.filter(r => !r.vetted && !r.removed);
+  const approved = allFbRaw.filter(r =>  r.vetted && !r.removed);
+
+  mount.innerHTML = `
+    <div style="padding:40px;max-width:1100px;margin:0 auto;animation:fadeIn 0.4s ease;">
+      <h1 style="font-family:'Playfair Display',serif;color:var(--navy);font-size:30px;margin-bottom:6px;">📚 Resource Library Manager</h1>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:32px;">
+        Approve submitted resources, add new ones, and manage the student-facing library.
+        The library ships with ${SEED_RESOURCES.length} curated seed resources (always visible).
+      </p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-bottom:36px;">
+
+        <!-- Pending queue -->
+        <div style="background:white;border-radius:16px;border:2px solid ${pending.length ? 'rgba(245,158,11,0.4)' : 'var(--border)'};padding:24px;">
+          <h2 style="font-size:15px;color:var(--navy);margin-bottom:4px;font-family:'DM Sans',sans-serif;">
+            ⏳ Pending Approval
+            ${pending.length ? `<span style="font-size:12px;background:#fde68a;color:#92400e;padding:2px 8px;border-radius:8px;margin-left:8px;">${pending.length}</span>` : ''}
+          </h2>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Resources submitted by lecturers awaiting vetting.</p>
+          <div id="rm-pending-list">
+            ${pending.length ? pending.map(r => _rmPendingCard(r)).join('') : '<p style="font-size:14px;color:var(--muted);font-style:italic;">No pending resources.</p>'}
+          </div>
+        </div>
+
+        <!-- Add resource form -->
+        <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;">
+          <h2 style="font-size:15px;color:var(--navy);margin-bottom:16px;font-family:'DM Sans',sans-serif;">➕ Add Resource</h2>
+          <form id="rm-add-form" style="display:flex;flex-direction:column;gap:12px;">
+            ${_rmInput('rm-title',       'Title *',       'text',   'Resource title')}
+            ${_rmInput('rm-url',         'URL *',         'url',    'https://')}
+            ${_rmTextarea('rm-desc',     'Description *', 'One or two sentences describing this resource')}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              ${_rmSelect('rm-type', 'Type *', ['video','pdf','podcast','article','tiktok','tweet','image','link'])}
+              ${_rmSelect('rm-embed', 'Embed type *', ['youtube','pdf','audio','link'])}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              ${_rmSelect('rm-source', 'Source *', ['YouTube','TikTok','X','Spotify','Podcast','Journal','University','Other'])}
+              ${_rmInput('rm-duration', 'Duration', 'text', 'e.g. 8 min')}
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:700;color:var(--navy);display:block;margin-bottom:6px;">Skill Tags *</label>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;" id="rm-skill-tags">
+                ${Object.entries(SKILL_LABELS_RES).map(([id, label]) => `
+                  <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:4px 9px;">
+                    <input type="checkbox" value="${id}" style="margin:0;cursor:pointer;"> ${label}
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+            <div id="rm-add-err" style="font-size:12px;color:#ef4444;display:none;"></div>
+            <button type="submit" style="padding:10px;background:var(--accent);color:white;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity 0.2s;">Submit Resource</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Approved resources table -->
+      <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;">
+        <h2 style="font-size:15px;color:var(--navy);margin-bottom:4px;font-family:'DM Sans',sans-serif;">
+          ✅ Approved Lecturer-Added Resources
+          <span style="font-size:12px;color:var(--muted);font-weight:normal;margin-left:8px;">(${approved.length} items)</span>
+        </h2>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">These are visible in the student library alongside the ${SEED_RESOURCES.length} seed resources.</p>
+        <div id="rm-approved-list">
+          ${approved.length ? `
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr>
+                  ${['Title','Type','Skills','Source',''].map(h => `<th style="padding:10px 14px;background:var(--cream);color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--border);text-align:left;">${h}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${approved.map(r => `
+                  <tr>
+                    <td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--navy);font-weight:600;">${_esc(r.title)}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--muted);">${r.type || ''}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:11px;">
+                      ${(r.skillTags || []).map(t => `<span style="background:var(--cream2,#f0f4ff);border:1px solid var(--border);padding:1px 7px;border-radius:6px;margin-right:3px;">${SKILL_LABELS_RES[t] || t}</span>`).join('')}
+                    </td>
+                    <td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--muted);">${r.source || ''}</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid var(--border);text-align:right;">
+                      <button onclick="_rmRemove('${r.id}')" style="font-size:11px;background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:6px;padding:3px 10px;cursor:pointer;">Remove</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>` : '<p style="font-size:14px;color:var(--muted);font-style:italic;">No lecturer-added resources approved yet.</p>'}
+        </div>
+      </div>
+    </div>`;
+
+  // Wire up form
+  document.getElementById('rm-add-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const errEl = document.getElementById('rm-add-err');
+    errEl.style.display = 'none';
+
+    const title   = document.getElementById('rm-title')?.value.trim();
+    const url     = document.getElementById('rm-url')?.value.trim();
+    const desc    = document.getElementById('rm-desc')?.value.trim();
+    const type    = document.getElementById('rm-type')?.value;
+    const embed   = document.getElementById('rm-embed')?.value;
+    const source  = document.getElementById('rm-source')?.value;
+    const dur     = document.getElementById('rm-duration')?.value.trim();
+    const skills  = [...document.querySelectorAll('#rm-skill-tags input:checked')].map(i => i.value);
+
+    if (!title || !url || !desc || !skills.length) {
+      errEl.textContent = 'Please fill in Title, URL, Description, and at least one Skill Tag.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.textContent = 'Submitting…';
+    btn.disabled = true;
+
+    const key = await addResource({
+      type, embedType: embed, title, description: desc, url, source,
+      duration: dur || null, skillTags: skills, phaseTags: [],
+      addedBy: 'lecturer',
+    });
+
+    btn.disabled = false;
+    btn.textContent = 'Submit Resource';
+
+    if (key) {
+      alert('Resource submitted! It will appear in the Pending Approval queue.');
+      window._loadResourceManager();
+    } else {
+      errEl.textContent = 'Failed to save. Check your Firebase permissions.';
+      errEl.style.display = 'block';
+    }
+  });
+};
+
+function _rmPendingCard(r) {
+  return `
+    <div id="rmp-${r.id}" style="background:var(--cream,#f8fafc);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+      <div style="font-weight:700;color:var(--navy);font-size:14px;margin-bottom:4px;">${_esc(r.title)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">${_esc(r.type)} · ${_esc(r.source || '')} · <a href="${_esc(r.url)}" target="_blank" rel="noopener" style="color:var(--accent);">Preview ↗</a></div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px;">${_esc(r.description || '')}</div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="_rmApprove('${r.id}')" style="flex:1;padding:7px;background:rgba(16,185,129,0.1);color:#059669;border:1px solid rgba(16,185,129,0.3);border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;">✓ Approve</button>
+        <button onclick="_rmRemove('${r.id}')" style="flex:1;padding:7px;background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;">✗ Remove</button>
+      </div>
+    </div>`;
+}
+
+window._rmApprove = async (id) => {
+  const ok = await vettResource(id, true);
+  if (ok) { alert('Resource approved and now visible to students.'); window._loadResourceManager(); }
+  else alert('Failed to approve. Check Firebase permissions.');
+};
+
+window._rmRemove = async (id) => {
+  if (!confirm('Remove this resource? It will no longer appear in the student library.')) return;
+  const ok = await removeResource(id);
+  if (ok) { alert('Resource removed.'); window._loadResourceManager(); }
+  else alert('Failed to remove. Check Firebase permissions.');
+};
+
+function _rmInput(id, label, type, placeholder) {
+  return `<div>
+    <label for="${id}" style="font-size:12px;font-weight:700;color:var(--navy);display:block;margin-bottom:4px;">${label}</label>
+    <input id="${id}" type="${type}" placeholder="${placeholder}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'Lora',serif;box-sizing:border-box;outline:none;" />
+  </div>`;
+}
+
+function _rmTextarea(id, label, placeholder) {
+  return `<div>
+    <label for="${id}" style="font-size:12px;font-weight:700;color:var(--navy);display:block;margin-bottom:4px;">${label}</label>
+    <textarea id="${id}" rows="3" placeholder="${placeholder}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'Lora',serif;box-sizing:border-box;resize:vertical;outline:none;"></textarea>
+  </div>`;
+}
+
+function _rmSelect(id, label, options) {
+  return `<div>
+    <label for="${id}" style="font-size:12px;font-weight:700;color:var(--navy);display:block;margin-bottom:4px;">${label}</label>
+    <select id="${id}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'Lora',serif;background:white;box-sizing:border-box;outline:none;">
+      ${options.map(o => `<option value="${o}">${o}</option>`).join('')}
+    </select>
+  </div>`;
+}
+
+function _esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}

@@ -13,6 +13,7 @@ import { renderLecturerDashboard }    from './dashboards/lecturer.js';
 import { renderTutorDashboard }       from './dashboards/tutor.js';
 import { renderStudentDashboard }     from './dashboards/student.js';
 import { renderMicroModule }          from './components/micro-module.js';
+import { renderResourceLibrary }      from './components/resource-library.js';
 import { ER_TIERS }                   from '../content/readings.js';
 import { _aiChat }                     from './ai.js';
 
@@ -51,6 +52,7 @@ export function initApp(user) {
   }
 
   // Default: student view
+  window.appSignOut = signOut;
   renderStudentDashboard();
   window.renderStudentDashboard = renderStudentDashboard;
   window.goToMicroModule = renderMicroModule;
@@ -64,6 +66,7 @@ export function initApp(user) {
 
 export function switchToStudentView() {
   window._viewAsStudent = true;
+  window.appSignOut = signOut;
   renderStudentDashboard();
   window.renderStudentDashboard = renderStudentDashboard;
   window.goToMicroModule = renderMicroModule;
@@ -105,6 +108,10 @@ function renderDashboardShell(user, role) {
 
 // ── Shell ─────────────────────────────────────
 function renderShell() {
+  // Restore body overflow lock for the course shell layout
+  document.body.style.overflowY = 'hidden';
+  document.body.style.height    = '100vh';
+
   const user = STATE.user;
   const name = user.displayName?.split(' [')[0] ?? user.email;
   const role = user.displayName?.match(/\[(.*?)\]/)?.[1] ?? 'student';
@@ -129,6 +136,15 @@ function renderShell() {
         </div>
 
         <nav class="nav-list">
+          <div class="nav-item nav-item--dashboard" id="nav-dashboard" onclick="window.renderStudentDashboard()">
+            <div class="nav-num">🏠</div>
+            <div class="nav-info">
+              <div class="nav-badge">Home</div>
+              <div class="nav-lbl">My Dashboard</div>
+            </div>
+          </div>
+          <div class="nav-divider"></div>
+
           ${UNITS.map((u, i) => {
             const isAssessment = u.isAssessment === true;
             const visited  = STATE.progress[u.id]?.visited;
@@ -178,6 +194,14 @@ function renderShell() {
             <div class="nav-info">
               <div class="nav-badge">Bonus</div>
               <div class="nav-lbl">Extensive Reading</div>
+            </div>
+          </div>
+
+          <div class="nav-item" id="nav-resources" onclick="navigateTo('resources')">
+            <div class="nav-num">📚</div>
+            <div class="nav-info">
+              <div class="nav-badge">Library</div>
+              <div class="nav-lbl">Resource Library</div>
             </div>
           </div>
         </nav>
@@ -267,18 +291,29 @@ export function navigateTo(index) {
   const sidebar = document.querySelector('.sidebar');
   if (sidebar) sidebar.classList.remove('mobile-open');
 
-  const isER = index === 'er';
+  const isER        = index === 'er';
+  const isResources = index === 'resources';
 
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  (isER
-    ? document.getElementById('nav-er')
-    : document.getElementById(`nav-${index}`)
-  )?.classList.add('active');
+  if (isER)        document.getElementById('nav-er')?.classList.add('active');
+  else if (isResources) document.getElementById('nav-resources')?.classList.add('active');
+  else             document.getElementById(`nav-${index}`)?.classList.add('active');
 
   if (isER) {
     renderER();
     document.getElementById('tb-badge').textContent    = 'Bonus';
     document.getElementById('tb-title').textContent    = 'Extensive Reading';
+    document.getElementById('btn-prev').style.display  = 'none';
+    document.getElementById('btn-next').style.display  = 'none';
+    updateAITutorContext(null);
+    updateAIToolsContext(null);
+    return;
+  }
+
+  if (isResources) {
+    renderResourceLibrary();
+    document.getElementById('tb-badge').textContent    = 'Library';
+    document.getElementById('tb-title').textContent    = 'Resource Library';
     document.getElementById('btn-prev').style.display  = 'none';
     document.getElementById('btn-next').style.display  = 'none';
     updateAITutorContext(null);
