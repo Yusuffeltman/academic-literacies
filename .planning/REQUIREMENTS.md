@@ -82,39 +82,39 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PRIV-01 | — | Pending |
-| PRIV-02 | — | Pending |
-| PRIV-03 | — | Pending |
-| DATA-01 | — | Pending |
-| DATA-02 | — | Pending |
-| DATA-03 | — | Pending |
-| DATA-04 | — | Pending |
-| METR-01 | — | Pending |
-| METR-02 | — | Pending |
-| METR-03 | — | Pending |
-| METR-04 | — | Pending |
-| COP-01 | — | Pending |
-| COP-02 | — | Pending |
-| COP-03 | — | Pending |
-| COP-04 | — | Pending |
-| SDL-01 | — | Pending |
-| SDL-02 | — | Pending |
-| SDL-03 | — | Pending |
-| SDL-04 | — | Pending |
-| DASH-01 | — | Pending |
-| DASH-02 | — | Pending |
-| DASH-03 | — | Pending |
-| DASH-04 | — | Pending |
-| INTV-01 | — | Pending |
-| INTV-02 | — | Pending |
-| INTV-03 | — | Pending |
-| INTV-04 | — | Pending |
+| PRIV-01 | Phase 1 | Pending |
+| PRIV-02 | Phase 1 | Pending |
+| PRIV-03 | Phase 1 | Pending |
+| DATA-01 | Phase 2 | Pending |
+| DATA-02 | Phase 3 | Pending |
+| DATA-03 | Phase 3 | Pending |
+| DATA-04 | Phase 2 | Pending |
+| METR-01 | Phase 4 | Pending |
+| METR-02 | Phase 4 | Pending |
+| METR-03 | Phase 4 | Pending |
+| METR-04 | Phase 4 | Pending |
+| COP-01 | Phase 5 | Pending |
+| COP-02 | Phase 5 | Pending |
+| COP-03 | Phase 5 | Pending |
+| COP-04 | Phase 5 | Pending |
+| SDL-01 | Phase 6 | Pending |
+| SDL-02 | Phase 6 | Pending |
+| SDL-03 | Phase 6 | Pending |
+| SDL-04 | Phase 6 | Pending |
+| DASH-01 | Phase 7 | Pending |
+| DASH-02 | Phase 7 | Pending |
+| DASH-03 | Phase 7 | Pending |
+| DASH-04 | Phase 7 | Pending |
+| INTV-01 | Phase 8 | Pending |
+| INTV-02 | Phase 8 | Pending |
+| INTV-03 | Phase 8 | Pending |
+| INTV-04 | Phase 8 | Pending |
 
 **Coverage:**
 - v1 requirements: 27 total
-- Mapped to phases: 0
-- Unmapped: 27 ⚠️
+- Mapped to phases: 27
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-06*
-*Last updated: 2026-03-06 after initial definition*
+*Last updated: 2026-03-06 after roadmap creation*
