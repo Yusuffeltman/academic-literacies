@@ -32,12 +32,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A data retention and deletion specification defines lifecycle rules for every data category and documents student deletion rights
   3. An equity review framework document provides a repeatable bias-check process with criteria that can be applied to every metric before dashboard inclusion
   4. An access control matrix specifies exactly which data each audience (student, tutor, teaching team) can see
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md -- DPIA: processing description, lawful basis, risk assessment, safeguards, and data subject rights
+- [ ] 01-02-PLAN.md -- Data retention and deletion specification + access control matrix
+- [ ] 01-03-PLAN.md -- Equity review framework with SA-specific bias checklist + governance index
 
 ### Phase 2: xAPI Event Schema
 **Goal**: A complete, standards-based event vocabulary exists that defines exactly what data the application captures for every student interaction, providing the foundation all metrics are computed from.
@@ -164,7 +164,7 @@ Note: Phases 5 and 6 depend on Phase 4 but not on each other; they could theoret
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
-| 1. Privacy & Ethics Foundation | 0/3 | Not started | - |
+| 1. Privacy & Ethics Foundation | 0/3 | Planned | - |
 | 2. xAPI Event Schema | 0/3 | Not started | - |
 | 3. Offline Data Pipeline | 0/2 | Not started | - |
 | 4. Core Engagement Metrics | 0/3 | Not started | - |
