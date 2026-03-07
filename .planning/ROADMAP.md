@@ -48,7 +48,7 @@ Plans:
   2. Statement templates exist for every trackable event type with complete Actor-Verb-Object structure, context extensions, and example payloads
   3. A writing sample collection specification defines how writing artifacts are captured, stored, and made available for academic discourse analysis
   4. Every event type in the schema references the DPIA and documents its pedagogical purpose (why collecting this helps the student)
-**Plans**: 3 plans (2 waves)
+**Plans**: 3 plans (3 waves)
 
 Plans:
 - [ ] 02-01-PLAN.md -- xAPI Profile document (JSON-LD) with all concepts, vocabulary mapping, and event catalog with DPIA references
