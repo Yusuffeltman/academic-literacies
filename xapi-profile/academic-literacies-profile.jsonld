@@ -1,0 +1,370 @@
+{
+  "@context": "https://w3id.org/xapi/profiles/context",
+  "id": "https://w3id.org/xapi/aclit",
+  "type": "Profile",
+  "conformsTo": "https://w3id.org/xapi/profiles#1.0",
+  "prefLabel": {
+    "en": "Academic Literacies Learning Analytics Profile"
+  },
+  "definition": {
+    "en": "xAPI Profile for tracking student interactions in an academic literacies course. Defines activity types, extensions, statement templates, and patterns for reading, writing, quiz, discussion, navigation, help-seeking, and peer review events."
+  },
+  "author": {
+    "type": "Organization",
+    "name": "Academic Literacies Teaching Team"
+  },
+  "versions": [
+    {
+      "id": "https://w3id.org/xapi/aclit/v1",
+      "generatedAtTime": "2026-03-07T00:00:00Z"
+    }
+  ],
+  "concepts": [
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Learning Session"
+      },
+      "definition": {
+        "en": "A container for a single login-to-logout user session. Carries full context (course, module, device type, connection type) that child statements inherit via contextActivities.grouping."
+      }
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/reading-section",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Reading Section"
+      },
+      "definition": {
+        "en": "A page or section of reading content within a module. Represents a discrete unit of reading material that can be viewed and completed independently."
+      },
+      "broadMatch": [
+        "http://adlnet.gov/expapi/activities/lesson"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/writing-task",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Writing Task"
+      },
+      "definition": {
+        "en": "A writing assignment requiring student-authored text submission (paragraph, essay, reflection, report). Supports multiple draft iterations and carries discourse metadata extensions."
+      },
+      "broadMatch": [
+        "http://activitystrea.ms/schema/1.0/article"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/discussion-thread",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Discussion Thread"
+      },
+      "definition": {
+        "en": "A forum discussion thread containing posts and replies. Serves as the parent context for individual forum post and reply statements."
+      },
+      "broadMatch": [
+        "http://id.tincanapi.com/activitytype/forum-topic"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/peer-review",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Peer Review"
+      },
+      "definition": {
+        "en": "A peer review activity where one student reviews another student's writing. The reviewer is the actor; the reviewed writing task is referenced via contextActivities.parent."
+      }
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/help-request",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Help Request"
+      },
+      "definition": {
+        "en": "A request for academic help or support from a tutor or support service. Categorized by help-type context extension (tutor-question, support-center, peer-help, self-help-resource)."
+      }
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/help-resource",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Help Resource"
+      },
+      "definition": {
+        "en": "A help or support resource accessed by a student, such as an FAQ, tutorial, writing center guide, or academic support material."
+      },
+      "broadMatch": [
+        "http://adlnet.gov/expapi/activities/media"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/extension-request",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Extension Request"
+      },
+      "definition": {
+        "en": "A request for an assessment deadline extension. Tracked as a help-seeking behavior indicator that may signal time management challenges."
+      }
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/activity-types/self-report",
+      "type": "ActivityType",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Self-Report Instrument"
+      },
+      "definition": {
+        "en": "A self-report questionnaire measuring confidence, goal-setting, or strategy-use. Placeholder activity type; detailed schema deferred to Phase 3 instrument design."
+      },
+      "broadMatch": [
+        "http://adlnet.gov/expapi/activities/question"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/device-type",
+      "type": "ContextExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Device Type"
+      },
+      "definition": {
+        "en": "The type of device used for the learning session. Used for equity normalization: interaction patterns should be interpreted relative to device constraints."
+      },
+      "recommendedVerbs": [
+        "https://brindlewaye.com/xAPITerms/verbs/loggedin"
+      ],
+      "inlineSchema": "{\"type\":\"string\",\"enum\":[\"smartphone\",\"tablet\",\"desktop\",\"laptop\"]}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/connection-type",
+      "type": "ContextExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Connection Type"
+      },
+      "definition": {
+        "en": "The network connection type during the session. Used for equity normalization: students on mobile data or offline should not be penalized for shorter sessions."
+      },
+      "recommendedVerbs": [
+        "https://brindlewaye.com/xAPITerms/verbs/loggedin"
+      ],
+      "inlineSchema": "{\"type\":\"string\",\"enum\":[\"wifi\",\"mobile-data\",\"offline\",\"unknown\"]}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/help-type",
+      "type": "ContextExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Help Type"
+      },
+      "definition": {
+        "en": "The category of help-seeking interaction. Distinguishes strategic help-seeking (tutor-question, support-center) from self-directed resource use (self-help-resource) and peer collaboration (peer-help)."
+      },
+      "recommendedVerbs": [
+        "http://adlnet.gov/expapi/verbs/asked",
+        "http://id.tincanapi.com/verb/viewed"
+      ],
+      "inlineSchema": "{\"type\":\"string\",\"enum\":[\"tutor-question\",\"support-center\",\"peer-help\",\"self-help-resource\"]}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/word-count",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Word Count"
+      },
+      "definition": {
+        "en": "Number of words in submitted text. Computed at submission time for writing tasks and forum posts."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit",
+        "http://activitystrea.ms/schema/1.0/create",
+        "http://adlnet.gov/expapi/verbs/commented"
+      ],
+      "inlineSchema": "{\"type\":\"integer\",\"minimum\":0}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/paragraph-count",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Paragraph Count"
+      },
+      "definition": {
+        "en": "Number of paragraphs in submitted text. Used as a structural indicator of writing development."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"integer\",\"minimum\":0}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/citation-count",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Citation Count"
+      },
+      "definition": {
+        "en": "Number of citations or references in submitted text. Tracks academic referencing practice development over time."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"integer\",\"minimum\":0}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/draft-number",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Draft Number"
+      },
+      "definition": {
+        "en": "The draft iteration number (1 = first draft, 2 = second draft, etc.). Tracks revision behavior as an indicator of writing process engagement."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"integer\",\"minimum\":1}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/assignment-type",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Assignment Type"
+      },
+      "definition": {
+        "en": "The type of writing assignment. Different assignment types require different discourse competencies and are weighted differently in academic literacy metrics."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"string\",\"enum\":[\"paragraph\",\"essay\",\"reflection\",\"report\",\"summary\",\"annotated-bibliography\"]}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/time-spent",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Time Spent"
+      },
+      "definition": {
+        "en": "ISO 8601 duration representing time spent on the activity. Supplements the standard result.duration for activities where time-on-task is measured independently."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit",
+        "http://adlnet.gov/expapi/verbs/completed"
+      ],
+      "inlineSchema": "{\"type\":\"string\",\"pattern\":\"^P(?!$)(\\\\d+Y)?(\\\\d+M)?(\\\\d+D)?(T(?=\\\\d)(\\\\d+H)?(\\\\d+M)?(\\\\d+(\\\\.\\\\d+)?S)?)?$\"}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/artifact-url",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Artifact URL"
+      },
+      "definition": {
+        "en": "URL reference to an externally stored writing artifact. Used for text exceeding 1000 characters, which is stored outside the xAPI statement to keep statement size manageable."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"string\",\"format\":\"uri\"}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/artifact-content-type",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Artifact Content Type"
+      },
+      "definition": {
+        "en": "MIME type of the externally stored artifact (e.g., text/plain, text/html, application/pdf). Used with artifact-url to describe the external resource."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"string\"}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/prompt-topic",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Prompt Topic"
+      },
+      "definition": {
+        "en": "The writing prompt or topic the student is responding to. Enables grouping of writing submissions by prompt for cohort-level analysis."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"string\"}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/thread-depth",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Thread Depth"
+      },
+      "definition": {
+        "en": "The nesting depth of a forum reply (0 = top-level post, 1 = direct reply, 2+ = nested reply). Higher depth indicates more engaged discussion and is an indicator of CoP participation quality."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/create",
+        "http://adlnet.gov/expapi/verbs/commented"
+      ],
+      "inlineSchema": "{\"type\":\"integer\",\"minimum\":0}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/feedback-text",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Feedback Text"
+      },
+      "definition": {
+        "en": "The text of feedback provided in a peer review. Stored as a result extension to capture the substance of the review alongside the submission event."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"string\"}"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/extensions/reviewer-pseudonym",
+      "type": "ResultExtension",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": {
+        "en": "Reviewer Pseudonym"
+      },
+      "definition": {
+        "en": "The pseudonymous identifier of the peer reviewer, matching the actor account naming convention. Enables linking reviews to reviewers without exposing real identities."
+      },
+      "recommendedVerbs": [
+        "http://activitystrea.ms/schema/1.0/submit"
+      ],
+      "inlineSchema": "{\"type\":\"string\"}"
+    }
+  ],
+  "templates": [],
+  "patterns": []
+}
