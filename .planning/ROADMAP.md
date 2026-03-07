@@ -48,12 +48,12 @@ Plans:
   2. Statement templates exist for every trackable event type with complete Actor-Verb-Object structure, context extensions, and example payloads
   3. A writing sample collection specification defines how writing artifacts are captured, stored, and made available for academic discourse analysis
   4. Every event type in the schema references the DPIA and documents its pedagogical purpose (why collecting this helps the student)
-**Plans**: TBD
+**Plans**: 3 plans (2 waves)
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md -- xAPI Profile document (JSON-LD) with all concepts, vocabulary mapping, and event catalog with DPIA references
+- [ ] 02-02-PLAN.md -- Statement templates (22) with JSON Schema validation files and example payloads
+- [ ] 02-03-PLAN.md -- Writing sample collection specification and statement patterns
 
 ### Phase 3: Offline Data Pipeline
 **Goal**: A complete specification exists for collecting events on unreliable mobile connections and self-report data, so that no student data is lost due to connectivity and subjective learning experience is captured alongside behavioral data.
