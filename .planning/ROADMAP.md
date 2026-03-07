@@ -12,7 +12,7 @@ This roadmap delivers an implementation-ready specification for a learning analy
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Privacy & Ethics Foundation** - POPIA-compliant privacy framework and equity review process
+- [x] **Phase 1: Privacy & Ethics Foundation** - POPIA-compliant privacy framework and equity review process ✓ (2026-03-07)
 - [ ] **Phase 2: xAPI Event Schema** - Event data model for all trackable student interactions
 - [ ] **Phase 3: Offline Data Pipeline** - Offline-first data collection and sync specification
 - [ ] **Phase 4: Core Engagement Metrics** - Base metric definitions with formulas and thresholds
@@ -164,7 +164,7 @@ Note: Phases 5 and 6 depend on Phase 4 but not on each other; they could theoret
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
-| 1. Privacy & Ethics Foundation | 0/3 | Planned | - |
+| 1. Privacy & Ethics Foundation | 3/3 | ✓ Complete | 2026-03-07 |
 | 2. xAPI Event Schema | 0/3 | Not started | - |
 | 3. Offline Data Pipeline | 0/2 | Not started | - |
 | 4. Core Engagement Metrics | 0/3 | Not started | - |

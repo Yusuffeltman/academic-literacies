@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-03-06)
 
 **Core value:** Make student development toward academic community membership visible and measurable, so struggling students are identified early and supported through evidence-based, individually-tailored learning plans.
-**Current focus:** Phase 1 - Privacy & Ethics Foundation
+**Current focus:** Phase 2 - xAPI Event Schema
 
 ## Current Position
 
-Phase: 1 of 8 (Privacy & Ethics Foundation)
-Plan: 3 of 3 in current phase (all complete)
-Status: Phase complete
-Last activity: 2026-03-07 -- Completed 01-01-PLAN.md (DPIA)
+Phase: 2 of 8 (xAPI Event Schema)
+Plan: 0 of 3 in current phase
+Status: Ready to plan
+Last activity: 2026-03-07 -- Phase 1 verified and complete
 
 Progress: [███░░░░░░░] ~14%
 
