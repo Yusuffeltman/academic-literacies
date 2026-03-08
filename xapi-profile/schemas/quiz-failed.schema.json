@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w3id.org/xapi/aclit/v1/schemas/quiz-failed",
+  "title": "Quiz Failed",
+  "description": "Validates an xAPI statement generated when a student fails a quiz with a score below the passing threshold.",
+  "type": "object",
+  "required": ["actor", "verb", "object", "result", "context", "timestamp"],
+  "$defs": {
+    "account": {
+      "type": "object",
+      "required": ["homePage", "name"],
+      "properties": {
+        "homePage": { "type": "string", "format": "uri" },
+        "name": { "type": "string" }
+      }
+    },
+    "sessionGrouping": {
+      "type": "object",
+      "required": ["grouping", "category"],
+      "properties": {
+        "grouping": {
+          "type": "array",
+          "minItems": 1,
+          "contains": {
+            "type": "object",
+            "required": ["id", "definition"],
+            "properties": {
+              "id": { "type": "string", "format": "uri" },
+              "definition": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": { "const": "https://w3id.org/xapi/aclit/v1/activity-types/session" }
+                }
+              }
+            }
+          }
+        },
+        "category": {
+          "type": "array",
+          "minItems": 1,
+          "contains": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "const": "https://w3id.org/xapi/aclit/v1" }
+            }
+          }
+        }
+      }
+    },
+    "score": {
+      "type": "object",
+      "properties": {
+        "scaled": { "type": "number", "minimum": -1, "maximum": 1 },
+        "raw": { "type": "number" },
+        "min": { "type": "number" },
+        "max": { "type": "number" }
+      }
+    }
+  },
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "actor": {
+      "type": "object",
+      "required": ["objectType", "account"],
+      "properties": {
+        "objectType": { "const": "Agent" },
+        "account": { "$ref": "#/$defs/account" }
+      }
+    },
+    "verb": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "const": "http://adlnet.gov/expapi/verbs/failed" },
+        "display": { "type": "object" }
+      }
+    },
+    "object": {
+      "type": "object",
+      "required": ["objectType", "id", "definition"],
+      "properties": {
+        "objectType": { "const": "Activity" },
+        "id": { "type": "string", "format": "uri" },
+        "definition": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "const": "http://adlnet.gov/expapi/activities/assessment" }
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["score", "success"],
+      "properties": {
+        "score": { "$ref": "#/$defs/score" },
+        "success": { "const": false }
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": ["contextActivities"],
+      "properties": {
+        "contextActivities": { "$ref": "#/$defs/sessionGrouping" }
+      }
+    },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}
