@@ -1,0 +1,64 @@
+{
+  "id": "a7b8c9d0-e1f2-3456-0123-67890abcdef0",
+  "actor": {
+    "objectType": "Agent",
+    "account": {
+      "homePage": "https://lms.institution.ac.za",
+      "name": "stu-f7a3b2c1"
+    }
+  },
+  "verb": {
+    "id": "http://activitystrea.ms/schema/1.0/create",
+    "display": { "en": "created" }
+  },
+  "object": {
+    "objectType": "Activity",
+    "id": "https://lms.institution.ac.za/courses/aclit-2026/forums/module-03/posts/p-2026-03-08-001",
+    "definition": {
+      "type": "http://activitystrea.ms/schema/1.0/note",
+      "name": { "en": "Challenges with Academic Register in Lab Reports" }
+    }
+  },
+  "result": {
+    "response": "I find it difficult to maintain academic register when writing lab reports, especially in the discussion section. Does anyone else struggle with switching between describing what happened (past tense, passive voice) and interpreting the results (present tense, more active)? I keep mixing tenses and my tutor says it affects the flow of my writing.",
+    "extensions": {
+      "https://w3id.org/xapi/aclit/v1/extensions/thread-depth": 0,
+      "https://w3id.org/xapi/aclit/v1/extensions/word-count": 58
+    }
+  },
+  "context": {
+    "contextActivities": {
+      "parent": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/courses/aclit-2026/forums/module-03/threads/academic-register-discussion",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/discussion-thread",
+            "name": { "en": "Module 3 Discussion: Academic Register Challenges" }
+          }
+        }
+      ],
+      "grouping": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/sessions/2026-03-08T09-15-00Z/stu-f7a3b2c1",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+            "name": { "en": "Learning Session 2026-03-08T09:15:00Z" }
+          }
+        }
+      ],
+      "category": [
+        {
+          "objectType": "Activity",
+          "id": "https://w3id.org/xapi/aclit/v1",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/profile",
+            "name": { "en": "Academic Literacies Learning Analytics Profile" }
+          }
+        }
+      ]
+    }
+  },
+  "timestamp": "2026-03-08T10:20:00Z"
+}

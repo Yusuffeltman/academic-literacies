@@ -1,0 +1,61 @@
+{
+  "id": "f6a7b8c9-d0e1-2345-f012-567890abcdef",
+  "actor": {
+    "objectType": "Agent",
+    "account": {
+      "homePage": "https://lms.institution.ac.za",
+      "name": "stu-f7a3b2c1"
+    }
+  },
+  "verb": {
+    "id": "http://activitystrea.ms/schema/1.0/submit",
+    "display": { "en": "submitted" }
+  },
+  "object": {
+    "objectType": "Activity",
+    "id": "https://lms.institution.ac.za/courses/aclit-2026/modules/03/tasks/register-paragraph",
+    "definition": {
+      "type": "https://w3id.org/xapi/aclit/v1/activity-types/writing-task",
+      "name": { "en": "Academic Register Practice Paragraph" },
+      "description": { "en": "Write a paragraph using appropriate academic register on the topic of scientific writing." }
+    }
+  },
+  "result": {
+    "completion": true,
+    "response": "Academic register is a critical component of scholarly communication. Research demonstrates that the appropriate use of formal language conventions significantly enhances the credibility of scientific texts (Smith, 2024). Furthermore, discipline-specific terminology serves as a marker of community membership, signalling familiarity with established discourse practices (Jones & Patel, 2023). Students transitioning to higher education must therefore develop awareness of how register choices affect the reception of their written work. As Brown (2025) argues, explicit instruction in register awareness can accelerate this transition.",
+    "extensions": {
+      "https://w3id.org/xapi/aclit/v1/extensions/word-count": 187,
+      "https://w3id.org/xapi/aclit/v1/extensions/paragraph-count": 2,
+      "https://w3id.org/xapi/aclit/v1/extensions/citation-count": 3,
+      "https://w3id.org/xapi/aclit/v1/extensions/draft-number": 2,
+      "https://w3id.org/xapi/aclit/v1/extensions/assignment-type": "paragraph",
+      "https://w3id.org/xapi/aclit/v1/extensions/time-spent": "PT25M",
+      "https://w3id.org/xapi/aclit/v1/extensions/prompt-topic": "Academic Register in Scientific Writing"
+    }
+  },
+  "context": {
+    "contextActivities": {
+      "grouping": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/sessions/2026-03-08T09-15-00Z/stu-f7a3b2c1",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+            "name": { "en": "Learning Session 2026-03-08T09:15:00Z" }
+          }
+        }
+      ],
+      "category": [
+        {
+          "objectType": "Activity",
+          "id": "https://w3id.org/xapi/aclit/v1",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/profile",
+            "name": { "en": "Academic Literacies Learning Analytics Profile" }
+          }
+        }
+      ]
+    }
+  },
+  "timestamp": "2026-03-08T10:05:00Z"
+}

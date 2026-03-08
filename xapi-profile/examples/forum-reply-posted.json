@@ -1,0 +1,63 @@
+{
+  "id": "b8c9d0e1-f2a3-4567-1234-7890abcdef01",
+  "actor": {
+    "objectType": "Agent",
+    "account": {
+      "homePage": "https://lms.institution.ac.za",
+      "name": "stu-d4e5f6a7"
+    }
+  },
+  "verb": {
+    "id": "http://adlnet.gov/expapi/verbs/commented",
+    "display": { "en": "commented" }
+  },
+  "object": {
+    "objectType": "Activity",
+    "id": "https://lms.institution.ac.za/courses/aclit-2026/forums/module-03/posts/p-2026-03-08-001/replies/r-001",
+    "definition": {
+      "type": "http://activitystrea.ms/schema/1.0/comment",
+      "name": { "en": "Reply to: Challenges with Academic Register in Lab Reports" }
+    }
+  },
+  "result": {
+    "response": "I had the same problem! What helped me was making a small table of which tense to use in each section of the lab report. The methods section uses past tense passive ('the solution was heated'), while the discussion uses present tense for established knowledge ('these results suggest that...'). Maybe we could share our tables?",
+    "extensions": {
+      "https://w3id.org/xapi/aclit/v1/extensions/thread-depth": 1
+    }
+  },
+  "context": {
+    "contextActivities": {
+      "parent": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/courses/aclit-2026/forums/module-03/posts/p-2026-03-08-001",
+          "definition": {
+            "type": "http://activitystrea.ms/schema/1.0/note",
+            "name": { "en": "Challenges with Academic Register in Lab Reports" }
+          }
+        }
+      ],
+      "grouping": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/sessions/2026-03-08T10-00-00Z/stu-d4e5f6a7",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+            "name": { "en": "Learning Session 2026-03-08T10:00:00Z" }
+          }
+        }
+      ],
+      "category": [
+        {
+          "objectType": "Activity",
+          "id": "https://w3id.org/xapi/aclit/v1",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/profile",
+            "name": { "en": "Academic Literacies Learning Analytics Profile" }
+          }
+        }
+      ]
+    }
+  },
+  "timestamp": "2026-03-08T10:35:00Z"
+}

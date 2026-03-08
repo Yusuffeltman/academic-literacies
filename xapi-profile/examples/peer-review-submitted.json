@@ -1,0 +1,64 @@
+{
+  "id": "c9d0e1f2-a3b4-5678-2345-890abcdef012",
+  "actor": {
+    "objectType": "Agent",
+    "account": {
+      "homePage": "https://lms.institution.ac.za",
+      "name": "stu-d4e5f6a7"
+    }
+  },
+  "verb": {
+    "id": "http://activitystrea.ms/schema/1.0/submit",
+    "display": { "en": "submitted" }
+  },
+  "object": {
+    "objectType": "Activity",
+    "id": "https://lms.institution.ac.za/courses/aclit-2026/modules/03/reviews/review-2026-03-08-001",
+    "definition": {
+      "type": "https://w3id.org/xapi/aclit/v1/activity-types/peer-review",
+      "name": { "en": "Peer Review of Register Paragraph" },
+      "description": { "en": "Peer review of a classmate's academic register practice paragraph." }
+    }
+  },
+  "result": {
+    "completion": true,
+    "extensions": {
+      "https://w3id.org/xapi/aclit/v1/extensions/feedback-text": "Your paragraph demonstrates a strong understanding of academic register. The use of hedging language ('Research demonstrates', 'can accelerate') is appropriate. However, I noticed that the second sentence is quite long and could be split for clarity. Also, consider varying your citation integration -- you use 'As X argues' twice, which becomes repetitive. Overall, good use of formal vocabulary and discipline-specific terminology."
+    }
+  },
+  "context": {
+    "contextActivities": {
+      "parent": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/courses/aclit-2026/modules/03/tasks/register-paragraph",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/writing-task",
+            "name": { "en": "Academic Register Practice Paragraph" }
+          }
+        }
+      ],
+      "grouping": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/sessions/2026-03-08T10-00-00Z/stu-d4e5f6a7",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+            "name": { "en": "Learning Session 2026-03-08T10:00:00Z" }
+          }
+        }
+      ],
+      "category": [
+        {
+          "objectType": "Activity",
+          "id": "https://w3id.org/xapi/aclit/v1",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/profile",
+            "name": { "en": "Academic Literacies Learning Analytics Profile" }
+          }
+        }
+      ]
+    }
+  },
+  "timestamp": "2026-03-08T11:00:00Z"
+}

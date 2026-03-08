@@ -1,0 +1,51 @@
+{
+  "id": "c3d4e5f6-a7b8-9012-cdef-234567890abc",
+  "actor": {
+    "objectType": "Agent",
+    "account": {
+      "homePage": "https://lms.institution.ac.za",
+      "name": "stu-f7a3b2c1"
+    }
+  },
+  "verb": {
+    "id": "http://id.tincanapi.com/verb/viewed",
+    "display": { "en": "viewed" }
+  },
+  "object": {
+    "objectType": "Activity",
+    "id": "https://lms.institution.ac.za/courses/aclit-2026/modules/03/readings/academic-register-intro",
+    "definition": {
+      "type": "https://w3id.org/xapi/aclit/v1/activity-types/reading-section",
+      "name": { "en": "Introduction to Academic Register" },
+      "description": { "en": "Reading section introducing the concept of academic register and its role in scholarly communication." }
+    }
+  },
+  "result": {
+    "duration": "PT4M30S"
+  },
+  "context": {
+    "contextActivities": {
+      "grouping": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/sessions/2026-03-08T09-15-00Z/stu-f7a3b2c1",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+            "name": { "en": "Learning Session 2026-03-08T09:15:00Z" }
+          }
+        }
+      ],
+      "category": [
+        {
+          "objectType": "Activity",
+          "id": "https://w3id.org/xapi/aclit/v1",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/profile",
+            "name": { "en": "Academic Literacies Learning Analytics Profile" }
+          }
+        }
+      ]
+    }
+  },
+  "timestamp": "2026-03-08T09:20:00Z"
+}

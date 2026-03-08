@@ -1,0 +1,70 @@
+{
+  "id": "e5f6a7b8-c9d0-1234-ef01-4567890abcde",
+  "actor": {
+    "objectType": "Agent",
+    "account": {
+      "homePage": "https://lms.institution.ac.za",
+      "name": "stu-f7a3b2c1"
+    }
+  },
+  "verb": {
+    "id": "http://adlnet.gov/expapi/verbs/answered",
+    "display": { "en": "answered" }
+  },
+  "object": {
+    "objectType": "Activity",
+    "id": "https://lms.institution.ac.za/courses/aclit-2026/modules/03/quizzes/register-check/q3",
+    "definition": {
+      "type": "http://adlnet.gov/expapi/activities/cmi.interaction",
+      "name": { "en": "Question 3: Identify the Academic Register" },
+      "description": { "en": "Which of the following sentences uses an appropriate academic register?" },
+      "interactionType": "choice",
+      "correctResponsesPattern": ["b"],
+      "choices": [
+        { "id": "a", "description": { "en": "The results were really cool and showed lots of stuff." } },
+        { "id": "b", "description": { "en": "The findings indicate a significant correlation between the variables." } },
+        { "id": "c", "description": { "en": "I think the experiment went well because we got good numbers." } },
+        { "id": "d", "description": { "en": "The data basically proves that our hypothesis is right." } }
+      ]
+    }
+  },
+  "result": {
+    "response": "b",
+    "success": true
+  },
+  "context": {
+    "contextActivities": {
+      "parent": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/courses/aclit-2026/modules/03/quizzes/register-check",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/assessment",
+            "name": { "en": "Academic Register Comprehension Check" }
+          }
+        }
+      ],
+      "grouping": [
+        {
+          "objectType": "Activity",
+          "id": "https://lms.institution.ac.za/sessions/2026-03-08T09-15-00Z/stu-f7a3b2c1",
+          "definition": {
+            "type": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+            "name": { "en": "Learning Session 2026-03-08T09:15:00Z" }
+          }
+        }
+      ],
+      "category": [
+        {
+          "objectType": "Activity",
+          "id": "https://w3id.org/xapi/aclit/v1",
+          "definition": {
+            "type": "http://adlnet.gov/expapi/activities/profile",
+            "name": { "en": "Academic Literacies Learning Analytics Profile" }
+          }
+        }
+      ]
+    }
+  },
+  "timestamp": "2026-03-08T09:30:15Z"
+}
