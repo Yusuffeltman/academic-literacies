@@ -365,6 +365,776 @@
       "inlineSchema": "{\"type\":\"string\"}"
     }
   ],
-  "templates": [],
-  "patterns": []
+  "templates": [
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/session-opened",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Session Opened" },
+      "definition": { "en": "Generated when a student logs into the learning platform, starting a new learning session." },
+      "verb": "https://brindlewaye.com/xAPITerms/verbs/loggedin",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+      "contextGroupingActivityType": [
+        "http://adlnet.gov/expapi/activities/course",
+        "http://adlnet.gov/expapi/activities/module"
+      ],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.extensions['https://w3id.org/xapi/aclit/v1/extensions/device-type']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.extensions['https://w3id.org/xapi/aclit/v1/extensions/connection-type']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.registration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/session-closed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Session Closed" },
+      "definition": { "en": "Generated when a student logs out or a session times out, ending the learning session." },
+      "verb": "https://brindlewaye.com/xAPITerms/verbs/loggedout",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/session",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.duration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/page-viewed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Page Viewed" },
+      "definition": { "en": "Generated when a student views a page or resource within the learning platform." },
+      "verb": "http://id.tincanapi.com/verb/viewed",
+      "objectActivityType": "http://activitystrea.ms/schema/1.0/page",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/module-navigated",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Module Navigated" },
+      "definition": { "en": "Generated when a student navigates to a module within the course." },
+      "verb": "http://adlnet.gov/expapi/verbs/experienced",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/module",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/reading-section-viewed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Reading Section Viewed" },
+      "definition": { "en": "Generated when a student views a section of reading content within a module." },
+      "verb": "http://id.tincanapi.com/verb/viewed",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/reading-section",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.duration",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/reading-section-completed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Reading Section Completed" },
+      "definition": { "en": "Generated when a student completes reading a section of content." },
+      "verb": "http://adlnet.gov/expapi/verbs/completed",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/reading-section",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.completion",
+          "presence": "included",
+          "all": [true]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/quiz-attempted",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Attempted" },
+      "definition": { "en": "Generated when a student starts a quiz attempt." },
+      "verb": "http://adlnet.gov/expapi/verbs/attempted",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/assessment",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.score",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/quiz-completed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Completed" },
+      "definition": { "en": "Generated when a student completes a quiz, regardless of pass/fail outcome." },
+      "verb": "http://adlnet.gov/expapi/verbs/completed",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/assessment",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.score",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.completion",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.duration",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/quiz-passed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Passed" },
+      "definition": { "en": "Generated when a student passes a quiz with a score at or above the passing threshold." },
+      "verb": "http://adlnet.gov/expapi/verbs/passed",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/assessment",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.score",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.success",
+          "presence": "included",
+          "all": [true]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/quiz-failed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Failed" },
+      "definition": { "en": "Generated when a student fails a quiz with a score below the passing threshold." },
+      "verb": "http://adlnet.gov/expapi/verbs/failed",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/assessment",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.score",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.success",
+          "presence": "included",
+          "all": [false]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/question-answered",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Question Answered" },
+      "definition": { "en": "Generated when a student answers an individual quiz question." },
+      "verb": "http://adlnet.gov/expapi/verbs/answered",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/cmi.interaction",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.response",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.success",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.parent[*].definition.type",
+          "presence": "included",
+          "all": ["http://adlnet.gov/expapi/activities/assessment"]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/writing-submitted",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Writing Submitted" },
+      "definition": { "en": "Generated when a student submits a writing task (paragraph, essay, reflection, report)." },
+      "verb": "http://activitystrea.ms/schema/1.0/submit",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/writing-task",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/word-count']",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/draft-number']",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/assignment-type']",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.completion",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/paragraph-count']",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/citation-count']",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/time-spent']",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/prompt-topic']",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/forum-post-created",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Forum Post Created" },
+      "definition": { "en": "Generated when a student creates a new top-level forum post in a discussion thread." },
+      "verb": "http://activitystrea.ms/schema/1.0/create",
+      "objectActivityType": "http://activitystrea.ms/schema/1.0/note",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.response",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/word-count']",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/thread-depth']",
+          "presence": "included",
+          "all": [0]
+        },
+        {
+          "location": "$.context.contextActivities.parent[*].definition.type",
+          "presence": "included",
+          "all": ["https://w3id.org/xapi/aclit/v1/activity-types/discussion-thread"]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/forum-reply-posted",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Forum Reply Posted" },
+      "definition": { "en": "Generated when a student replies to an existing forum post." },
+      "verb": "http://adlnet.gov/expapi/verbs/commented",
+      "objectActivityType": "http://activitystrea.ms/schema/1.0/comment",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.response",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/thread-depth']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.parent[*].definition.type",
+          "presence": "included",
+          "all": ["http://activitystrea.ms/schema/1.0/note"]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/thread-viewed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Thread Viewed" },
+      "definition": { "en": "Generated when a student views a discussion thread." },
+      "verb": "http://id.tincanapi.com/verb/viewed",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/discussion-thread",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/peer-review-submitted",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Peer Review Submitted" },
+      "definition": { "en": "Generated when a student submits a peer review of another student's writing." },
+      "verb": "http://activitystrea.ms/schema/1.0/submit",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/peer-review",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/aclit/v1/extensions/feedback-text']",
+          "presence": "included"
+        },
+        {
+          "location": "$.result.completion",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.parent[*].definition.type",
+          "presence": "included",
+          "all": ["https://w3id.org/xapi/aclit/v1/activity-types/writing-task"]
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/help-requested",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Help Requested" },
+      "definition": { "en": "Generated when a student requests academic help or support." },
+      "verb": "http://adlnet.gov/expapi/verbs/asked",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/help-request",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.extensions['https://w3id.org/xapi/aclit/v1/extensions/help-type']",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/help-resource-accessed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Help Resource Accessed" },
+      "definition": { "en": "Generated when a student accesses a help or support resource." },
+      "verb": "http://id.tincanapi.com/verb/viewed",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/help-resource",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/extension-requested",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Extension Requested" },
+      "definition": { "en": "Generated when a student requests a deadline extension for an assessment." },
+      "verb": "http://adlnet.gov/expapi/verbs/asked",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/extension-request",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/module-completed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Module Completed" },
+      "definition": { "en": "Generated when a student completes all required activities within a module." },
+      "verb": "http://adlnet.gov/expapi/verbs/completed",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/module",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.completion",
+          "presence": "included",
+          "all": [true]
+        },
+        {
+          "location": "$.result.score",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/course-progressed",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Course Progressed" },
+      "definition": { "en": "Generated when a student's overall course progress is updated." },
+      "verb": "http://adlnet.gov/expapi/verbs/progressed",
+      "objectActivityType": "http://adlnet.gov/expapi/activities/course",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.extensions['https://w3id.org/xapi/cmi5/result/extensions/progress']",
+          "presence": "recommended"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/templates/self-report-submitted",
+      "type": "StatementTemplate",
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Self-Report Submitted" },
+      "definition": { "en": "Generated when a student submits a self-report questionnaire. Placeholder template; detailed schema deferred to Phase 3." },
+      "verb": "http://activitystrea.ms/schema/1.0/submit",
+      "objectActivityType": "https://w3id.org/xapi/aclit/v1/activity-types/self-report",
+      "contextGroupingActivityType": ["https://w3id.org/xapi/aclit/v1/activity-types/session"],
+      "contextCategoryActivityType": ["https://w3id.org/xapi/aclit/v1"],
+      "rules": [
+        {
+          "location": "$.result.completion",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.grouping[*]",
+          "presence": "included"
+        },
+        {
+          "location": "$.context.contextActivities.category[*]",
+          "presence": "included"
+        }
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/session-lifecycle",
+      "type": "Pattern",
+      "primary": true,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Session Lifecycle" },
+      "definition": { "en": "A complete learning session from login to logout, containing zero or more learning activities." },
+      "sequence": [
+        "https://w3id.org/xapi/aclit/v1/templates/session-opened",
+        "https://w3id.org/xapi/aclit/v1/patterns/session-activities",
+        "https://w3id.org/xapi/aclit/v1/patterns/session-close-optional"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/session-activities",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Session Activities (Zero or More)" },
+      "definition": { "en": "Zero or more learning activities occurring within a session." },
+      "zeroOrMore": "https://w3id.org/xapi/aclit/v1/patterns/session-activity"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/session-close-optional",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Session Close (Optional)" },
+      "definition": { "en": "An optional session close event. Sessions may end without explicit logout due to timeout or connectivity loss." },
+      "optional": "https://w3id.org/xapi/aclit/v1/templates/session-closed"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/session-activity",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Session Activity" },
+      "definition": { "en": "Any learning activity that occurs within a session." },
+      "alternates": [
+        "https://w3id.org/xapi/aclit/v1/templates/page-viewed",
+        "https://w3id.org/xapi/aclit/v1/templates/module-navigated",
+        "https://w3id.org/xapi/aclit/v1/patterns/reading-activity",
+        "https://w3id.org/xapi/aclit/v1/patterns/quiz-activity",
+        "https://w3id.org/xapi/aclit/v1/templates/writing-submitted",
+        "https://w3id.org/xapi/aclit/v1/patterns/discussion-activity",
+        "https://w3id.org/xapi/aclit/v1/templates/peer-review-submitted",
+        "https://w3id.org/xapi/aclit/v1/patterns/help-seeking-activity",
+        "https://w3id.org/xapi/aclit/v1/templates/module-completed",
+        "https://w3id.org/xapi/aclit/v1/templates/course-progressed",
+        "https://w3id.org/xapi/aclit/v1/templates/self-report-submitted"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/reading-activity",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Reading Activity" },
+      "definition": { "en": "A reading interaction: view a section, optionally complete it." },
+      "sequence": [
+        "https://w3id.org/xapi/aclit/v1/templates/reading-section-viewed",
+        "https://w3id.org/xapi/aclit/v1/patterns/reading-completion-optional"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/reading-completion-optional",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Reading Completion (Optional)" },
+      "definition": { "en": "An optional reading section completion event." },
+      "optional": "https://w3id.org/xapi/aclit/v1/templates/reading-section-completed"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/quiz-activity",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Activity" },
+      "definition": { "en": "A quiz attempt workflow: attempt, answer questions, then complete with pass/fail outcome." },
+      "sequence": [
+        "https://w3id.org/xapi/aclit/v1/templates/quiz-attempted",
+        "https://w3id.org/xapi/aclit/v1/patterns/quiz-questions",
+        "https://w3id.org/xapi/aclit/v1/patterns/quiz-outcome"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/quiz-questions",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Questions (One or More)" },
+      "definition": { "en": "One or more question-answered events within a quiz attempt." },
+      "oneOrMore": "https://w3id.org/xapi/aclit/v1/templates/question-answered"
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/quiz-outcome",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Quiz Outcome" },
+      "definition": { "en": "The outcome of a quiz attempt: completed, passed, or failed." },
+      "alternates": [
+        "https://w3id.org/xapi/aclit/v1/templates/quiz-completed",
+        "https://w3id.org/xapi/aclit/v1/templates/quiz-passed",
+        "https://w3id.org/xapi/aclit/v1/templates/quiz-failed"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/discussion-activity",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Discussion Activity" },
+      "definition": { "en": "A discussion forum interaction: view thread, create post, or reply." },
+      "alternates": [
+        "https://w3id.org/xapi/aclit/v1/templates/thread-viewed",
+        "https://w3id.org/xapi/aclit/v1/templates/forum-post-created",
+        "https://w3id.org/xapi/aclit/v1/templates/forum-reply-posted"
+      ]
+    },
+    {
+      "id": "https://w3id.org/xapi/aclit/v1/patterns/help-seeking-activity",
+      "type": "Pattern",
+      "primary": false,
+      "inScheme": "https://w3id.org/xapi/aclit/v1",
+      "prefLabel": { "en": "Help-Seeking Activity" },
+      "definition": { "en": "A help-seeking interaction: request help, access a help resource, or request an extension." },
+      "alternates": [
+        "https://w3id.org/xapi/aclit/v1/templates/help-requested",
+        "https://w3id.org/xapi/aclit/v1/templates/help-resource-accessed",
+        "https://w3id.org/xapi/aclit/v1/templates/extension-requested"
+      ]
+    }
+  ]
 }
