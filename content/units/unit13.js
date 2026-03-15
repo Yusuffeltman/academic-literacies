@@ -1,7 +1,7 @@
 // content/units/unit13.js — Academic Voice, Hedging & Register
 // Phase 3 | Academic Entry Level 4
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 export const VIDEO_KEY_13 = 'unit13';
 
@@ -63,21 +63,62 @@ export const unit13 = {
     <div id="ivp-unit13" data-video-key="unit13" class="ivp-container"></div>
 
     ${quiz('q13a',
-      'Which sentence demonstrates the most appropriate academic hedging?',
-      ['This proves that bilingual education improves all learner outcomes.', 'I think maybe bilingual education might possibly help some learners sometimes.', 'The available evidence suggests that bilingual instruction is associated with improved literacy outcomes in the Foundation Phase, though contextual factors significantly mediate this relationship.', 'Bilingual education is good and everyone agrees.'],
-      2,
-      '✅ Option C hedges appropriately: "suggests" (not "proves"), "associated with" (not "causes"), and "contextual factors significantly mediate this relationship" acknowledges the complexity of the evidence. Option A overclaims. Option B under-hedges to the point of meaninglessness. Option D makes a false universal claim.'
-    )}
+    'Which sentence demonstrates the most appropriate academic hedging?',
+    ['This proves that bilingual education improves all learner outcomes.', 'I think maybe bilingual education might possibly help some learners sometimes.', 'The available evidence suggests that bilingual instruction is associated with improved literacy outcomes in the Foundation Phase, though contextual factors significantly mediate this relationship.', 'Bilingual education is good and everyone agrees.'],
+    2,
+    '✅ Option C hedges appropriately: "suggests" (not "proves"), "associated with" (not "causes"), and "contextual factors significantly mediate this relationship" acknowledges the complexity of the evidence. Option A overclaims. Option B under-hedges to the point of meaninglessness. Option D makes a false universal claim.'
+  )}
 
     ${quiz('q13b',
-      'A student writes: "Obviously, teachers in rural schools struggle more than urban teachers." What is the academic writing problem with this sentence?',
-      ['It uses the word "struggle" which is too emotional', '"Obviously" asserts that something is self-evident without providing evidence — in academic writing, nothing is obvious; all claims require evidence and attribution, even claims that seem commonsensical', 'It should compare rural and urban in more detail', 'It is too short'],
-      1,
-      '✅ "Obviously," "clearly," "of course," and "everyone knows" are red flags in academic writing. They assert certainty without providing it. If something is genuinely well-supported by evidence, the evidence is more persuasive than the assertion that the claim is obvious. Replace "obviously" with a citation.'
-    )}
+    'A student writes: "Obviously, teachers in rural schools struggle more than urban teachers." What is the academic writing problem with this sentence?',
+    ['It uses the word "struggle" which is too emotional', '"Obviously" asserts that something is self-evident without providing evidence — in academic writing, nothing is obvious; all claims require evidence and attribution, even claims that seem commonsensical', 'It should compare rural and urban in more detail', 'It is too short'],
+    1,
+    '✅ "Obviously," "clearly," "of course," and "everyone knows" are red flags in academic writing. They assert certainty without providing it. If something is genuinely well-supported by evidence, the evidence is more persuasive than the assertion that the claim is obvious. Replace "obviously" with a citation.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u13', {
+    title: 'Unit 13 Challenge Tracks',
+    intro: 'Strengthen academic voice by calibrating claim strength and register deliberately.',
+    supportedTasks: [
+      'Revise one paragraph to remove informal phrasing and unsupported certainty.',
+      'Apply at least three hedging phrases appropriately.',
+    ],
+    coreTasks: [
+      'Revise two paragraphs for register, attribution precision, and stance markers.',
+      'Replace vague claims with source-anchored statements.',
+    ],
+    advancedTasks: [
+      'Produce a mini style audit of your draft with rationale for each revision.',
+      'Balance confident argument with precise hedging across a full section.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u13', RT_U13)}
+
+    ${essayMilestone('u13', {
+    title: 'Essay Milestone (Unit 13)',
+    target: 'Refine your draft into consistent academic register with evidence-calibrated certainty.',
+    checklist: [
+      'Revise at least one full paragraph for hedging precision.',
+      'Check all major claims are attributed to credible sources.',
+      'Replace weak stance words with analytically precise alternatives.',
+    ],
+  })}
+
+    ${heutagogyCycle('u13-contract', {
+    title: 'Unit 13 Learning Contract',
+    prompt: 'Calibrate your academic voice across your draft for precision and honesty.',
+    context: 'Unit 13: academic voice, hedging, register, attribution, stance markers',
+    pathwayOptions: ['Supported: Revise one paragraph for hedging', 'Core: Audit draft for register and attribution', 'Advanced: Balance confident argument with precise hedging'],
+    evidenceHint: 'Show a "before and after" sentence demonstrating your use of hedging language.',
+  })}
+
+    ${portfolioEvidence('u13-pe', {
+    title: 'Academic Voice Revision Artifact',
+    target: 'Link to a draft excerpt showing deliberate hedging and register revisions.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

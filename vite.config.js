@@ -5,11 +5,15 @@ export default defineConfig({
   base: '',
   build: {
     outDir: 'dist',
+    assetsInlineLimit: 100000000, // Inline almost all assets
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          firebase: ['firebase/app', 'firebase/auth', 'firebase/database'],
-        }
+        // Force a single JS and CSS file
+        manualChunks: undefined,
+        entryFileNames: `assets/[name].js`,
+        chunkFileNames: `assets/[name].js`,
+        assetFileNames: `assets/[name].[ext]`,
       }
     }
   }

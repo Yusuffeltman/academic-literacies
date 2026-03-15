@@ -1,9 +1,9 @@
 // content/units/unit14.js — Reading & Creating Visual Arguments
 // Phase 3 | Academic Entry Level 5
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_U14 = {
   id: 'rt-u14', unitId: 'u14', unitNum: 14,
@@ -38,11 +38,11 @@ const RT_U14 = {
       <div class="rt-infographic-title">Four Moves for Reading Any Data Visual</div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
         ${[
-          ['🔍', 'What is being measured?', '#6366f1', 'Ask: How is the key variable defined? Is "student achievement" one test, a composite score, a teacher rating? An undefined measure has no clear meaning.'],
-          ['📏', 'What is the scale and baseline?', '#f59e0b', 'Ask: Where does the y-axis start? Does the scale distort magnitude? A chart starting at 90% makes a 2% change look catastrophic.'],
-          ['📋', 'What is the data source?', '#10b981', 'Ask: Who collected this data, when, and for what purpose? Official government data and advocacy organisation data may tell very different stories.'],
-          ['🖼️', 'What is outside the frame?', '#ef4444', 'Ask: What context is missing? What would change the interpretation if you knew it? A trend line without its starting conditions is incomplete.'],
-        ].map(([icon, title, colour, desc]) => `
+      ['🔍', 'What is being measured?', '#6366f1', 'Ask: How is the key variable defined? Is "student achievement" one test, a composite score, a teacher rating? An undefined measure has no clear meaning.'],
+      ['📏', 'What is the scale and baseline?', '#f59e0b', 'Ask: Where does the y-axis start? Does the scale distort magnitude? A chart starting at 90% makes a 2% change look catastrophic.'],
+      ['📋', 'What is the data source?', '#10b981', 'Ask: Who collected this data, when, and for what purpose? Official government data and advocacy organisation data may tell very different stories.'],
+      ['🖼️', 'What is outside the frame?', '#ef4444', 'Ask: What context is missing? What would change the interpretation if you knew it? A trend line without its starting conditions is incomplete.'],
+    ].map(([icon, title, colour, desc]) => `
           <div style="border:1px solid ${colour}40; border-radius:12px; padding:18px; background:#fff;">
             <div style="font-size:24px; margin-bottom:8px;">${icon}</div>
             <div style="font-weight:700; font-size:14px; color:${colour}; margin-bottom:8px;">${title}</div>
@@ -114,34 +114,88 @@ export const unit14 = {
     <div id="ivp-unit14" data-video-key="unit14" class="ivp-container"></div>
 
     ${quiz('q14a',
-      'A graph about school dropout rates shows a sharp upward spike from 2019 to 2020. The y-axis starts at 85%, not 0%. What is the most important analytical question to ask?',
-      [
-        'Which school did this data come from?',
-        'The y-axis starting at 85% makes a small percentage-point change look massive — you need to see the actual scale of the increase before drawing any conclusions about its significance',
-        'Whether the graph uses the correct colours',
-        'Whether dropout rates in 2020 were higher than in 2015',
-      ],
-      1,
-      '✅ A truncated y-axis is one of the most common forms of visual misleading in data journalism and policy documents. Starting at 85% instead of 0% can make a 2-percentage-point change look like a tripling. Always check where the y-axis starts before reading the magnitude of any trend.'
-    )}
+    'A graph about school dropout rates shows a sharp upward spike from 2019 to 2020. The y-axis starts at 85%, not 0%. What is the most important analytical question to ask?',
+    [
+      'Which school did this data come from?',
+      'The y-axis starting at 85% makes a small percentage-point change look massive — you need to see the actual scale of the increase before drawing any conclusions about its significance',
+      'Whether the graph uses the correct colours',
+      'Whether dropout rates in 2020 were higher than in 2015',
+    ],
+    1,
+    '✅ A truncated y-axis is one of the most common forms of visual misleading in data journalism and policy documents. Starting at 85% instead of 0% can make a 2-percentage-point change look like a tripling. Always check where the y-axis starts before reading the magnitude of any trend.'
+  )}
 
     ${quiz('q14b',
-      'An NGO publishes a bar chart showing that schools in their programme improved learner test scores by 15%. What question about the SOURCE of this data is most analytically important?',
-      [
-        'What font they used in the chart',
-        'Whether the NGO measured their own programme\'s outcomes — and if so, what test was used, whether there was a control group of non-programme schools, and whether the NGO had a financial interest in showing improvement',
-        'How many colours are in the chart',
-        'Whether the chart was published in a journal',
-      ],
-      1,
-      '✅ When an organisation measures the impact of its own programme, there is an inherent risk of confirmation bias — consciously or not, they may design measurement tools, select comparison points, or present data in ways that favour positive results. This does not make the data wrong, but it means you should look for independent replication before treating the finding as robust.'
-    )}
+    'An NGO publishes a bar chart showing that schools in their programme improved learner test scores by 15%. What question about the SOURCE of this data is most analytically important?',
+    [
+      'What font they used in the chart',
+      'Whether the NGO measured their own programme\'s outcomes — and if so, what test was used, whether there was a control group of non-programme schools, and whether the NGO had a financial interest in showing improvement',
+      'How many colours are in the chart',
+      'Whether the chart was published in a journal',
+    ],
+    1,
+    '✅ When an organisation measures the impact of its own programme, there is an inherent risk of confirmation bias — consciously or not, they may design measurement tools, select comparison points, or present data in ways that favour positive results. This does not make the data wrong, but it means you should look for independent replication before treating the finding as robust.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u14', {
+    title: 'Unit 14 Challenge Tracks',
+    intro: 'Develop visual literacy from chart reading to design critique and argument framing.',
+    supportedTasks: [
+      'Apply the four visual-analysis questions to one chart.',
+      'Identify one framing choice that influences interpretation.',
+    ],
+    coreTasks: [
+      'Compare two visuals on similar topics and evaluate rhetorical differences.',
+      'Write a short critique of scale and source transparency.',
+    ],
+    advancedTasks: [
+      'Redesign one misleading visual description into an honest equivalent.',
+      'Justify each design decision in terms of argument integrity.',
+    ],
+  })}
 
     <h2>Visual Literacy Task</h2>
     ${visualTask(VT_U14)}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u14', RT_U14)}
+
+    ${essayMilestone('u14', {
+    title: 'Essay Milestone (Unit 14)',
+    target: 'Integrate visual evidence analysis into your written argument without distortion.',
+    checklist: [
+      'Include one visual-evidence sentence with explicit source and scale interpretation.',
+      'Add one sentence stating what the visual does not show.',
+      'Link visual interpretation directly back to your thesis claim.',
+    ],
+  })}
+
+    ${heutagogyCycle('u14-contract', {
+    title: 'Unit 14 Learning Contract',
+    prompt: 'Develop visual literacy by critiquing and framing data arguments.',
+    context: 'Unit 14: visual arguments, data visualisation, visual rhetoric, scale distortion',
+    pathwayOptions: ['Supported: Apply 4 analytical questions to one chart', 'Core: Compare two visuals on similar topics', 'Advanced: Redesign a misleading visual with justification'],
+    evidenceHint: 'Log your visual analysis or a "before and after" of your visual redesign.',
+  })}
+
+    ${portfolioEvidence('u14-pe', {
+    title: 'Visual Literacy Portfolio Artifact',
+    target: 'Link to a data visual analysis or a justified visual argument redesign.',
+  })}
+
+    ${heutagogyCycle('u14-contract', {
+    title: 'Unit 14 Learning Contract',
+    prompt: 'Develop visual literacy by critiquing and framing data arguments.',
+    context: 'Unit 14: visual arguments, data visualisation, visual rhetoric, scale distortion',
+    pathwayOptions: ['Supported: Apply 4 analytical questions to one chart', 'Core: Compare two visuals on similar topics', 'Advanced: Redesign a misleading visual with justification'],
+    evidenceHint: 'Log your visual analysis or a "before and after" of your visual redesign.',
+  })}
+
+    ${portfolioEvidence('u14-pe', {
+    title: 'Visual Literacy Portfolio Artifact',
+    target: 'Link to a data visual analysis or a justified visual argument redesign.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

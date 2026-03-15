@@ -1,7 +1,7 @@
 // content/units/unit19.js — The Literature Review: Synthesis in Practice
 // Phase 5 — The Future Scholar
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 const RT_U19 = {
@@ -72,31 +72,72 @@ export const unit19 = {
     <div id="ivp-unit19" data-video-key="unit19" class="ivp-container"></div>
 
     ${quiz('q19a',
-      'A literature review paragraph begins: "Vygotsky (1978) developed the Zone of Proximal Development. Bruner (1986) built on this with scaffolding. Wood et al. (1976) operationalised scaffolding in classroom studies." What is wrong with this opening?',
-      [
-        'Too many sources for one paragraph',
-        'This is a chronological list of theorists, not a thematic claim — there is no topic sentence that tells the reader what pattern or argument these sources collectively establish',
-        'The citations are in the wrong format',
-        'Vygotsky should be discussed in a separate paragraph from Bruner',
-      ],
-      1,
-      '✅ A literature review paragraph must open with a thematic claim — a statement about what the literature shows, not a list of who said what. A stronger opening: "Sociocultural theory provides the foundational framework for understanding how classroom dialogue supports learning (Vygotsky, 1978; Bruner, 1986; Wood et al., 1976), with each theorist contributing a distinct element: ZPD, scaffolding as concept, and scaffolding as measurable practice."'
-    )}
+    'A literature review paragraph begins: "Vygotsky (1978) developed the Zone of Proximal Development. Bruner (1986) built on this with scaffolding. Wood et al. (1976) operationalised scaffolding in classroom studies." What is wrong with this opening?',
+    [
+      'Too many sources for one paragraph',
+      'This is a chronological list of theorists, not a thematic claim — there is no topic sentence that tells the reader what pattern or argument these sources collectively establish',
+      'The citations are in the wrong format',
+      'Vygotsky should be discussed in a separate paragraph from Bruner',
+    ],
+    1,
+    '✅ A literature review paragraph must open with a thematic claim — a statement about what the literature shows, not a list of who said what. A stronger opening: "Sociocultural theory provides the foundational framework for understanding how classroom dialogue supports learning (Vygotsky, 1978; Bruner, 1986; Wood et al., 1976), with each theorist contributing a distinct element: ZPD, scaffolding as concept, and scaffolding as measurable practice."'
+  )}
 
     ${quiz('q19b',
-      'A student writes: "There is much research on AI in education. Many studies have been done. Researchers agree this is an important topic." What critical element of a literature review is this paragraph missing?',
-      [
-        'More sources',
-        'Any actual claim about what the research finds — every sentence describes the existence of research without saying what it shows, what patterns exist, or where researchers agree or disagree',
-        'A longer introduction',
-        'A definition of AI',
-      ],
-      1,
-      '✅ "Research exists" is not a finding. "Researchers agree this is important" is not synthesis. A literature review paragraph must make specific claims about what the research shows: what patterns emerge, where consensus exists, where debate continues, what the field cannot yet explain. Describing that research exists is the lowest possible level of engagement with it.'
-    )}
+    'A student writes: "There is much research on AI in education. Many studies have been done. Researchers agree this is an important topic." What critical element of a literature review is this paragraph missing?',
+    [
+      'More sources',
+      'Any actual claim about what the research finds — every sentence describes the existence of research without saying what it shows, what patterns exist, or where researchers agree or disagree',
+      'A longer introduction',
+      'A definition of AI',
+    ],
+    1,
+    '✅ "Research exists" is not a finding. "Researchers agree this is important" is not synthesis. A literature review paragraph must make specific claims about what the research shows: what patterns emerge, where consensus exists, where debate continues, what the field cannot yet explain. Describing that research exists is the lowest possible level of engagement with it.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u19', {
+    title: 'Unit 19 Challenge Tracks',
+    intro: 'Refine literature review writing from thematic clarity to scholarly positioning.',
+    supportedTasks: [
+      'Write one thematic paragraph with three linked sources.',
+      'Include one clear agreement pattern statement.',
+    ],
+    coreTasks: [
+      'Write one integrated paragraph with agreement + divergence + gap.',
+      'Use careful hedging and accurate APA in-text citations.',
+    ],
+    advancedTasks: [
+      'Write a multi-paragraph mini literature review with explicit positioning.',
+      'Conclude with a defensible gap statement tied to your argument.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u19', RT_U19)}
+
+    ${essayMilestone('u19', {
+    title: 'Essay Milestone (Unit 19)',
+    target: 'Complete literature review synthesis that directly supports your final essay argument.',
+    checklist: [
+      'Finish one full integrated literature review section in your draft.',
+      'Show one disagreement/nuance and explain its significance.',
+      'Add a gap statement that sets up your own contribution or stance.',
+    ],
+  })}
+
+    ${heutagogyCycle('u19-contract', {
+    title: 'Unit 19 Learning Contract',
+    prompt: 'Synthesise a field of research into an argument-driven literature review.',
+    context: 'Unit 19: thematic synthesis, integrative synthesis, scholarly positioning, gap statement',
+    pathwayOptions: ['Supported: Write one thematic paragraph with three sources', 'Core: Integrate agreement, divergence, and a gap statement', 'Advanced: Draft a multi-paragraph synthesis with explicit positioning'],
+    evidenceHint: 'Log your integrated literature review paragraph with the gap statement highlighted.',
+  })}
+
+    ${portfolioEvidence('u19-pe', {
+    title: 'Literature Review Synthesis Artifact',
+    target: 'Link to a high-quality integrated literature review paragraph from your course essay.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

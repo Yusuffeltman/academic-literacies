@@ -1,7 +1,7 @@
 // content/units/unit11.js — Note-Taking for Thinking
 // Phase 3 | Academic Entry Level 2
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 export const VIDEO_KEY = 'unit11';
 
@@ -97,21 +97,62 @@ export const unit11 = {
     <div id="ivp-unit11" data-video-key="unit11" class="ivp-container"></div>
 
     ${quiz('q11a',
-      'A student reads a 20-page chapter and fills 4 pages of notes by writing the key sentences from each section. According to this unit, what is the main problem with their approach?',
-      ['The notes are too long', 'They should be using bullet points instead of sentences', 'They are transcribing the author\'s thinking rather than processing it into their own — so they will find it difficult to write originally from these notes, and they are unlikely to remember the ideas', 'They should highlight the chapter instead of taking notes'],
-      2,
-      '✅ Transcription-style notes are essentially re-reading the source in a different format. They do not require you to understand, connect, question, or respond to the ideas. When you later try to write an essay from these notes, you will find yourself either re-reading the chapter or paraphrasing the author\'s words rather than making your own argument.'
-    )}
+    'A student reads a 20-page chapter and fills 4 pages of notes by writing the key sentences from each section. According to this unit, what is the main problem with their approach?',
+    ['The notes are too long', 'They should be using bullet points instead of sentences', 'They are transcribing the author\'s thinking rather than processing it into their own — so they will find it difficult to write originally from these notes, and they are unlikely to remember the ideas', 'They should highlight the chapter instead of taking notes'],
+    2,
+    '✅ Transcription-style notes are essentially re-reading the source in a different format. They do not require you to understand, connect, question, or respond to the ideas. When you later try to write an essay from these notes, you will find yourself either re-reading the chapter or paraphrasing the author\'s words rather than making your own argument.'
+  )}
 
     ${quiz('q11b',
-      'You are writing a literature review on inclusive education. You have notes on Vygotsky\'s ZPD, a South African policy document on inclusion, and a study showing inclusion is underfunded in rural schools. What should you do with these three items?',
-      ['Summarise each one separately in the literature review', 'Find the connections and tensions between them — for example, how the policy aspiration (inclusion) relates to the theoretical basis (ZPD) and the empirical reality (underfunding) — and write a synthesised argument', 'Choose the most recent one and focus on that', 'Ask AI to synthesise them for you'],
-      1,
-      '✅ Three connected pieces of information — a theory, a policy, and empirical data — are the raw material of a sophisticated academic argument. Your job as a scholar is to identify the relationship between them and articulate it. In this case: ZPD tells us what inclusion should look like cognitively; the policy tells us what the state intends; the empirical data tells us the gap between intention and reality. That gap is your argument.'
-    )}
+    'You are writing a literature review on inclusive education. You have notes on Vygotsky\'s ZPD, a South African policy document on inclusion, and a study showing inclusion is underfunded in rural schools. What should you do with these three items?',
+    ['Summarise each one separately in the literature review', 'Find the connections and tensions between them — for example, how the policy aspiration (inclusion) relates to the theoretical basis (ZPD) and the empirical reality (underfunding) — and write a synthesised argument', 'Choose the most recent one and focus on that', 'Ask AI to synthesise them for you'],
+    1,
+    '✅ Three connected pieces of information — a theory, a policy, and empirical data — are the raw material of a sophisticated academic argument. Your job as a scholar is to identify the relationship between them and articulate it. In this case: ZPD tells us what inclusion should look like cognitively; the policy tells us what the state intends; the empirical data tells us the gap between intention and reality. That gap is your argument.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u11', {
+    title: 'Unit 11 Challenge Tracks',
+    intro: 'Move from note collection to synthesis-ready thinking notes.',
+    supportedTasks: [
+      'Write three atomic notes in your own words from one reading.',
+      'Add one explicit connection between two notes.',
+    ],
+    coreTasks: [
+      'Build six linked atomic notes across two readings.',
+      'Write one synthesis sentence from linked notes.',
+    ],
+    advancedTasks: [
+      'Build a mini note network that includes at least one tension/contradiction.',
+      'Use the network to draft a synthesis-driven paragraph.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u11', RT_U11)}
+
+    ${essayMilestone('u11', {
+    title: 'Essay Milestone (Unit 11)',
+    target: 'Convert notes into synthesis-led argument development for your essay.',
+    checklist: [
+      'Create linked notes for at least two sources used in your essay.',
+      'Draft one synthesis paragraph that integrates both sources.',
+      'Highlight one conceptual tension and explain its significance.',
+    ],
+  })}
+
+    ${heutagogyCycle('u11-contract', {
+    title: 'Unit 11 Learning Contract',
+    prompt: 'Move from collecting information to generating ideas through smart notes.',
+    context: 'Unit 11: atomic notes, Zettelkasten, synthesis, linking ideas',
+    pathwayOptions: ['Supported: Write 3 atomic notes from one reading', 'Core: Build 6 linked notes across two readings', 'Advanced: Create a synthesis network with 10+ linked notes'],
+    evidenceHint: 'Paste a link to your digital note network or a photo of your linked analog cards.',
+  })}
+
+    ${portfolioEvidence('u11-pe', {
+    title: 'Smart Notes Portfolio Artifact',
+    target: 'Link to a synthesis-ready note network or a set of atomic notes from a core reading.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

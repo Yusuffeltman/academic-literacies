@@ -1,7 +1,7 @@
 // content/units/unit20.js — Your Academic Identity & Lifelong Learning
 // Phase 5 — The Future Scholar
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 const RT_U20 = {
@@ -70,31 +70,72 @@ export const unit20 = {
     <div id="ivp-unit20" data-video-key="unit20" class="ivp-container"></div>
 
     ${quiz('q20a',
-      'Briceño distinguishes between the "learning zone" and the "performance zone." Which of these activities is in the LEARNING zone?',
-      [
-        'Writing an essay on a topic you already understand well',
-        'Deliberately attempting a skill you know you are weak at — analytical explanation in PEEL paragraphs — accepting that your first attempt will be imperfect, with a specific goal of improving that one element',
-        'Re-reading material you already know to feel confident',
-        'Only attempting tasks you are sure you can do well',
-      ],
-      1,
-      '✅ The learning zone requires deliberate discomfort: working at the edge of your competence, accepting imperfection, getting feedback, and adjusting. Staying only in the performance zone — only doing what you are already good at — feels safer but produces no growth. Most effective learners alternate between zones: learning zone to build new capacity, performance zone to apply it.'
-    )}
+    'Briceño distinguishes between the "learning zone" and the "performance zone." Which of these activities is in the LEARNING zone?',
+    [
+      'Writing an essay on a topic you already understand well',
+      'Deliberately attempting a skill you know you are weak at — analytical explanation in PEEL paragraphs — accepting that your first attempt will be imperfect, with a specific goal of improving that one element',
+      'Re-reading material you already know to feel confident',
+      'Only attempting tasks you are sure you can do well',
+    ],
+    1,
+    '✅ The learning zone requires deliberate discomfort: working at the edge of your competence, accepting imperfection, getting feedback, and adjusting. Staying only in the performance zone — only doing what you are already good at — feels safer but produces no growth. Most effective learners alternate between zones: learning zone to build new capacity, performance zone to apply it.'
+  )}
 
     ${quiz('q20b',
-      'A student writes their Academic Mission Statement: "I will be a hardworking student who reads all the required work and submits assignments on time." What is the fundamental weakness of this statement?',
-      [
-        'It is too short',
-        'It describes baseline compliance with course requirements — not intellectual habits, values, or specific growth commitments. It tells us nothing about what kind of thinker this student wants to become.',
-        'It should include more goals',
-        'Mission statements should not mention assignments',
-      ],
-      1,
-      '✅ "Submitting on time" and "doing the reading" are minimum requirements, not intellectual commitments. A meaningful Academic Mission Statement names specific habits of mind: analytical reading, evidence-based argument, tolerance for intellectual discomfort, curiosity-driven inquiry, honest self-assessment. These are the habits that distinguish a student from a scholar.'
-    )}
+    'A student writes their Academic Mission Statement: "I will be a hardworking student who reads all the required work and submits assignments on time." What is the fundamental weakness of this statement?',
+    [
+      'It is too short',
+      'It describes baseline compliance with course requirements — not intellectual habits, values, or specific growth commitments. It tells us nothing about what kind of thinker this student wants to become.',
+      'It should include more goals',
+      'Mission statements should not mention assignments',
+    ],
+    1,
+    '✅ "Submitting on time" and "doing the reading" are minimum requirements, not intellectual commitments. A meaningful Academic Mission Statement names specific habits of mind: analytical reading, evidence-based argument, tolerance for intellectual discomfort, curiosity-driven inquiry, honest self-assessment. These are the habits that distinguish a student from a scholar.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u20', {
+    title: 'Unit 20 Challenge Tracks',
+    intro: 'Consolidate your scholar identity through reflective evidence and future commitments.',
+    supportedTasks: [
+      'Identify one concrete growth shift from the module with evidence.',
+      'Commit to one specific learning habit for next term.',
+    ],
+    coreTasks: [
+      'Write a mission statement with growth, identity, and three commitments.',
+      'Ground each commitment in a specific practice you will perform weekly.',
+    ],
+    advancedTasks: [
+      'Produce a reflective scholar plan with checkpoints and accountability triggers.',
+      'Map how you will transfer module skills into future courses and classroom practice.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u20', RT_U20)}
+
+    ${essayMilestone('u20', {
+    title: 'Essay Milestone (Unit 20 — Capstone Reflection)',
+    target: 'Close the module by evidencing scholarly growth and setting a sustained improvement trajectory.',
+    checklist: [
+      'Name one writing and one reading capability that measurably improved.',
+      'Attach one piece of evidence for each claimed improvement.',
+      'Define three next-cycle commitments with clear weekly actions.',
+    ],
+  })}
+
+    ${heutagogyCycle('u20-contract', {
+    title: 'Unit 20 Learning Contract',
+    prompt: 'Consolidate your scholarly growth and commit to reflective lifelong learning.',
+    context: 'Unit 20: reflective practice, academic identity, learning zone vs performance zone, mission statement',
+    pathwayOptions: ['Supported: Identify one concrete growth shift with evidence', 'Core: Write a mission statement with 3 specific commitments', 'Advanced: Map a skills-transfer plan into future professional and academic contexts'],
+    evidenceHint: 'Log your Academic Mission Statement.',
+  })}
+
+    ${portfolioEvidence('u20-pe', {
+    title: 'Academic Mission Portfolio Artifact',
+    target: 'Link to your Academic Mission Statement and your top 3 intellectual commitments.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">You Have Completed the Module</div>

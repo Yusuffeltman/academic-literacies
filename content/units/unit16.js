@@ -1,7 +1,7 @@
 // content/units/unit16.js — Prompt Engineering for Academic Work
 // Phase 4 — AI as a Scholarly Tool
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 import { promptSandbox } from '../../src/components/prompt-sandbox.js';
@@ -67,41 +67,95 @@ export const unit16 = {
     <div id="ivp-unit16" data-video-key="unit16" class="ivp-container"></div>
 
     ${quiz('q16a',
-      'A student prompts an AI: "Write me a paragraph about Vygotsky for my education essay." What is the core problem with this prompt?',
-      [
-        'It mentions Vygotsky who is too complex for AI',
-        'It gives the AI no information about which aspect of Vygotsky, which essay question, what level of detail is needed, what evidence to use, or what the paragraph should argue — the output will be generic and potentially hallucinated',
-        'The student should ask for two paragraphs, not one',
-        'AI cannot write about educational theorists',
-      ],
-      1,
-      '✅ A prompt is a specification. "Write me a paragraph about Vygotsky" specifies almost nothing: not the argument, not the essay question, not which Vygotsky concept, not the required evidence, not the word count, not the format. The AI will produce something plausible and general — and may invent quotes, page numbers, or papers that do not exist.'
-    )}
+    'A student prompts an AI: "Write me a paragraph about Vygotsky for my education essay." What is the core problem with this prompt?',
+    [
+      'It mentions Vygotsky who is too complex for AI',
+      'It gives the AI no information about which aspect of Vygotsky, which essay question, what level of detail is needed, what evidence to use, or what the paragraph should argue — the output will be generic and potentially hallucinated',
+      'The student should ask for two paragraphs, not one',
+      'AI cannot write about educational theorists',
+    ],
+    1,
+    '✅ A prompt is a specification. "Write me a paragraph about Vygotsky" specifies almost nothing: not the argument, not the essay question, not which Vygotsky concept, not the required evidence, not the word count, not the format. The AI will produce something plausible and general — and may invent quotes, page numbers, or papers that do not exist.'
+  )}
 
     ${quiz('q16b',
-      'You use AI to help find sources for your essay and it suggests three academic papers with full APA citations. What should you do BEFORE including these in your reference list?',
-      [
-        'Nothing — AI citations are always accurate',
-        'Check that each paper actually exists by searching for it in Scopus or Google Scholar, because AI tools regularly hallucinate plausible-looking but non-existent citations',
-        'Ask the AI to double-check its own citations',
-        'Only use the citations if they look like real journal names',
-      ],
-      1,
-      '✅ Citation hallucination is one of the most consistent and dangerous AI behaviours in academic contexts. An AI will generate a citation in perfect APA format, with a real-sounding author, journal, volume, and page numbers — for a paper that does not exist. Always verify every AI-generated citation against an actual academic database before using it.'
-    )}
+    'You use AI to help find sources for your essay and it suggests three academic papers with full APA citations. What should you do BEFORE including these in your reference list?',
+    [
+      'Nothing — AI citations are always accurate',
+      'Check that each paper actually exists by searching for it in Scopus or Google Scholar, because AI tools regularly hallucinate plausible-looking but non-existent citations',
+      'Ask the AI to double-check its own citations',
+      'Only use the citations if they look like real journal names',
+    ],
+    1,
+    '✅ Citation hallucination is one of the most consistent and dangerous AI behaviours in academic contexts. An AI will generate a citation in perfect APA format, with a real-sounding author, journal, volume, and page numbers — for a paper that does not exist. Always verify every AI-generated citation against an actual academic database before using it.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u16', {
+    title: 'Unit 16 Challenge Tracks',
+    intro: 'Improve prompt quality from vague requests to auditable academic workflows.',
+    supportedTasks: [
+      'Rewrite one vague prompt using CREATE components.',
+      'Include one explicit verification step in the prompt.',
+    ],
+    coreTasks: [
+      'Design two CREATE prompts for different academic tasks.',
+      'Compare output quality and identify failure points.',
+    ],
+    advancedTasks: [
+      'Build a reusable prompt template with evidence-safety constraints.',
+      'Add chain-of-thought scaffolding and verification checkpoints.',
+    ],
+  })}
 
     <h2>Interactive Sandbox: Fix the Prompt</h2>
     <p>Below is a "bad" prompt. It is too vague and will likely result in a generic, unhelpful answer. Try running it first to see what happens. Then, rewrite the prompt using the <strong>CREATE framework</strong> (Character, Request, Examples, Adjustments, Type, Extras) to get a much better, academic result.</p>
 
     ${promptSandbox(
-      'sb-u16-1',
-      'Prompt Refinement Exercise',
-      'Rewrite the initial prompt to give the AI context, constraints, and clear criteria.',
-      'Help me study Vygotsky for my test tomorrow.'
-    )}
+    'sb-u16-1',
+    'Prompt Refinement Exercise',
+    'Rewrite the initial prompt to give the AI context, constraints, and clear criteria.',
+    'Help me study Vygotsky for my test tomorrow.'
+  )}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u16', RT_U16)}
+
+    ${essayMilestone('u16', {
+    title: 'Essay Milestone (Unit 16)',
+    target: 'Use AI as an accountable support tool while preserving scholarly authorship.',
+    checklist: [
+      'Document one AI-assisted step and one manual verification step in your workflow.',
+      'Revise one paragraph based on AI feedback while preserving your own argument.',
+      'Record what you accepted and rejected from AI suggestions.',
+    ],
+  })}
+
+    ${heutagogyCycle('u16-contract', {
+    title: 'Unit 16 Learning Contract',
+    prompt: 'Calibrate your use of AI as an accountable scholarly tool.',
+    context: 'Unit 16: prompt engineering, CREATE framework, hallucination, verification',
+    pathwayOptions: ['Supported: Rewrite one vague prompt with CREATE', 'Core: Design two CREATE prompts and compare outputs', 'Advanced: Build a reusable prompt template with safety constraints'],
+    evidenceHint: 'Log your CREATE prompt and the resulting AI output (with your verification notes).',
+  })}
+
+    ${portfolioEvidence('u16-pe', {
+    title: 'AI Literacy Portfolio Artifact',
+    target: 'Link to a CREATE-framework prompt and a documented verification process.',
+  })}
+
+    ${heutagogyCycle('u16-contract', {
+    title: 'Unit 16 Learning Contract',
+    prompt: 'Calibrate your use of AI as an accountable scholarly tool.',
+    context: 'Unit 16: prompt engineering, CREATE framework, hallucination, verification',
+    pathwayOptions: ['Supported: Rewrite one vague prompt with CREATE', 'Core: Design two CREATE prompts and compare outputs', 'Advanced: Build a reusable prompt template with safety constraints'],
+    evidenceHint: 'Log your CREATE prompt and the resulting AI output (with your verification notes).',
+  })}
+
+    ${portfolioEvidence('u16-pe', {
+    title: 'AI Literacy Portfolio Artifact',
+    target: 'Link to a CREATE-framework prompt and a documented verification process.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

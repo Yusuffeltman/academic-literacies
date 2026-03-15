@@ -1,7 +1,7 @@
 // content/units/unit08.js — Unit 8: AI Research Tools
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_CONFIG = {
   id: 'rt-u8', unitId: 'u8', unitNum: 8,
@@ -46,13 +46,13 @@ const VT_CONFIG = {
     <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:20px;">% of university students reporting using each tool for academic work (n=2,847)</div>
     <div style="display:flex;flex-direction:column;gap:12px;">
       ${[
-        ['ChatGPT', 73, '#ef4444'],
-        ['Google Scholar', 68, '#22c55e'],
-        ['Gemini / Copilot', 41, '#f97316'],
-        ['Wikipedia (as start)', 38, '#eab308'],
-        ['Elicit / Semantic Scholar', 12, '#6366f1'],
-        ['Scopus / Web of Science', 9, '#3b82f6'],
-      ].map(([label, val, color]) => `
+      ['ChatGPT', 73, '#ef4444'],
+      ['Google Scholar', 68, '#22c55e'],
+      ['Gemini / Copilot', 41, '#f97316'],
+      ['Wikipedia (as start)', 38, '#eab308'],
+      ['Elicit / Semantic Scholar', 12, '#6366f1'],
+      ['Scopus / Web of Science', 9, '#3b82f6'],
+    ].map(([label, val, color]) => `
         <div style="display:flex;align-items:center;gap:12px;">
           <div style="min-width:160px;font-size:13px;font-weight:600;text-align:right;">${label}</div>
           <div style="flex:1;background:#f1f5f9;border-radius:99px;height:28px;position:relative;overflow:hidden;">
@@ -89,13 +89,53 @@ export const unit08 = {
     <div class="section-label">🎬 Watch First</div>
     <p>This library tutorial demonstrates how AI tools like Elicit and ResearchRabbit work in practice. Notice the difference between how these tools work and how a chatbot works — that difference is everything.</p>
     <div id="ivp-unit8" data-video-key="unit8" class="ivp-container"></div>
-    ${quiz('q8a','You use Elicit to find papers on teacher burnout. It returns 8 papers with citations. You ask ChatGPT the same question and it also returns 8 papers. What is the critical difference?',['ChatGPT results are more recent than Elicit results','Elicit retrieves real papers from a verified database; ChatGPT generates text that may include fabricated citations','Elicit only searches SA journals; ChatGPT searches globally','There is no meaningful difference — both search academic databases'],1,'✅ Elicit retrieves from a real academic database — those papers exist. ChatGPT generates text based on training data patterns — some citations will be real, some hallucinated. You cannot tell the difference without verifying each one in Scopus or Google Scholar.')}
-    ${quiz('q8b','How do you verify whether a ChatGPT-provided citation is real?',['Ask ChatGPT to confirm the citation is accurate','Search the exact title in Scopus or Google Scholar and verify that author, journal, year, and content all match','Check that the journal name sounds legitimate','Search the author name on Google'],1,'✅ The only reliable verification is searching the exact title in Scopus or Google Scholar and confirming every detail. Do not ask ChatGPT to verify its own output — it will confidently confirm a hallucination.')}
+    ${quiz('q8a', 'You use Elicit to find papers on teacher burnout. It returns 8 papers with citations. You ask ChatGPT the same question and it also returns 8 papers. What is the critical difference?', ['ChatGPT results are more recent than Elicit results', 'Elicit retrieves real papers from a verified database; ChatGPT generates text that may include fabricated citations', 'Elicit only searches SA journals; ChatGPT searches globally', 'There is no meaningful difference — both search academic databases'], 1, '✅ Elicit retrieves from a real academic database — those papers exist. ChatGPT generates text based on training data patterns — some citations will be real, some hallucinated. You cannot tell the difference without verifying each one in Scopus or Google Scholar.')}
+    ${quiz('q8b', 'How do you verify whether a ChatGPT-provided citation is real?', ['Ask ChatGPT to confirm the citation is accurate', 'Search the exact title in Scopus or Google Scholar and verify that author, journal, year, and content all match', 'Check that the journal name sounds legitimate', 'Search the author name on Google'], 1, '✅ The only reliable verification is searching the exact title in Scopus or Google Scholar and confirming every detail. Do not ask ChatGPT to verify its own output — it will confidently confirm a hallucination.')}
     <h2>📊 Visual Activity: Reading a Bar Chart</h2>
     <p>Bar charts appear throughout academic research papers and policy documents. This activity develops your ability to read beyond the bars themselves — and to notice what data notes reveal that the chart cannot.</p>
     ${visualTask('vt-u8', VT_CONFIG)}
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u8', {
+    title: 'Unit 8 Challenge Tracks',
+    intro: 'Move from basic citation verification to robust AI-assisted research protocols.',
+    supportedTasks: [
+      'Verify two AI-generated citations in Scopus or Google Scholar.',
+      'Document your verification workflow step-by-step.',
+    ],
+    coreTasks: [
+      'Compare one retrieval-tool output and one chatbot output on the same query.',
+      'Explain which result set is citation-safe and why.',
+    ],
+    advancedTasks: [
+      'Design a mini AI research protocol with explicit verification checkpoints.',
+      'Identify and correct at least one hallucinated or unverifiable reference.',
+    ],
+  })}
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u8', RT_CONFIG)}
+    ${essayMilestone('u8', {
+    title: 'Essay Milestone (Unit 8)',
+    target: 'Ensure every essay source is verification-safe before final drafting.',
+    checklist: [
+      'Mark each source as retrieval-verified or pending verification.',
+      'Remove any source that cannot be verified in an academic database.',
+      'Add one methods sentence on how you verified your references.',
+    ],
+  })}
+    ${heutagogyCycle('u8-contract', {
+    title: 'Unit 8 Learning Contract',
+    prompt: 'Select your AI research protocol and verify your evidence chain.',
+    context: 'Unit 8: AI research tools, retrieval vs generative AI, hallucination, verification workflow',
+    pathwayOptions: ['Supported: Verify two AI-generated citations', 'Core: Compare one retrieval result and one chatbot result', 'Advanced: Design a mini AI research protocol with verification checks'],
+    evidenceHint: 'Log your search string, the tool used, and the verified status of your citations.',
+  })}
+
+    ${portfolioEvidence('u8-pe', {
+    title: 'AI Verification Protocol Artifact',
+    target: 'Link to a screenshot or log showing your step-by-step verification of an AI-generated source.',
+  })}
+
     <div class="unit-closing"><div class="unit-closing-label">Before You Move On</div>
-    <p>"AI generates. You verify. Every time, no exceptions. This is not a burden — it is the definition of being a responsible researcher."</p></div>`,
+    <p>"AI generates. You verify. Every time, no exceptions. This is not a burden — it is the definition of being a responsible researcher."</p></div>
+  `,
 };

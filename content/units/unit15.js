@@ -1,9 +1,9 @@
 // content/units/unit15.js — Peer Review & Academic Feedback
 // Phase 3 | Academic Entry Level 6
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_U15 = {
   id: 'rt-u15', unitId: 'u15', unitNum: 15,
@@ -47,12 +47,12 @@ const RT_U15 = {
           </thead>
           <tbody>
             ${[
-              ['Argument', '"Good points! Your argument was clear."', '"Your thesis statement argues a position, but paragraph 3\'s topic sentence makes a different claim than paragraph 2\'s — they don\'t accumulate toward the same conclusion."'],
-              ['Evidence', '"You used lots of sources, well done."', '"You have 4 sources in this paragraph but only cite 2 in-text — the other two claims are unsupported. Which sources back up sentences 3 and 5?"'],
-              ['Analysis', '"Your analysis could be deeper."', '"After your evidence sentence, you explain what the data shows — but not why it matters for YOUR argument. Add a sentence starting \'This suggests that...\' that connects it explicitly to your thesis."'],
-              ['Structure', '"The structure needs work."', '"Your introduction has context and background but no thesis statement. Add a final sentence to the introduction that tells the reader what claim the essay will argue."'],
-              ['Language', '"Your writing is a bit informal sometimes."', '"Three sentences use contractions (\'don\'t\', \'it\'s\', \'can\'t\') — in formal academic writing, write \'do not\', \'it is\', \'cannot\'. Check the full draft for other contractions."'],
-            ].map(([crit, bad, good], i) => `
+      ['Argument', '"Good points! Your argument was clear."', '"Your thesis statement argues a position, but paragraph 3\'s topic sentence makes a different claim than paragraph 2\'s — they don\'t accumulate toward the same conclusion."'],
+      ['Evidence', '"You used lots of sources, well done."', '"You have 4 sources in this paragraph but only cite 2 in-text — the other two claims are unsupported. Which sources back up sentences 3 and 5?"'],
+      ['Analysis', '"Your analysis could be deeper."', '"After your evidence sentence, you explain what the data shows — but not why it matters for YOUR argument. Add a sentence starting \'This suggests that...\' that connects it explicitly to your thesis."'],
+      ['Structure', '"The structure needs work."', '"Your introduction has context and background but no thesis statement. Add a final sentence to the introduction that tells the reader what claim the essay will argue."'],
+      ['Language', '"Your writing is a bit informal sometimes."', '"Three sentences use contractions (\'don\'t\', \'it\'s\', \'can\'t\') — in formal academic writing, write \'do not\', \'it is\', \'cannot\'. Check the full draft for other contractions."'],
+    ].map(([crit, bad, good], i) => `
               <tr style="background:${i % 2 === 0 ? '#fff' : 'var(--cream)'};">
                 <td style="padding:10px 14px; font-weight:700; color:var(--navy); border:1px solid var(--border); vertical-align:top;">${crit}</td>
                 <td style="padding:10px 14px; color:#b91c1c; border:1px solid var(--border); font-style:italic; vertical-align:top;">"${bad}"</td>
@@ -126,34 +126,88 @@ export const unit15 = {
     <div id="ivp-unit15" data-video-key="unit15" class="ivp-container"></div>
 
     ${quiz('q15a',
-      'A peer reviewer writes: "Your essay is really interesting! I liked how you talked about AI. Maybe add more examples?" What is the fundamental problem with this feedback?',
-      [
-        'It is too short',
-        'It does not reference any specific criterion, does not locate the issue in the text, does not say what "more examples" would accomplish, and gives no feedforward — it cannot be acted on in any specific way',
-        'It is too positive',
-        'It should be written more formally',
-      ],
-      1,
-      '✅ "Add more examples" is almost never useful feedback because it does not say: more examples of what, placed where, to support which argument, cited how? Useful feedback is always actionable — it tells the writer the specific move to make and why that move would improve the work against the criteria.'
-    )}
+    'A peer reviewer writes: "Your essay is really interesting! I liked how you talked about AI. Maybe add more examples?" What is the fundamental problem with this feedback?',
+    [
+      'It is too short',
+      'It does not reference any specific criterion, does not locate the issue in the text, does not say what "more examples" would accomplish, and gives no feedforward — it cannot be acted on in any specific way',
+      'It is too positive',
+      'It should be written more formally',
+    ],
+    1,
+    '✅ "Add more examples" is almost never useful feedback because it does not say: more examples of what, placed where, to support which argument, cited how? Useful feedback is always actionable — it tells the writer the specific move to make and why that move would improve the work against the criteria.'
+  )}
 
     ${quiz('q15b',
-      'Hattie and Timperley found that feedback is only effective when it addresses three questions. Which response BEST represents the "Where to next?" question?',
-      [
-        '"Your thesis statement is well-constructed."',
-        '"Your evidence section is incomplete."',
-        '"For your revision, focus specifically on paragraph 3 — the explanation sentence is missing. Add one sentence after your evidence that begins: \'This finding suggests that...\' and connects the data to your thesis."',
-        '"Overall this is a good attempt."',
-      ],
-      2,
-      '✅ "Where to next?" is the feedforward question — it tells the writer what specific action to take to improve the work. It names a location (paragraph 3), a specific element (explanation sentence), and even provides a stem to start the revision with. This is the hardest part of feedback to write well, and the most valuable.'
-    )}
+    'Hattie and Timperley found that feedback is only effective when it addresses three questions. Which response BEST represents the "Where to next?" question?',
+    [
+      '"Your thesis statement is well-constructed."',
+      '"Your evidence section is incomplete."',
+      '"For your revision, focus specifically on paragraph 3 — the explanation sentence is missing. Add one sentence after your evidence that begins: \'This finding suggests that...\' and connects the data to your thesis."',
+      '"Overall this is a good attempt."',
+    ],
+    2,
+    '✅ "Where to next?" is the feedforward question — it tells the writer what specific action to take to improve the work. It names a location (paragraph 3), a specific element (explanation sentence), and even provides a stem to start the revision with. This is the hardest part of feedback to write well, and the most valuable.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u15', {
+    title: 'Unit 15 Challenge Tracks',
+    intro: 'Advance from generic peer comments to high-impact criterion-referenced feedback.',
+    supportedTasks: [
+      'Rewrite three vague comments as specific criterion-based feedback.',
+      'Provide one feedforward action sentence for each.',
+    ],
+    coreTasks: [
+      'Complete one structured peer review prioritising a single high-impact gap.',
+      'Ground all comments in explicit rubric criteria.',
+    ],
+    advancedTasks: [
+      'Produce a full peer-review memo with ranked revision priorities.',
+      'Include expected revision outcomes and rationale for each priority.',
+    ],
+  })}
 
     <h2>Visual Literacy Task</h2>
     ${visualTask(VT_U15)}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u15', RT_U15)}
+
+    ${essayMilestone('u15', {
+    title: 'Essay Milestone (Unit 15)',
+    target: 'Use peer feedback to drive substantive revision, not cosmetic edits.',
+    checklist: [
+      'Identify one highest-impact paragraph weakness in your draft.',
+      'Revise that paragraph using criterion-referenced feedforward.',
+      'Write a brief revision note describing what changed and why.',
+    ],
+  })}
+
+    ${heutagogyCycle('u15-contract', {
+    title: 'Unit 15 Learning Contract',
+    prompt: 'Refine your feedback skills from descriptive comments to actionable feedforward.',
+    context: 'Unit 15: peer review, criterion-referenced feedback, feedforward, constructive critique',
+    pathwayOptions: ['Supported: Rewrite 3 vague comments as specific feedback', 'Core: Complete one full structured peer review', 'Advanced: Produce a ranked peer-review memo with rationale'],
+    evidenceHint: 'Log a sample of your criterion-referenced feedforward for a peer draft.',
+  })}
+
+    ${portfolioEvidence('u15-pe', {
+    title: 'Peer Feedback Portfolio Artifact',
+    target: 'Link to a high-quality peer review or a revision note driven by feedback.',
+  })}
+
+    ${heutagogyCycle('u15-contract', {
+    title: 'Unit 15 Learning Contract',
+    prompt: 'Refine your feedback skills from descriptive comments to actionable feedforward.',
+    context: 'Unit 15: peer review, criterion-referenced feedback, feedforward, constructive critique',
+    pathwayOptions: ['Supported: Rewrite 3 vague comments as specific feedback', 'Core: Complete one full structured peer review', 'Advanced: Produce a ranked peer-review memo with rationale'],
+    evidenceHint: 'Log a sample of your criterion-referenced feedforward for a peer draft.',
+  })}
+
+    ${portfolioEvidence('u15-pe', {
+    title: 'Peer Feedback Portfolio Artifact',
+    target: 'Link to a high-quality peer review or a revision note driven by feedback.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

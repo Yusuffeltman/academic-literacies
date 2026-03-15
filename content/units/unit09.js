@@ -1,7 +1,7 @@
 // content/units/unit09.js — Unit 9: Reference Management & Citation Ethics
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_CONFIG = {
   id: 'rt-u9', unitId: 'u9', unitNum: 9,
@@ -79,13 +79,53 @@ export const unit09 = {
     <div class="section-label">🎬 Watch First</div>
     <p>This Scribbr Zotero tutorial is one of the most practical things you will watch in this module. Set up Zotero while you watch — you will use it for the rest of your degree. Then complete the visual activity to make sure you understand what Zotero is generating for you.</p>
     <div id="ivp-unit9" data-video-key="unit9" class="ivp-container"></div>
-    ${quiz('q9a','In APA 7th, you are citing an article by three authors — Dlamini, Nkosi, and Botha — published in 2022. How do you write the in-text citation?',['(Dlamini, Nkosi and Botha, 2022)','(Dlamini et al., 2022)','(Dlamini & Nkosi & Botha, 2022)','(Dlamini, 2022)'],1,'✅ In APA 7th, three or more authors are cited as (First Author et al., Year) from the very first citation. APA 7th simplified this from APA 6th — you no longer need to list all authors for the first citation when there are 3–5.')}
-    ${quiz('q9b','A student paraphrases a paragraph from a journal article, changes most of the words, but includes no citation. Is this plagiarism?',['No — if they changed the words, the idea is now theirs','Yes — paraphrasing without attribution is plagiarism, regardless of word changes','Only if the original author can prove the student read their work','It depends on how many words were changed'],1,'✅ The idea belongs to the original author, not the words used to express it. Paraphrasing without attribution is plagiarism because you are presenting someone else\'s thinking as your own. This is one of the most common forms of unintentional plagiarism.')}
+    ${quiz('q9a', 'In APA 7th, you are citing an article by three authors — Dlamini, Nkosi, and Botha — published in 2022. How do you write the in-text citation?', ['(Dlamini, Nkosi and Botha, 2022)', '(Dlamini et al., 2022)', '(Dlamini & Nkosi & Botha, 2022)', '(Dlamini, 2022)'], 1, '✅ In APA 7th, three or more authors are cited as (First Author et al., Year) from the very first citation. APA 7th simplified this from APA 6th — you no longer need to list all authors for the first citation when there are 3–5.')}
+    ${quiz('q9b', 'A student paraphrases a paragraph from a journal article, changes most of the words, but includes no citation. Is this plagiarism?', ['No — if they changed the words, the idea is now theirs', 'Yes — paraphrasing without attribution is plagiarism, regardless of word changes', 'Only if the original author can prove the student read their work', 'It depends on how many words were changed'], 1, '✅ The idea belongs to the original author, not the words used to express it. Paraphrasing without attribution is plagiarism because you are presenting someone else\'s thinking as your own. This is one of the most common forms of unintentional plagiarism.')}
     <h2>📊 Visual Activity: Anatomy of an APA 7th Reference</h2>
     <p>Zotero generates references for you — but you are responsible for checking them. Before you can check a reference, you need to know what every component should look like. This annotated diagram maps each element of a real APA 7th citation.</p>
     ${visualTask('vt-u9', VT_CONFIG)}
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u9', {
+    title: 'Unit 9 Challenge Tracks',
+    intro: 'Build citation accuracy and ethical source use at increasing levels.',
+    supportedTasks: [
+      'Produce one correct in-text citation and one matching reference entry.',
+      'Check one auto-generated reference against APA 7th rules.',
+    ],
+    coreTasks: [
+      'Produce a mini reference set of three sources with zero format errors.',
+      'Paraphrase one source accurately with proper attribution.',
+    ],
+    advancedTasks: [
+      'Audit your current draft for citation integrity and fix all mismatches.',
+      'Explain one citation ethics risk and your prevention method.',
+    ],
+  })}
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u9', RT_CONFIG)}
+    ${essayMilestone('u9', {
+    title: 'Essay Milestone (Unit 9)',
+    target: 'Finalise citation integrity for every paragraph in your working essay draft.',
+    checklist: [
+      'Ensure every in-text citation has a matching reference-list entry.',
+      'Ensure every reference-list entry is cited in the essay body.',
+      'Correct at least one paraphrase to improve fidelity and attribution.',
+    ],
+  })}
+    ${heutagogyCycle('u9-contract', {
+    title: 'Unit 9 Learning Contract',
+    prompt: 'Ensure citation ethics and accuracy across your essay draft.',
+    context: 'Unit 9: citation ethics, APA 7th, plagiarism, paraphrasing, reference managers',
+    pathwayOptions: ['Supported: Produce one correct in-text and list entry', 'Core: Produce a 3-source reference set with zero errors', 'Advanced: Audit current draft for citation integrity'],
+    evidenceHint: 'Note one specific citation fix you made based on APA 7th rules.',
+  })}
+
+    ${portfolioEvidence('u9-pe', {
+    title: 'APA Citation Portfolio Artifact',
+    target: 'Link to a 3-source reference set or your annotated bibliography excerpt.',
+  })}
+
     <div class="unit-closing"><div class="unit-closing-label">Before You Move On</div>
-    <p>"Every citation is a small act of academic generosity — acknowledging the people whose thinking made your thinking possible."</p></div>`,
+    <p>"Every citation is a small act of academic generosity — acknowledging the people whose thinking made your thinking possible."</p></div>
+  `,
 };

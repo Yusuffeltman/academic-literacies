@@ -3,7 +3,7 @@
 // Phase 1 — Understanding the Landscape
 // Reading Level: ACCESS Level 3 — two paragraphs with discipline vocabulary
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, heutagogyCycle, pathwayChallenge, essayMilestone, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 const RT_CONFIG = {
@@ -87,7 +87,22 @@ export const unit03 = {
   title: 'Critical Thinking in the Digital Age',
   phase: 'Phase 1 — Understanding the Landscape',
 
-  html: () => `
+  html: () => {
+    const surveyRecord = window.STATE?.progress?.__surveys?.unit3Experience || null;
+    const surveyDone = Boolean(surveyRecord?.completed);
+    const submittedLabel = surveyRecord?.completedAt
+      ? (() => {
+        const d = new Date(surveyRecord.completedAt);
+        if (Number.isNaN(d.getTime())) return null;
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+      })()
+      : null;
+    return `
     <h1>Unit 3: Critical Thinking in the Digital Age</h1>
     <p class="lead">Not everything you encounter online is false. Not everything that sounds false is false. The skill we need is not scepticism of everything — it is a disciplined framework for asking the right questions.</p>
 
@@ -163,14 +178,66 @@ export const unit03 = {
       <div class="fq-item"><span class="fq-num">4</span><div><strong>What do other credible sources say?</strong> Does this claim appear in peer-reviewed research, reputable journalism, or official sources?</div></div>
     </div>
 
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u3', {
+      title: 'Unit 3 Challenge Tracks',
+      intro: 'Increase challenge by moving from single-source checks to comparative critique.',
+      supportedTasks: [
+        'Apply one critical question to one source and note your conclusion.',
+        'Identify one bias that could affect your judgement.',
+      ],
+      coreTasks: [
+        'Apply all four critical questions to one source in writing.',
+        'Explain how your conclusion changed after using the framework.',
+      ],
+      advancedTasks: [
+        'Apply all four questions to two opposing sources.',
+        'Write a comparative judgement with explicit evidence quality reasoning.',
+      ],
+    })}
+
     <h2>Reading & Writing Activity</h2>
     <p>The reading this week includes a real South African case study — the COVID-19 steam video — that illustrates how misinformation spreads. Read carefully and pay attention to the framework in the visual.</p>
 
     ${readingTask('rt-u3', RT_CONFIG)}
 
+    ${essayMilestone('u3', {
+      title: 'Essay Milestone (Unit 3)',
+      target: 'Move from claim + evidence to claim + evidence + critical evaluation.',
+      checklist: [
+        'Add one paragraph that evaluates source credibility explicitly.',
+        'Use at least one counterargument sentence starter (e.g., “However, ...”).',
+        'Revise one sentence to remove bias language and improve academic tone.',
+      ],
+    })}
+
+    <h2>Self-Directed Learning Cycle</h2>
+    <p>Reflect on where your own thinking shifted and plan one higher-challenge critical-reading action.</p>
+    ${heutagogyCycle('u3-contract', {
+      title: 'Unit 3 Learning Contract',
+      prompt: 'Define one cognitive bias you will actively counter in your next writing task.',
+      context: 'Unit 3: critical thinking, confirmation bias, misinformation analysis',
+      pathwayOptions: ['Supported: Apply one critical question to one source', 'Core: Apply all four critical questions to one source', 'Advanced: Apply all four questions to two opposing sources and compare conclusions'],
+      evidenceHint: 'Log the question(s) you used and how your conclusion changed.',
+    })}
+
+    ${portfolioEvidence('u3-pe', {
+      title: 'Critical Thinking Portfolio Artifact',
+      target: 'Link to a misinformation analysis or a bias-countering reflection.',
+    })}
+
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>
       <p>"The goal of education is not to produce people who know facts. It is to produce people who can tell the difference between a fact and an opinion, between evidence and assertion, between a credible source and a convincing one. That has always been true. In 2025, it is urgent."</p>
+      <div style="margin-top:14px;">
+        ${surveyDone
+        ? `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+              <button class="btn-prev" onclick="window.openUnit3Survey?.()" style="display:inline-flex;border-color:#10b981;color:#10b981;">✅ Student Experience Survey completed (View / Edit)</button>
+              ${submittedLabel ? `<div style="font-size:12px;color:var(--muted);">Last submitted: ${submittedLabel}</div>` : ''}
+            </div>`
+        : '<button class="auth-submit" onclick="window.openUnit3Survey?.()">📝 Take Student Experience Survey</button>'}
+      </div>
     </div>
-  `,
+  `;
+  },
 };

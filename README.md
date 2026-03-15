@@ -112,6 +112,21 @@ Open `content/units.js` and append a new object to the `UNITS` array:
 }
 ```
 
+### Authoring standard (required)
+
+Before editing or adding unit content, review `docs/module-content-style-guide.md`.
+
+This guide defines the required unit flow and writing standards, including:
+- Pathway Challenge structure and difficulty progression
+- Essay Milestone progression and evidence checkpoints
+- Heutagogy integration and moderation expectations
+
+Use it as the default content policy for `content/units/unit01.js` to `content/units/unit20.js`.
+
+Before opening a PR, run:
+- `npm run check:unit-structure`
+- `npm run build`
+
 ---
 
 ## Adding a New Video
@@ -149,3 +164,21 @@ myVideo: {
 | Hosting | GitHub Pages |
 | CI/CD | GitHub Actions |
 | Fonts | Google Fonts (Playfair Display, Lora, DM Mono) |
+
+---
+
+## Tutor Group Privacy & Security
+
+- Tutor allocations are configured in `content/tutorial-groups/assignments.js`.
+- Use `studentUids` in group lists whenever possible (preferred over email lists).
+- Tutor dashboard now masks student emails by default in the UI.
+- In Lecturer dashboard Quick Tools, use **Sync Tutor Groups** to publish allocations to Firebase at `tutorial-groups/assignmentsByTutor`.
+
+### Backend enforcement (important)
+
+Client-side filtering is not sufficient on its own. Apply Firebase Realtime Database rules so tutors can only read their assigned students.
+
+1. Review and adapt `database.rules.json` in this repo.
+2. Ensure your auth role mapping exists under `roles/{uid}`.
+3. Prefer storing tutor assignments at `tutorial-groups/assignmentsByTutor/{tutorUid}` for strict server-side access control.
+

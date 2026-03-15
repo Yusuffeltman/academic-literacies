@@ -12,8 +12,8 @@
 // TO ADD A UNIT: append a new object to the UNITS array.
 // ─────────────────────────────────────────────
 
-import { quiz, exercise }         from '../src/components/activities.js';
-import { VIDEOS, VIDEO_CONFIG }   from './videos.js';
+import { quiz, exercise, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../src/components/activities.js';
+import { VIDEOS, VIDEO_CONFIG } from './videos.js';
 
 // Shorthand helpers used inside unit HTML strings
 // ivp() returns a container div; the player is instantiated
@@ -22,8 +22,12 @@ function ivp(key) {
   return `<div id="ivp-${key}" data-video-key="${key}" class="ivp-container"></div>`;
 }
 
-const q  = quiz;
+const q = quiz;
 const ex = exercise;
+const pc = pathwayChallenge;
+const em = essayMilestone;
+const hc = heutagogyCycle;
+const pe = portfolioEvidence;
 
 export const UNITS = [
   {
@@ -49,18 +53,51 @@ export const UNITS = [
       <p>Modern AI systems, particularly LLMs like GPT-4 or Gemini, are sophisticated statistical engines trained on vast text corpora. They predict the most plausible next token in a sequence — they do not "understand" text in the way humans do. This distinction is the foundation of AI literacy: the capacity to engage with AI tools critically, ethically, and effectively.</p>
 
       ${q('q1',
-        'An AI model that answers questions by predicting likely word sequences is best described as:',
-        ['A conscious reasoning agent', 'A stochastic pattern matcher', 'An internet search engine', 'A human expert system'],
-        1,
-        'LLMs are probabilistic pattern matchers — they produce plausible outputs, not verified truths.'
-      )}
+      'An AI model that answers questions by predicting likely word sequences is best described as:',
+      ['A conscious reasoning agent', 'A stochastic pattern matcher', 'An internet search engine', 'A human expert system'],
+      1,
+      'LLMs are probabilistic pattern matchers — they produce plausible outputs, not verified truths.'
+    )}
 
-      ${ex('e1',
-        'AI Encounter Journal',
-        'Describe a recent interaction you had with an AI tool…',
-        'Describe one recent interaction you had with an AI tool (e.g. ChatGPT, Gemini, Copilot). What did you ask? What did it produce? What surprised, impressed, or concerned you?',
-        'Reflective journal on personal AI use in academic contexts'
-      )}
+      ${pc('u1-pc', {
+      title: 'AI Literacy Application',
+      intro: 'Choose your level of inquiry. Complete one track fully before recording your learning cycle.',
+      supportedTitle: 'Supported',
+      supportedTasks: [
+        'Identify three common AI tools used by students.',
+        'List one risk of using these tools for academic work.'
+      ],
+      coreTitle: 'Core',
+      coreTasks: [
+        'Compare how a generic search engine and an LLM generate their answers.',
+        'Evaluate a recent interaction you had with an AI tool for accuracy.'
+      ],
+      advancedTitle: 'Advanced',
+      advancedTasks: [
+        'Synthesize the "stochastic parrot" concept in relation to academic integrity policies.',
+        'Justify why AI literacy is a foundational academic skill in your discipline.'
+      ]
+    })}
+      
+      ${em('u1-em', {
+      title: 'Essay Milestone 1',
+      target: 'Establish your primary argument regarding AI use.',
+      checklist: [
+        'Formulate a claim regarding the role of AI in your field.',
+        'Ensure the claim does not suggest AI "understands" human concepts.'
+      ]
+    })}
+
+      ${hc('u1-hc', {
+      title: 'Unit 1 Learning Cycle',
+      prompt: 'Reflect deeply (80+ words) on your pathway choice in relation to your learning contract.',
+      context: 'Unit 1: AI Literacy Foundations. Focus on the shift from viewing AI as an oracle to a probabilistic tool.'
+    })}
+
+      ${pe('u1-pe', {
+      title: 'AI Literacy Transfer Artifact',
+      target: 'Link an artifact (e.g. prompt log, verified essay plan) showing you applied AI literacy skills to another module.'
+    })}
     `,
   },
 
@@ -83,22 +120,40 @@ export const UNITS = [
 
       ${ivp('digital')}
 
-      <h2>The Information Ecosystem</h2>
-      <p>Academic literature exists in a hierarchy. Primary sources (original research) sit at the top. Secondary sources (reviews, syntheses) interpret primary research. Grey literature (government reports, NGO white papers, conference proceedings) falls outside traditional commercial publishing but is often highly authoritative. Understanding where a source sits in this hierarchy shapes how you use and cite it.</p>
+      ${pc('u2-pc', {
+      supportedTasks: [
+        'Perform a basic Google search on a topic of interest.',
+        'Note the number of results and identifying features of the top three links.'
+      ],
+      coreTasks: [
+        'Use Boolean operators AND, OR, NOT to refine your search.',
+        'Find one scholarly article and one grey literature source using high-quality databases.'
+      ],
+      advancedTasks: [
+        'Construct a complex search string using nested parentheses and wildcards.',
+        'Critically evaluate why specific databases (e.g. Scopus vs Scholar) return significantly different result sets.'
+      ]
+    })}
 
-      ${q('q2',
-        'A government health department report on vaccine efficacy is best classified as:',
-        ['Primary literature', 'Secondary literature', 'Grey literature', 'Social media'],
-        2,
-        'Grey literature includes documents from government bodies, NGOs, and think tanks — authoritative but not peer-reviewed.'
-      )}
+      ${em('u2-em', {
+      title: 'Essay Milestone 2',
+      target: 'Gather your evidence base.',
+      checklist: [
+        'Include at least 5 scholarly sources in your reading list.',
+        'Distinguish clearly between primary evidence and secondary commentary.'
+      ]
+    })}
 
-      ${ex('e2',
-        'Boolean Search Log',
-        'I searched for… using the operators…',
-        'Conduct a Boolean search on a topic relevant to your discipline. Document your search string, the database used, and evaluate three results: one scholarly, one grey literature, one you would reject and why.',
-        'Boolean search operators and academic database navigation'
-      )}
+      ${hc('u2-hc', {
+      title: 'Unit 2 Learning Cycle',
+      prompt: 'Reflect (80+ words) on how Boolean searching has changed your "path of least resistance" when finding info.',
+      context: 'Unit 2: Digital Information Landscapes. Focus on moving from "googling" to strategic inquiry.'
+    })}
+
+      ${pe('u2-pe', {
+      title: 'Database Skills Transfer',
+      target: 'Evidence of a specific database search string used in another module to find a peer-reviewed source.'
+    })}
     `,
   },
 
@@ -117,33 +172,61 @@ export const UNITS = [
 
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin:20px 0 30px;">
         ${['Stop — pause before sharing or citing.',
-           'Investigate the source — who is behind it?',
-           'Find better coverage — look for corroboration.',
-           'Trace claims — go back to the original source.']
-          .map((s, i) => `<div class="ex-block" style="margin:0;">
+        'Investigate the source — who is behind it?',
+        'Find better coverage — look for corroboration.',
+        'Trace claims — go back to the original source.']
+        .map((s, i) => `<div class="ex-block" style="margin:0;">
             <strong style="color:var(--amber);">${s.split('—')[0].trim()}</strong>
             <p style="font-size:13px;margin:4px 0 0;">— ${s.split('—')[1].trim()}</p>
           </div>`).join('')}
       </div>
 
       ${q('q3',
-        'Lateral reading means:',
-        [
-          'Reading an article very carefully from start to finish.',
-          'Opening other tabs to verify a source from outside itself.',
-          'Skimming only the headings and abstract.',
-          'Reading the "About Us" page of a website.',
-        ],
-        1,
-        'Lateral reading means verifying a source by reading what others say about it — not what it says about itself.'
-      )}
+          'Lateral reading means:',
+          [
+            'Reading an article very carefully from start to finish.',
+            'Opening other tabs to verify a source from outside itself.',
+            'Skimming only the headings and abstract.',
+            'Reading the "About Us" page of a website.',
+          ],
+          1,
+          'Lateral reading means verifying a source by reading what others say about it — not what it says about itself.'
+        )}
 
-      ${ex('e3',
-        'SIFT Analysis',
-        'The source I evaluated was…',
-        'Apply the full SIFT protocol to one source you\'ve found for a current assignment. Document each step and conclude with a verdict: cite, use with caution, or reject.',
-        'SIFT framework for evaluating digital sources and lateral reading'
-      )}
+      ${pc('u3-pc', {
+          supportedTasks: [
+            'Identify the author and date of an online source.',
+            'Check if the source links to any external evidence.'
+          ],
+          coreTasks: [
+            'Practice lateral reading: what do other reliable sites say about this organization?',
+            'Apply the SIFT framework to verify a breaking news story or controversial claim.'
+          ],
+          advancedTasks: [
+            'Critique the SIFT framework for highly niche academic claims.',
+            'Evaluate the role of "consensus" in lateral reading when dealing with emerging research.'
+          ]
+        })}
+
+      ${em('u3-em', {
+          title: 'Essay Milestone 3',
+          target: 'Vett your bibliography for impact and authority.',
+          checklist: [
+            'Verify the credentials of your three most cited authors.',
+            'Ensure your sources reflect a diverse range of perspectives (where appropriate).'
+          ]
+        })}
+
+      ${hc('u3-hc', {
+          title: 'Unit 3 Learning Cycle',
+          prompt: 'Reflect (80+ words) on a time you were misled by a source and how SIFT would have prevented it.',
+          context: 'Unit 3: Critical Source Evaluation. Focus on the distinction between "reading vertically" and "reading laterally".'
+        })}
+
+      ${pe('u3-pe', {
+          title: 'Evaluation Framework Transfer',
+          target: 'Link to a SIFT analysis you performed on a source for a different module.'
+        })}
     `,
   },
 
@@ -178,18 +261,18 @@ export const UNITS = [
       </div>
 
       ${q('q4',
-        'A student uses ChatGPT to translate their entire essay from Spanish to English. Is this allowed?',
-        ['Yes, translation is fine.', 'No, unless explicitly permitted by policy.', 'Yes, if they fix the grammar later.', 'Only if they pay for GPT-4.'],
-        1,
-        'Machine translation of whole assignments is generally considered unoriginal work — always check your institution\'s policy.'
-      )}
+      'A student uses ChatGPT to translate their entire essay from Spanish to English. Is this allowed?',
+      ['Yes, translation is fine.', 'No, unless explicitly permitted by policy.', 'Yes, if they fix the grammar later.', 'Only if they pay for GPT-4.'],
+      1,
+      'Machine translation of whole assignments is generally considered unoriginal work — always check your institution\'s policy.'
+    )}
 
       ${ex('e4',
-        'Personal AI Ethics Policy',
-        'I will use AI for… but not for…',
-        'Draft a brief personal policy (3–4 sentences) on exactly how you will use — or not use — AI in your upcoming assignments. How will you declare its role to your assessor?',
-        'Ethics of AI use in higher education and academic integrity policies'
-      )}
+      'Personal AI Ethics Policy',
+      'I will use AI for… but not for…',
+      'Draft a brief personal policy (3–4 sentences) on exactly how you will use — or not use — AI in your upcoming assignments. How will you declare its role to your assessor?',
+      'Ethics of AI use in higher education and academic integrity policies'
+    )}
     `,
   },
 
@@ -208,13 +291,13 @@ export const UNITS = [
       <div class="ex-block" style="background:#f0f7ff; border:1px solid #cce3ff;">
         <label class="ex-lbl" style="color:#0056b3;">CREATE</label>
         ${[
-          ['C: Context',  'Who are you? What is the academic setting?'],
-          ['R: Role',     'Act as a PhD supervisor / peer-reviewer.'],
-          ['E: Examples', 'Provide a sample of the style you want.'],
-          ['A: Ask',      'The specific task you want performed.'],
-          ['T: Target',   'Who is the audience for this output?'],
-          ['E: Execute',  'Final check — run and iterate.'],
-        ].map(([k, v]) => `<p style="font-size:13px;margin-bottom:5px;"><strong>${k}</strong> — ${v}</p>`).join('')}
+        ['C: Context', 'Who are you? What is the academic setting?'],
+        ['R: Role', 'Act as a PhD supervisor / peer-reviewer.'],
+        ['E: Examples', 'Provide a sample of the style you want.'],
+        ['A: Ask', 'The specific task you want performed.'],
+        ['T: Target', 'Who is the audience for this output?'],
+        ['E: Execute', 'Final check — run and iterate.'],
+      ].map(([k, v]) => `<p style="font-size:13px;margin-bottom:5px;"><strong>${k}</strong> — ${v}</p>`).join('')}
       </div>
 
       ${ex('e5',

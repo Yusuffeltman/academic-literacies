@@ -2,7 +2,7 @@
 // Unit 10: Strategic Scholarly Reading
 // Phase 3 — Academic Communication | Reading Level: ACADEMIC ENTRY Level 1
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 export const VIDEO_KEY = 'unit10';
@@ -41,10 +41,10 @@ const RT_U10 = {
       <div class="rt-infographic-title">The Three-Pass Method at a Glance</div>
       <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:16px;">
         ${[
-          ['1st Pass', '5–10 min', 'Orientation', '#6366f1', ['Read: Title, Abstract, Introduction, Headings, Conclusion', 'Goal: Is this paper relevant?', 'Output: Yes / No / Maybe decision'], 'Read like a scout — you are mapping the territory, not settling it.'],
-          ['2nd Pass', '20–40 min', 'Understanding', '#fbbf24', ['Read: Full paper — but do not stop at every unknown word', 'Goal: Understand the argument and evidence', 'Output: Brief notes on key claims and findings'], 'Read like a journalist — get the story before you analyse it.'],
-          ['3rd Pass', '30–60 min', 'Critique', '#10b981', ['Re-read: Key sections with critical questions active', 'Goal: Evaluate assumptions, evidence quality, limitations', 'Output: Your analytical position on the paper'], 'Read like a scholar — question, compare, evaluate, judge.'],
-        ].map(([num, time, label, colour, items, tip]) => `
+      ['1st Pass', '5–10 min', 'Orientation', '#6366f1', ['Read: Title, Abstract, Introduction, Headings, Conclusion', 'Goal: Is this paper relevant?', 'Output: Yes / No / Maybe decision'], 'Read like a scout — you are mapping the territory, not settling it.'],
+      ['2nd Pass', '20–40 min', 'Understanding', '#fbbf24', ['Read: Full paper — but do not stop at every unknown word', 'Goal: Understand the argument and evidence', 'Output: Brief notes on key claims and findings'], 'Read like a journalist — get the story before you analyse it.'],
+      ['3rd Pass', '30–60 min', 'Critique', '#10b981', ['Re-read: Key sections with critical questions active', 'Goal: Evaluate assumptions, evidence quality, limitations', 'Output: Your analytical position on the paper'], 'Read like a scholar — question, compare, evaluate, judge.'],
+    ].map(([num, time, label, colour, items, tip]) => `
           <div style="border:2px solid ${colour}40; border-radius:12px; overflow:hidden;">
             <div style="background:${colour}; padding:14px 16px; color:#fff;">
               <div style="font-family:'DM Mono',monospace; font-size:11px; letter-spacing:1px; opacity:.8;">${time}</div>
@@ -99,31 +99,72 @@ export const unit10 = {
     <div id="ivp-unit10" data-video-key="unit10" class="ivp-container"></div>
 
     ${quiz('q10a',
-      'A student says: "I read every word of the article three times and I still don\'t understand it." Based on the three-pass method, what is most likely going wrong?',
-      [
-        'The article is too advanced for their level',
-        'They are reading linearly without a clear purpose for each pass — reading for understanding and reading for critique require different mental modes and should be separated',
-        'They need to read more slowly',
-        'The article is probably poorly written',
-      ],
-      1,
-      '✅ Reading the same text three times in the same way does not produce three times the understanding. The three-pass method works because each pass has a different purpose and activates different cognitive processes. The first pass tells you what you are looking for. The second pass gives you the content. The third pass gives you your analytical position.'
-    )}
+    'A student says: "I read every word of the article three times and I still don\'t understand it." Based on the three-pass method, what is most likely going wrong?',
+    [
+      'The article is too advanced for their level',
+      'They are reading linearly without a clear purpose for each pass — reading for understanding and reading for critique require different mental modes and should be separated',
+      'They need to read more slowly',
+      'The article is probably poorly written',
+    ],
+    1,
+    '✅ Reading the same text three times in the same way does not produce three times the understanding. The three-pass method works because each pass has a different purpose and activates different cognitive processes. The first pass tells you what you are looking for. The second pass gives you the content. The third pass gives you your analytical position.'
+  )}
 
     ${quiz('q10b',
-      'An article\'s abstract says: "This study found that learners taught using a reading circle method outperformed a control group." Before accepting this finding, which question is MOST analytically important?',
-      [
-        'What were the names of the learners in the study?',
-        'How big were the groups, what was the "control group" doing instead, and how was "outperformed" measured — so you can evaluate whether the comparison is fair and the claim is supported',
-        'Whether the authors have published other papers on reading',
-        'Which university was the study conducted at',
-      ],
-      1,
-      '✅ The most analytically important questions are always about methodology. "Outperformed" means nothing without knowing: how much better? On what measure? Compared to what exactly? With how many participants? Over what time period? These methodological details determine whether the finding is robust or fragile — and whether it applies to your context.'
-    )}
+    'An article\'s abstract says: "This study found that learners taught using a reading circle method outperformed a control group." Before accepting this finding, which question is MOST analytically important?',
+    [
+      'What were the names of the learners in the study?',
+      'How big were the groups, what was the "control group" doing instead, and how was "outperformed" measured — so you can evaluate whether the comparison is fair and the claim is supported',
+      'Whether the authors have published other papers on reading',
+      'Which university was the study conducted at',
+    ],
+    1,
+    '✅ The most analytically important questions are always about methodology. "Outperformed" means nothing without knowing: how much better? On what measure? Compared to what exactly? With how many participants? Over what time period? These methodological details determine whether the finding is robust or fragile — and whether it applies to your context.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u10', {
+    title: 'Unit 10 Challenge Tracks',
+    intro: 'Use the three-pass method at increasing levels of analysis depth.',
+    supportedTasks: [
+      'Apply Pass 1 and Pass 2 to one article and summarise key findings.',
+      'Identify one method limitation from the text.',
+    ],
+    coreTasks: [
+      'Apply all three passes to one article and record critique notes.',
+      'Write one paragraph evaluating evidence-method fit.',
+    ],
+    advancedTasks: [
+      'Apply all three passes to two contrasting articles.',
+      'Produce a comparative analytical judgement for essay use.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u10', RT_U10)}
+
+    ${essayMilestone('u10', {
+    title: 'Essay Milestone (Unit 10)',
+    target: 'Strengthen literature critique so evidence selection is argument-driven.',
+    checklist: [
+      'Annotate one article with pass-based critique notes.',
+      'Add one sentence in your draft discussing study limitations.',
+      'Refine one paragraph to distinguish summary from analysis.',
+    ],
+  })}
+
+    ${heutagogyCycle('u10-contract', {
+    title: 'Unit 10 Learning Contract',
+    prompt: 'Apply the three-pass method to a core reading and choose your analytical depth.',
+    context: 'Unit 10: three-pass method, analytical reading, orientation, understanding, critique',
+    pathwayOptions: ['Supported: Complete Pass 1 and 2 for one article', 'Core: Complete all 3 passes for one article', 'Advanced: Apply all 3 passes to two contrasting articles'],
+    evidenceHint: 'Log your critique notes (Pass 3) showing your evaluation of the methodology.',
+  })}
+
+    ${portfolioEvidence('u10-pe', {
+    title: 'Analytical Reading Artifact',
+    target: 'Link to a set of three-pass annotation notes for a journal article in your field.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

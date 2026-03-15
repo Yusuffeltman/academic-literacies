@@ -1,7 +1,7 @@
 // content/units/unit12.js — Academic Writing: Argument & Structure
 // Phase 3 | Academic Entry Level 3
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 export const VIDEO_KEY = 'unit12';
 
@@ -85,32 +85,73 @@ export const unit12 = {
     <div id="ivp-unit12" data-video-key="unit12" class="ivp-container"></div>
 
     ${quiz('q12a',
-      'Which of these is the strongest topic sentence for a paragraph in an essay about AI in education?',
-      [
-        'This paragraph will discuss AI in South African classrooms.',
-        'AI is a very interesting topic in education today.',
-        'The uncritical adoption of AI tools in underfunded South African schools risks amplifying existing inequalities rather than reducing them.',
-        'Many researchers have studied AI in education and found different things.',
-      ],
-      2,
-      '✅ A strong topic sentence makes a specific, arguable claim — one that requires evidence and analysis to support, and that a reasonable person could disagree with. Options A and B state topics without making claims. Option D is too vague. Option C makes a precise, contestable argument that tells the reader exactly what the paragraph will prove.'
-    )}
+    'Which of these is the strongest topic sentence for a paragraph in an essay about AI in education?',
+    [
+      'This paragraph will discuss AI in South African classrooms.',
+      'AI is a very interesting topic in education today.',
+      'The uncritical adoption of AI tools in underfunded South African schools risks amplifying existing inequalities rather than reducing them.',
+      'Many researchers have studied AI in education and found different things.',
+    ],
+    2,
+    '✅ A strong topic sentence makes a specific, arguable claim — one that requires evidence and analysis to support, and that a reasonable person could disagree with. Options A and B state topics without making claims. Option D is too vague. Option C makes a precise, contestable argument that tells the reader exactly what the paragraph will prove.'
+  )}
 
     ${quiz('q12b',
-      'A student writes: "Vygotsky (1978) said that learning is social. This is important for education." What is missing from this as an analytical explanation?',
-      [
-        'A page number in the citation',
-        'Any analysis of WHAT it means for education, WHY it matters, or HOW it supports the essay\'s argument — the student has presented evidence and told us it is "important" without explaining what it means or why',
-        'A second source to support Vygotsky',
-        'Nothing — this is a valid analytical explanation',
-      ],
-      1,
-      '✅ "This is important" is not explanation — it is an assertion that explanation is needed. Analytical explanation must say specifically: important for what? In what way? For which learners? Under what conditions? An analytical sentence might read: "Vygotsky\'s argument that cognition originates in social interaction (1978) reframes classroom talk not as a distraction from learning but as its primary vehicle — with direct implications for inclusive classroom design."'
-    )}
+    'A student writes: "Vygotsky (1978) said that learning is social. This is important for education." What is missing from this as an analytical explanation?',
+    [
+      'A page number in the citation',
+      'Any analysis of WHAT it means for education, WHY it matters, or HOW it supports the essay\'s argument — the student has presented evidence and told us it is "important" without explaining what it means or why',
+      'A second source to support Vygotsky',
+      'Nothing — this is a valid analytical explanation',
+    ],
+    1,
+    '✅ "This is important" is not explanation — it is an assertion that explanation is needed. Analytical explanation must say specifically: important for what? In what way? For which learners? Under what conditions? An analytical sentence might read: "Vygotsky\'s argument that cognition originates in social interaction (1978) reframes classroom talk not as a distraction from learning but as its primary vehicle — with direct implications for inclusive classroom design."'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u12', {
+    title: 'Unit 12 Challenge Tracks',
+    intro: 'Develop paragraph-level argument control from PEEL to essay coherence.',
+    supportedTasks: [
+      'Write one complete PEEL paragraph with clear labels in draft.',
+      'Ensure one valid in-text citation supports your Evidence sentence.',
+    ],
+    coreTasks: [
+      'Write two PEEL paragraphs that connect to one thesis statement.',
+      'Revise Explanation sentences to show analysis rather than summary.',
+    ],
+    advancedTasks: [
+      'Write three connected PEEL paragraphs that form a coherent argument chain.',
+      'Integrate one counterargument response in a Link sentence.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     <p>The reading this week includes a fully annotated model PEEL paragraph, which you will analyse before writing your own. This is deliberate — seeing what a strong paragraph looks like in practice is one of the most effective ways to learn to write one.</p>
     ${readingTask('rt-u12', RT_U12)}
+
+    ${essayMilestone('u12', {
+    title: 'Essay Milestone (Unit 12)',
+    target: 'Consolidate full essay structure using linked PEEL paragraphs and thesis alignment.',
+    checklist: [
+      'Confirm that each body paragraph has Point, Evidence, Explanation, and Link.',
+      'Check that every Link sentence reinforces the central thesis.',
+      'Run one revision pass for argument flow across all paragraphs.',
+    ],
+  })}
+
+    ${heutagogyCycle('u12-contract', {
+    title: 'Unit 12 Learning Contract',
+    prompt: 'Master the PEEL architecture for your core essay argument.',
+    context: 'Unit 12: PEEL structure, Point, Evidence, Explanation, Link, thesis alignment',
+    pathwayOptions: ['Supported: Write one labelled PEEL paragraph', 'Core: Connect two PEEL paragraphs to one thesis', 'Advanced: Build a 3-paragraph argument chain'],
+    evidenceHint: 'Upload or link to your drafted PEEL paragraph with Point and Link highlighted.',
+  })}
+
+    ${portfolioEvidence('u12-pe', {
+    title: 'PEEL Paragraph Portfolio Artifact',
+    target: 'Link to a high-quality PEEL paragraph from your actual course essay.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

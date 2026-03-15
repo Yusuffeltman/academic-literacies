@@ -1,7 +1,7 @@
 // content/units/unit07.js — Unit 7: SIFT & Lateral Reading
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_CONFIG = {
   id: 'rt-u7', unitId: 'u7', unitNum: 7,
@@ -86,16 +86,56 @@ export const unit07 = {
     <div class="section-label">🎬 Watch First</div>
     <p>Mike Caulfield developed SIFT after discovering why traditional "read carefully" media literacy approaches were not working. This will change how you evaluate every source from this point forward.</p>
     <div id="ivp-unit7" data-video-key="unit7" class="ivp-container"></div>
-    ${quiz('q7a','Lateral reading means:',['Reading an article very carefully from beginning to end','Opening new tabs to find what other sources say about the source you are evaluating','Skimming headings and subheadings','Reading the "About Us" and "Contact" pages'],1,'✅ Lateral reading takes you off the source immediately. In under 3 minutes, you will know more about a source\'s credibility than hours of close reading. The "About Us" page is written by the source itself — it cannot verify the source\'s credibility.')}
-    ${quiz('q7b','Africa Check is South Africa\'s leading independent fact-checking organisation. In the SIFT framework, Africa Check is most useful at which step?',['S — Stop: to pause your emotional reaction','I — Investigate: to check who is behind a source','F — Find better coverage: to find fact-checks on a specific claim','T — Trace: to find the original upstream source'],2,'✅ Africa Check is most useful for "Find better coverage" — they systematically fact-check claims and document their methodology with citations. They also help with "Trace" (they often identify the original source of a claim), but their primary value is providing independent, verified coverage of a claim.')}
+    ${quiz('q7a', 'Lateral reading means:', ['Reading an article very carefully from beginning to end', 'Opening new tabs to find what other sources say about the source you are evaluating', 'Skimming headings and subheadings', 'Reading the "About Us" and "Contact" pages'], 1, '✅ Lateral reading takes you off the source immediately. In under 3 minutes, you will know more about a source\'s credibility than hours of close reading. The "About Us" page is written by the source itself — it cannot verify the source\'s credibility.')}
+    ${quiz('q7b', 'Africa Check is South Africa\'s leading independent fact-checking organisation. In the SIFT framework, Africa Check is most useful at which step?', ['S — Stop: to pause your emotional reaction', 'I — Investigate: to check who is behind a source', 'F — Find better coverage: to find fact-checks on a specific claim', 'T — Trace: to find the original upstream source'], 2, '✅ Africa Check is most useful for "Find better coverage" — they systematically fact-check claims and document their methodology with citations. They also help with "Trace" (they often identify the original source of a claim), but their primary value is providing independent, verified coverage of a claim.')}
     <h2>📊 Visual Activity: Critically Evaluating an Infographic</h2>
     <p>Infographics circulate constantly in teacher WhatsApp groups and social media. Many look professional and cite impressive statistics — but their sources cannot be verified. This activity gives you practice applying SIFT specifically to visual content.</p>
     ${visualTask('vt-u7', VT_CONFIG)}
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u7', {
+    title: 'Unit 7 Challenge Tracks',
+    intro: 'Use SIFT at increasing levels of critical depth and traceability.',
+    supportedTasks: [
+      'Apply SIFT to one source and produce a reliability verdict.',
+      'Record one lateral-reading check that changed your view.',
+    ],
+    coreTasks: [
+      'Apply SIFT to two sources on the same claim and compare outcomes.',
+      'Trace one claim to its upstream source and evaluate quality.',
+    ],
+    advancedTasks: [
+      'Build a short verification memo with source-strength ranking.',
+      'Justify why one source is usable in academic writing and one is not.',
+    ],
+  })}
     <div class="concept-card"><div class="concept-card-label">South African Fact-Checking Resources</div>
     <p><strong>Africa Check</strong> (africacheck.org) — covers SA politics, health, education, social issues. Transparent methodology, cites primary sources.</p>
     <p><strong>GroundUp</strong> (groundup.org.za) — evidence-based community journalism. Excellent on education, housing, social policy. Corrects errors transparently.</p></div>
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u7', RT_CONFIG)}
+    ${essayMilestone('u7', {
+    title: 'Essay Milestone (Unit 7)',
+    target: 'Integrate source credibility judgement directly into your essay evidence chain.',
+    checklist: [
+      'Add one evidence paragraph where you explicitly evaluate source credibility.',
+      'Replace one weak source with a stronger verified source.',
+      'Write one sentence explaining how verification changed your argument strength.',
+    ],
+  })}
+    ${heutagogyCycle('u7-contract', {
+    title: 'Unit 7 Learning Contract',
+    prompt: 'Refine your fact-checking habit and choose your verification challenge level.',
+    context: 'Unit 7: SIFT framework, lateral reading, Africa Check, source verification',
+    pathwayOptions: ['Supported: Apply SIFT to one source', 'Core: Compare two sources on one claim', 'Advanced: Trace one claim to its upstream source and evaluate'],
+    evidenceHint: 'Log your lateral-reading steps and your final reliability verdict.',
+  })}
+
+    ${portfolioEvidence('u7-pe', {
+    title: 'Verification Protocol Artifact',
+    target: 'Link to a documented SIFT analysis of a real source from your teaching discipline.',
+  })}
+
     <div class="unit-closing"><div class="unit-closing-label">Before You Move On</div>
-    <p>"The goal is not to distrust everything. The goal is to know — specifically, with evidence — why you trust what you trust."</p></div>`,
+    <p>"The goal is not to distrust everything. The goal is to know — specifically, with evidence — why you trust what you trust."</p></div>
+  `,
 };

@@ -1,7 +1,7 @@
 // content/units/unit18.js — Academic Integrity in the Age of AI
 // Phase 4 — AI as a Scholarly Tool
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 const RT_U18 = {
@@ -67,31 +67,72 @@ export const unit18 = {
     <p>This unit has no video. Instead, before the reading activity, spend 3 minutes responding to this question in writing: <em>"If your lecturer could see every interaction you had with AI while completing your last assignment, would you be comfortable? Why or why not?"</em> Write honestly — this is for you, not for submission.</p>
 
     ${quiz('q18a',
-      'A student uses AI to generate a first draft of their literature review, then reads and edits it, adding their own citations and changing several sentences. Is this acceptable academic practice?',
-      [
-        'Yes — they edited it, so it counts as their own work',
-        'It depends on the institution\'s AI policy — but under most current policies, using AI to generate the substantive content of an assessed piece of work (even if edited) is either prohibited or requires explicit disclosure, and in many cases constitutes academic misconduct',
-        'Yes — all that matters is the final product',
-        'No — students should never use AI tools at all',
-      ],
-      1,
-      '✅ The key issue is whether the work honestly represents the student\'s own intellectual engagement with the task. Generating a draft and editing it means the structure, argument, and many ideas originated with the AI, not the student. Most current policies treat this as academic misconduct or require specific disclosure. The only safe approach: check your institution\'s policy and disclose AI use when in doubt.'
-    )}
+    'A student uses AI to generate a first draft of their literature review, then reads and edits it, adding their own citations and changing several sentences. Is this acceptable academic practice?',
+    [
+      'Yes — they edited it, so it counts as their own work',
+      'It depends on the institution\'s AI policy — but under most current policies, using AI to generate the substantive content of an assessed piece of work (even if edited) is either prohibited or requires explicit disclosure, and in many cases constitutes academic misconduct',
+      'Yes — all that matters is the final product',
+      'No — students should never use AI tools at all',
+    ],
+    1,
+    '✅ The key issue is whether the work honestly represents the student\'s own intellectual engagement with the task. Generating a draft and editing it means the structure, argument, and many ideas originated with the AI, not the student. Most current policies treat this as academic misconduct or require specific disclosure. The only safe approach: check your institution\'s policy and disclose AI use when in doubt.'
+  )}
 
     ${quiz('q18b',
-      'Your university\'s AI policy says: "Students may use AI tools for research support but must not submit AI-generated text as their own work." You use AI to explain a difficult concept to you in simple terms, then write your own explanation in your essay. Is this permitted?',
-      [
-        'No — you cannot use AI at all under this policy',
-        'Most likely yes — using AI to help you understand a concept (like using a tutor or dictionary) and then writing your own explanation is research support, not submitting AI-generated text. But confirm this interpretation with your lecturer if uncertain.',
-        'No — you must understand everything without AI',
-        'Yes — and you do not need to disclose this use',
-      ],
-      1,
-      '✅ Using AI as a comprehension tool — to explain, clarify, or simplify — is analogous to using a tutor, a dictionary, or a YouTube explainer. Writing your own sentences after that understanding is your work. However, "most likely permitted" is not the same as "definitely permitted" — institutional policies vary, and when in doubt, ask before submitting. Some policies also require disclosure of AI use even when permitted.'
-    )}
+    'Your university\'s AI policy says: "Students may use AI tools for research support but must not submit AI-generated text as their own work." You use AI to explain a difficult concept to you in simple terms, then write your own explanation in your essay. Is this permitted?',
+    [
+      'No — you cannot use AI at all under this policy',
+      'Most likely yes — using AI to help you understand a concept (like using a tutor or dictionary) and then writing your own explanation is research support, not submitting AI-generated text. But confirm this interpretation with your lecturer if uncertain.',
+      'No — you must understand everything without AI',
+      'Yes — and you do not need to disclose this use',
+    ],
+    1,
+    '✅ Using AI as a comprehension tool — to explain, clarify, or simplify — is analogous to using a tutor, a dictionary, or a YouTube explainer. Writing your own sentences after that understanding is your work. However, "most likely permitted" is not the same as "definitely permitted" — institutional policies vary, and when in doubt, ask before submitting. Some policies also require disclosure of AI use even when permitted.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u18', {
+    title: 'Unit 18 Challenge Tracks',
+    intro: 'Strengthen integrity practice from policy awareness to self-governed ethical action.',
+    supportedTasks: [
+      'Identify one permitted and one prohibited AI use under your policy.',
+      'Write one disclosure statement for a permitted use.',
+    ],
+    coreTasks: [
+      'Draft a personal AI ethics rule with a practical decision test.',
+      'Apply it to two realistic assignment scenarios.',
+    ],
+    advancedTasks: [
+      'Produce a full personal AI ethics policy with transparency protocol.',
+      'Justify boundary decisions in terms of learning integrity, not convenience.',
+    ],
+  })}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u18', RT_U18)}
+
+    ${essayMilestone('u18', {
+    title: 'Essay Milestone (Unit 18)',
+    target: 'Finalise ethical authorship and AI-use transparency for your essay submission process.',
+    checklist: [
+      'Confirm authorship integrity: all core argument writing is your own.',
+      'Add a disclosure note if AI was used for support tasks.',
+      'Document one integrity check you performed before submission.',
+    ],
+  })}
+
+    ${heutagogyCycle('u18-contract', {
+    title: 'Unit 18 Learning Contract',
+    prompt: 'Develop a personal ethics framework for AI use in your scholarship.',
+    context: 'Unit 18: academic integrity, personal ethics policy, transparency, institutional policy',
+    pathwayOptions: ['Supported: Identify permitted vs prohibited uses under your policy', 'Core: Draft a personal AI ethics rule with a decision test', 'Advanced: Produce a full transparency protocol for your research process'],
+    evidenceHint: 'Log your Personal AI Ethics Policy statement.',
+  })}
+
+    ${portfolioEvidence('u18-pe', {
+    title: 'AI Ethics Policy Portfolio Artifact',
+    target: 'Link to your Personal AI Ethics Policy or an authorship transparency memo.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

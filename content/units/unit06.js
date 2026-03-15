@@ -1,7 +1,7 @@
 // content/units/unit06.js — Unit 6: Scopus AI & Intelligent Literature Discovery
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, heutagogyCycle, pathwayChallenge, essayMilestone, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_CONFIG = {
   id: 'rt-u6', unitId: 'u6', unitNum: 6,
@@ -83,13 +83,65 @@ export const unit06 = {
     <div class="section-label">🎬 Watch First</div>
     <p>This Elsevier tutorial demonstrates Scopus AI's core features. Pay close attention to how the tool explains its reasoning — that explanation is your first evaluation tool.</p>
     <div id="ivp-unit6" data-video-key="unit6" class="ivp-container"></div>
-    ${quiz('q6a','Scopus AI surfaces a 2018 paper with 312 citations. Google Scholar also returns a 2024 preprint on the same topic. Which should you read first and why?',['The 2024 preprint — more recent means more relevant','The 2018 paper — older papers are always more reliable','Read the 2018 paper first for foundational understanding, then the 2024 preprint for recent developments — noting it is not yet peer-reviewed','Both are equally useful'],2,'✅ A highly cited 2018 paper is likely a landmark study — read it to understand what the field established. A 2024 preprint offers current thinking but has not survived peer review. Both have value. Good researchers read both and note the difference.')}
-    ${quiz('q6b','You ask ChatGPT for five references on inclusive education in South Africa. It provides five detailed, well-formatted citations. What must you do before using any of them?',['Use them directly — ChatGPT is reliable for academic citations','Check that each one appears in Scopus or Google Scholar and verify all details','Ask ChatGPT to double-check its own citations','Use only the three most recent ones'],1,'✅ AI chatbots frequently hallucinate citations. Always verify every AI-generated citation in Scopus or Google Scholar before use. Submitting a hallucinated reference is academic misconduct — even if you did not know it was false.')}
+    ${quiz('q6a', 'Scopus AI surfaces a 2018 paper with 312 citations. Google Scholar also returns a 2024 preprint on the same topic. Which should you read first and why?', ['The 2024 preprint — more recent means more relevant', 'The 2018 paper — older papers are always more reliable', 'Read the 2018 paper first for foundational understanding, then the 2024 preprint for recent developments — noting it is not yet peer-reviewed', 'Both are equally useful'], 2, '✅ A highly cited 2018 paper is likely a landmark study — read it to understand what the field established. A 2024 preprint offers current thinking but has not survived peer review. Both have value. Good researchers read both and note the difference.')}
+    ${quiz('q6b', 'You ask ChatGPT for five references on inclusive education in South Africa. It provides five detailed, well-formatted citations. What must you do before using any of them?', ['Use them directly — ChatGPT is reliable for academic citations', 'Check that each one appears in Scopus or Google Scholar and verify all details', 'Ask ChatGPT to double-check its own citations', 'Use only the three most recent ones'], 1, '✅ AI chatbots frequently hallucinate citations. Always verify every AI-generated citation in Scopus or Google Scholar before use. Submitting a hallucinated reference is academic misconduct — even if you did not know it was false.')}
     <h2>📊 Visual Activity: Choosing the Right Research Tool</h2>
     <p>Research decisions depend on understanding your tools. This comparison table will help you internalise when to use each platform — and crucially, which ones carry risk for academic citation.</p>
     ${visualTask('vt-u6', VT_CONFIG)}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u6', {
+    title: 'Unit 6 Challenge Tracks',
+    intro: 'Complete a search strategy challenge that directly feeds your full essay draft.',
+    supportedTasks: [
+      'Generate one high-quality Scopus query and retrieve two verified sources.',
+      'Draft one body paragraph using those sources.',
+    ],
+    coreTasks: [
+      'Retrieve at least three verified sources and map each to paragraph purpose.',
+      'Draft intro + two body paragraphs + conclusion.',
+    ],
+    advancedTasks: [
+      'Retrieve sources including one counterargument source and one high-citation foundation source.',
+      'Draft full essay with integrated source critique and revision notes.',
+    ],
+  })}
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u6', RT_CONFIG)}
+
+    ${essayMilestone('u6', {
+    title: 'Essay Milestone (Unit 6 — Full Essay)',
+    target: 'Produce a full academic essay draft with claim, evidence, counterargument, and coherent structure.',
+    checklist: [
+      'Include introduction, at least two body paragraphs, and conclusion.',
+      'Use at least three verified academic sources (with one counter-view).',
+      'Add in-text citations and a matching reference list.',
+      'Complete one revision pass focused on evidence quality and argument coherence.',
+    ],
+  })}
+
+    <h2>Unit 6 Essay Readiness Checkpoint</h2>
+    <p>This checkpoint prepares you for full-essay drafting from this point onward. Your contract must include a claim, evidence plan, and challenge pathway.</p>
+    <div class="concept-card">
+      <div class="concept-card-label">Minimum readiness for full essay drafting</div>
+      <p><strong>1. Defensible claim:</strong> one sentence stating your argument clearly.</p>
+      <p><strong>2. Evidence plan:</strong> at least three verified academic sources with a reason each source is relevant.</p>
+      <p><strong>3. Counter-view:</strong> one credible source that challenges your claim.</p>
+      <p><strong>4. Structure:</strong> planned introduction, two body paragraphs, and conclusion.</p>
+    </div>
+    ${heutagogyCycle('u6-essay-checkpoint', {
+    title: 'Unit 6 Essay Learning Contract',
+    prompt: 'Set your full-essay target and confirm your source strategy before drafting.',
+    context: 'Unit 6: Scopus AI, literature discovery, essay readiness by Unit 6',
+    pathwayOptions: ['Supported: Draft one body paragraph with two verified sources', 'Core: Draft intro + two body paragraphs + conclusion using three sources', 'Advanced: Draft full essay with counterargument integration and source critique'],
+    evidenceHint: 'Capture your claim sentence, source list, and one revision decision you made after checking evidence.',
+  })}
+
+    ${portfolioEvidence('u6-pe', {
+    title: 'Search Strategy Portfolio Artifact',
+    target: 'Link to your Scopus search history and a matching draft segment.',
+  })}
+
     <div class="unit-closing"><div class="unit-closing-label">Before You Move On</div>
     <p>"A tool that searches 90 million peer-reviewed papers in seconds is only as good as the question you ask it. The intellectual work — framing, evaluation, synthesis — is always yours."</p></div>`,
 };

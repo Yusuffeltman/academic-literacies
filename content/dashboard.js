@@ -13,6 +13,15 @@ export const DASHBOARD_CONTENT = {
       title: 'Tip: Use the AI Tutor',
       content: 'The AI Tutor in the bottom right corner is your personal study guide. Use it to clarify concepts, ask questions, and get help with your reading tasks.'
     }
+    ,
+    {
+      id: 3,
+      icon: '📄',
+      title: 'New Governance Resource: Differentiated Rewards Framework',
+      content: 'A new governance resource is available in the platform. Open it in the app to review the differentiated rewards framework that guides fair recognition and feedback.',
+      ctaLabel: 'Open framework',
+      ctaAction: 'governance-rewards',
+    }
   ],
   reminders: [
     {
@@ -38,6 +47,10 @@ export const DASHBOARD_CONTENT = {
       {
         label: 'Contact Email',
         value: 'jsmith@university.ac'
+      },
+      {
+        label: 'Assessment Policy',
+        value: '<a href="content/policies/assessment-policy.md" target="_blank" rel="noopener">Differentiated Rewards — Assessment Policy</a>'
       },
       {
         label: 'Consultation Hours',

@@ -14,9 +14,62 @@
 // ─────────────────────────────────────────────
 
 import { _aiChat } from '../ai.js';
+import { scoreSubmissionForAI, getStudentBaselineProfile } from '../ai-detection.js';
 
 window._vtCfg   = window._vtCfg   || {};
 window._vtState = window._vtState || {};
+
+const VT_STORAGE_PREFIX = 'acadlit-vt-v1';
+
+function _vtStorageKey(id) {
+  const cfg = window._vtCfg[id] || {};
+  return `${VT_STORAGE_PREFIX}:${cfg.unitId || 'nouid'}:${id}`;
+}
+
+function _vtPersist(id) {
+  const st = window._vtState[id];
+  if (!st) return;
+  try {
+    const now = new Date();
+    localStorage.setItem(_vtStorageKey(id), JSON.stringify({
+      phase: st.phase,
+      answers: st.answers || {},
+      submitted: !!st.submitted,
+      feedback: st.feedback || null,
+      aiDetection: st.aiDetection || null,
+      savedAt: now.getTime(),
+    }));
+    _vtSetSaveIndicator(id, now);
+  } catch {}
+}
+
+function _vtSetSaveIndicator(id, dateObj = null) {
+  const el = document.getElementById(`vt-save-${id}`);
+  if (!el) return;
+  if (!dateObj) dateObj = new Date();
+  const h = String(dateObj.getHours()).padStart(2, '0');
+  const m = String(dateObj.getMinutes()).padStart(2, '0');
+  el.textContent = `Last saved at ${h}:${m}`;
+  el.style.color = 'var(--green)';
+}
+
+function _vtRestore(id, baseState) {
+  try {
+    const raw = localStorage.getItem(_vtStorageKey(id));
+    if (!raw) return baseState;
+    const saved = JSON.parse(raw);
+    return {
+      ...baseState,
+      phase: saved.phase || baseState.phase,
+      answers: saved.answers || baseState.answers,
+      submitted: typeof saved.submitted === 'boolean' ? saved.submitted : baseState.submitted,
+      feedback: saved.feedback ?? baseState.feedback,
+      aiDetection: saved.aiDetection ?? baseState.aiDetection,
+    };
+  } catch {
+    return baseState;
+  }
+}
 
 // ── Public API ────────────────────────────────
 export function visualTask(id, config) {
@@ -29,7 +82,7 @@ export function initAllVisualTasks() {
     const cfg = window._vtCfg[el.id];
     if (!cfg) return;
     el.dataset.vtReady = '1';
-    window._vtState[el.id] = { phase: 'observe', answers: {}, submitted: false };
+    window._vtState[el.id] = _vtRestore(el.id, { phase: 'observe', answers: {}, submitted: false, feedback: null });
     _vtRender(el.id);
   });
 }
@@ -130,7 +183,9 @@ function _vtAnalysePhase(id, cfg, st) {
 
       <div class="vt-nav">
         <button class="vt-btn-secondary" onclick="_vtAdvance('${id}', 'observe')">← Back to visual</button>
+        <button class="vt-btn-secondary" onclick="_vtClearWork('${id}')">Clear response</button>
         <button class="vt-btn-primary" onclick="_vtSubmit('${id}')">Get feedback →</button>
+        <div id="vt-save-${id}" style="font-size:12px;color:var(--green);align-self:center;">Saved locally</div>
       </div>
     </div>`;
 }
@@ -174,6 +229,25 @@ function _vtFeedbackPhase(id, cfg, st) {
           </div>`).join('')}
       </div>
 
+      <!-- AI Integrity Check -->
+      ${st.aiDetection && st.aiDetection.isRiskFlag ? `
+        <div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:8px;padding:16px;margin:20px 0 20px 0;">
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            <div style="font-size:24px;flex-shrink:0;">⚠️</div>
+            <div style="flex:1;">
+              <div style="font-weight:700;color:#991b1b;margin-bottom:8px;font-size:14px;">Academic Integrity Alert</div>
+              <p style="color:#7f1d1d;font-size:13px;margin:0 0 8px 0;line-height:1.5;">${st.aiDetection.recommendation}</p>
+              <div style="font-size:12px;color:#7f1d1d;">
+                <strong>Why we flagged this:</strong>
+                <ul style="margin:6px 0 0 0;padding-left:18px;">
+                  ${(st.aiDetection.reasons || []).map(r => `<li style="margin:3px 0;">${r}</li>`).join('')}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
       <!-- AI feedback -->
       <div class="vt-ai-feedback">
         <div class="vt-ai-fb-label">📋 Tutor Feedback on Your Visual Reading</div>
@@ -199,6 +273,8 @@ function _vtFeedbackPhase(id, cfg, st) {
 
       <div class="vt-nav" style="margin-top:20px;">
         <button class="vt-btn-secondary" onclick="_vtAdvance('${id}', 'analyse')">← Revise my answers</button>
+        <button class="vt-btn-secondary" onclick="_vtClearWork('${id}')">Clear response</button>
+        <div id="vt-save-${id}" style="font-size:12px;color:var(--green);align-self:center;">Saved locally</div>
         <div style="font-size:13px;color:var(--muted);align-self:center;">✅ Visual activity complete</div>
       </div>
     </div>`;
@@ -221,12 +297,16 @@ window._vtCheckAllBoxes = (id) => {
 
 window._vtAdvance = (id, phase) => {
   window._vtState[id].phase = phase;
+  _vtPersist(id);
   _vtRender(id);
 };
 
 window._vtSaveAnswer = (id, i) => {
   const ta = document.getElementById(`vt-ans-${id}-${i}`);
-  if (ta) window._vtState[id].answers[i] = ta.value;
+  if (ta) {
+    window._vtState[id].answers[i] = ta.value;
+    _vtPersist(id);
+  }
 };
 
 window._vtSubmit = async (id) => {
@@ -252,6 +332,7 @@ window._vtSubmit = async (id) => {
 
   st.phase    = 'feedback';
   st.feedback = null;
+  _vtPersist(id);
   _vtRender(id);
 
   // Build prompt
@@ -285,5 +366,35 @@ Respond ONLY with valid JSON (no markdown, no preamble):
     };
   }
 
+  // Score answers for AI detection
+  const answersText = cfg.questions.map((_, i) => st.answers[i] || '').filter(a => a.trim()).join(' ');
+  const baseline = getStudentBaselineProfile(cfg.unitId);
+  const aiScore = scoreSubmissionForAI(answersText, baseline);
+  st.aiDetection = aiScore;
+
+  if (window.STATE && cfg.unitId) {
+    if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
+    window.STATE.progress[cfg.unitId].visualAiDetection = st.aiDetection || null;
+    if (window.saveState) window.saveState();
+  }
+
+  _vtPersist(id);
+
   _vtRender(id);
+};
+
+window._vtClearWork = (id) => {
+  if (!confirm('Clear your saved response and feedback for this visual activity?')) return;
+  const st = window._vtState[id];
+  if (!st) return;
+
+  st.answers = {};
+  st.feedback = null;
+  st.submitted = false;
+  st.phase = 'analyse';
+
+  try { localStorage.removeItem(_vtStorageKey(id)); } catch {}
+  _vtRender(id);
+  const el = document.getElementById(`vt-save-${id}`);
+  if (el) { el.textContent = 'Cleared'; el.style.color = 'var(--muted)'; }
 };

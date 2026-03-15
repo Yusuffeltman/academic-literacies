@@ -1,45 +1,128 @@
+window.verifyAttendanceQr = async function () {
+  const tokenInput = document.getElementById('attendance-qr-token');
+  const statusEl = document.getElementById('attendance-qr-scan-status');
+  if (!tokenInput) return;
+  const token = tokenInput.value.trim().toUpperCase();
+  if (!token) {
+    if (statusEl) statusEl.textContent = 'Please enter a code.';
+    return;
+  }
+  if (statusEl) statusEl.textContent = 'Verifying code…';
+  try {
+    const result = await window.verifyAttendanceQrPayload?.(token, false);
+    if (result?.ok) {
+      if (statusEl) statusEl.textContent = `✅ Attendance confirmed for ${result.sessionType}.`;
+      // Save attendance to Firebase
+      try {
+        if (!window.saveState) {
+          const mod = await import('../state.js');
+          window.saveState = mod.saveState;
+        }
+        await window.saveState();
+      } catch (err) {
+        console.error('Attendance save failed:', err);
+      }
+    } else {
+      if (statusEl) statusEl.textContent = 'Invalid or expired code. Please try again.';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Error verifying code.';
+    console.error('Attendance code verification failed:', err);
+  }
+};
+
+window.verifyAttendanceQrPayload = async function (token, isQr) {
+  if (!token) return { ok: false, message: 'No token provided.' };
+
+  try {
+    const [classSnap, tutorialSnap] = await Promise.all([
+      get(ref(db, 'attendance/live/class')),
+      get(ref(db, 'attendance/live/tutorial'))
+    ]);
+
+    let match = null;
+    let sessionType = null;
+
+    if (classSnap.exists()) {
+      const data = classSnap.val();
+      if (data.active && data.token === token) {
+        match = data;
+        sessionType = 'class';
+      }
+    }
+
+    if (!match && tutorialSnap.exists()) {
+      const data = tutorialSnap.val();
+      if (data.active && data.token === token) {
+        match = data;
+        sessionType = 'tutorial';
+      }
+    }
+
+    if (match) {
+      // Check for expiration
+      const expiresAt = match.expiresAt ? new Date(match.expiresAt).getTime() : 0;
+      if (expiresAt && Date.now() > expiresAt) {
+        return { ok: false, message: 'Code has expired.' };
+      }
+
+      // Mark as present
+      markPresent(sessionType);
+      return { ok: true, sessionType, message: 'Attendance confirmed.' };
+    }
+
+    return { ok: false, message: 'Invalid code.' };
+  } catch (err) {
+    console.error('Error in verifyAttendanceQrPayload:', err);
+    return { ok: false, message: 'Verification error.' };
+  }
+};
+
 // src/dashboards/student.js
-import { STATE, recordOutcome } from '../state.js';
+import { STATE, recordOutcome, markPresent } from '../state.js';
+import { db } from '../firebase.js';
+import { ref, get } from 'firebase/database';
 import { UNITS } from '../../content/units/index.js';
 import { DASHBOARD_CONTENT } from '../../content/dashboard.js';
 import { getCoordinatorRecommendation } from '../ai.js';
+import { getPinnedGalleryPosts } from '../gallery.js';
 
 // ── Skill display config ──────────────────────
 const SKILL_LABELS = {
-  critical_reading:   'Critical Reading',
-  evidence_use:       'Using Evidence',
+  critical_reading: 'Critical Reading',
+  evidence_use: 'Using Evidence',
   argument_structure: 'Argument Structure',
-  academic_tone:      'Academic Tone',
-  source_evaluation:  'Source Evaluation',
-  citation_practice:  'Citation & Integrity',
-  research_skills:    'Research Skills',
-  ai_literacy:        'AI Literacy',
+  academic_tone: 'Academic Tone',
+  source_evaluation: 'Source Evaluation',
+  citation_practice: 'Citation & Integrity',
+  research_skills: 'Research Skills',
+  ai_literacy: 'AI Literacy',
 };
 
 const SKILL_ICONS = {
-  critical_reading:   '📖',
-  evidence_use:       '🔬',
+  critical_reading: '📖',
+  evidence_use: '🔬',
   argument_structure: '🗺',
-  academic_tone:      '✍',
-  source_evaluation:  '🔍',
-  citation_practice:  '📎',
-  research_skills:    '🔭',
-  ai_literacy:        '🤖',
+  academic_tone: '✍',
+  source_evaluation: '🔍',
+  citation_practice: '📎',
+  research_skills: '🔭',
+  ai_literacy: '🤖',
 };
 
 const STATUS_CONFIG = {
-  untested:   { label: 'Not yet assessed', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)', border: 'transparent' },
-  weak:       { label: 'Needs work',       color: '#ef4444', bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)' },
-  developing: { label: 'Developing',       color: '#f59e0b', bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.3)' },
-  strong:     { label: 'Strong',           color: '#10b981', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.3)' },
+  untested: { label: 'Not yet assessed', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)', border: 'transparent' },
+  weak: { label: 'Needs work', color: '#ef4444', bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.25)' },
+  developing: { label: 'Developing', color: '#f59e0b', bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.3)' },
+  strong: { label: 'Strong', color: '#10b981', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.3)' },
 };
 
 const REC_TYPE_CONFIG = {
-  remediate: { icon: '⚠',  borderColor: '#f59e0b', bg: 'rgba(251,191,36,0.08)',    btnBg: '#f59e0b', btnColor: '#0f172a' },
-  continue:  { icon: '▶',  borderColor: '#6366f1', bg: 'rgba(99,102,241,0.06)',    btnBg: '#6366f1', btnColor: '#fff'    },
-  extend:    { icon: '✦',  borderColor: '#8b5cf6', bg: 'rgba(139,92,246,0.08)',    btnBg: '#8b5cf6', btnColor: '#fff'    },
-  intervene: { icon: '🔔', borderColor: '#ef4444', bg: 'rgba(239,68,68,0.06)',     btnBg: '#ef4444', btnColor: '#fff'    },
-  celebrate: { icon: '🏆', borderColor: '#fbbf24', bg: 'rgba(251,191,36,0.1)',     btnBg: '#fbbf24', btnColor: '#0f172a' },
+  remediate: { icon: '⚠', borderColor: '#f59e0b', bg: 'rgba(251,191,36,0.08)', btnBg: '#f59e0b', btnColor: '#0f172a' },
+  continue: { icon: '▶', borderColor: '#6366f1', bg: 'rgba(99,102,241,0.06)', btnBg: '#6366f1', btnColor: '#fff' },
+  extend: { icon: '✦', borderColor: '#8b5cf6', bg: 'rgba(139,92,246,0.08)', btnBg: '#8b5cf6', btnColor: '#fff' },
+  intervene: { icon: '🔔', borderColor: '#ef4444', bg: 'rgba(239,68,68,0.06)', btnBg: '#ef4444', btnColor: '#fff' },
+  celebrate: { icon: '🏆', borderColor: '#fbbf24', bg: 'rgba(251,191,36,0.1)', btnBg: '#fbbf24', btnColor: '#0f172a' },
 };
 
 // Set of known micro-module ids — these open the full micro-module page
@@ -49,29 +132,108 @@ const MICRO_MODULE_IDS = new Set([
 ]);
 
 const MODULE_LABELS = {
-  'evidence-booster':   'Evidence Booster',
-  'argument-builder':   'Argument Builder',
-  'tone-workshop':      'Tone Workshop',
-  'source-skills':      'Source Skills',
-  'citation-guide':     'Citation Guide',
+  'evidence-booster': 'Evidence Booster',
+  'argument-builder': 'Argument Builder',
+  'tone-workshop': 'Tone Workshop',
+  'source-skills': 'Source Skills',
+  'citation-guide': 'Citation Guide',
   'reading-strategies': 'Reading Strategies',
 };
 
 // ── Main render ───────────────────────────────
 export function renderStudentDashboard() {
-  const user      = STATE.user;
-  const name      = user.displayName?.split(' [')[0] ?? user.email;
+  const user = STATE.user;
+  const name = user.displayName?.split(' [')[0] ?? user.email;
   const firstName = name.split(' ')[0];
-  const adaptive  = STATE.adaptive;
+  const adaptive = STATE.adaptive;
+  const showReturnToDashboard = Boolean(window._viewAsStudent);
 
   const visitedCount = Object.values(STATE.progress).filter(p => p.visited).length;
-  const progressPct  = Math.round((visitedCount / UNITS.length) * 100);
+  const progressPct = Math.round((visitedCount / UNITS.length) * 100);
+  const today = (() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+  const attendanceToday = STATE.attendance?.byDate?.[today] || null;
+  const qrCheckins = attendanceToday?.qrCheckins || [];
+  const classCheckins = qrCheckins.filter((c) => c?.sessionType === 'class');
+  const tutorialCheckins = qrCheckins.filter((c) => c?.sessionType === 'tutorial');
+  const qrVerifiedToday = Boolean(qrCheckins.length);
+  const presentToday = Boolean(attendanceToday?.present);
+  const totalMinutes = Math.max(0, Math.round((attendanceToday?.totalSeconds || 0) / 60));
+  const classMinutes = Math.max(0, Math.round((attendanceToday?.classSeconds || 0) / 60));
+  const tutorialMinutes = Math.max(0, Math.round((attendanceToday?.tutorialSeconds || 0) / 60));
+  const classCheckedIn = classCheckins.length > 0;
+  const tutorialCheckedIn = tutorialCheckins.length > 0;
+  const tutorialBtnStyle = 'display:inline-flex;';
+  const tutorialBtnClass = tutorialCheckedIn ? 'btn-prev tutorial-active-btn' : 'btn-prev';
+  const latestClassCheckin = classCheckedIn ? classCheckins[classCheckins.length - 1]?.at : null;
+  const latestTutorialCheckin = tutorialCheckedIn ? tutorialCheckins[tutorialCheckins.length - 1]?.at : null;
+  const notebookEntries = Object.values(STATE.tutorialNotebook?.entries || {});
+  const latestNotebook = notebookEntries
+    .filter((entry) => entry && typeof entry === 'object' && entry.updatedAt && (entry.unitId || entry.attachments || entry.response || entry.notes || entry.searchLog))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
+  const latestNotebookTime = latestNotebook?.updatedAt
+    ? new Date(latestNotebook.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '—';
+  const latestNotebookDate = latestNotebook?.updatedAt
+    ? new Date(latestNotebook.updatedAt).toLocaleDateString()
+    : '—';
+  const tutorialNotebookAnalytics = STATE.tutorialNotebook?.analytics || STATE.progress?.tutorialNotebookAnalytics || {};
+  const contactNotebookEntries = Object.values(STATE.contactNotebook?.entries || {});
+  const latestContactNotebook = contactNotebookEntries
+    .filter((entry) => entry && typeof entry === 'object' && entry.updatedAt)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
+  const contactNotebookAnalytics = STATE.contactNotebook?.analytics || STATE.progress?.contactNotebookAnalytics || {};
+  const latestContactNotebookTime = latestContactNotebook?.updatedAt
+    ? new Date(latestContactNotebook.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '—';
+  const latestContactNotebookDate = latestContactNotebook?.updatedAt
+    ? new Date(latestContactNotebook.updatedAt).toLocaleDateString()
+    : '—';
+  const fmtCheckin = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  document.body.style.overflowY = 'auto';
+  document.body.style.overflow = 'auto';
+  document.body.style.overflowX = 'hidden';
+  document.body.style.height = 'auto';
+  document.body.style.display = 'block';
+  document.body.style.alignItems = 'initial';
+  document.body.style.justifyContent = 'initial';
+  document.body.style.padding = '0';
+
+  if (document.documentElement) {
+    document.documentElement.style.overflowY = 'auto';
+    document.documentElement.style.overflow = 'auto';
+    document.documentElement.style.height = 'auto';
+  }
+
+  const appRoot = document.getElementById('app');
+  if (appRoot) {
+    appRoot.style.display = 'block';
+    appRoot.style.height = 'auto';
+    appRoot.style.minHeight = '100vh';
+  }
 
   document.getElementById('app').innerHTML = `
     <div class="student-dash anim-fade">
 
       <div class="student-dash-topbar">
         <div class="student-dash-logo">ACADLIT · AI</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button class="${tutorialBtnClass}" style="${tutorialBtnStyle}" onclick="window.goToTutorialSection()">${tutorialCheckedIn ? '<span class="tutorial-live-dot" aria-hidden="true"></span>Tutorial Active' : '📝 Tutorial'}</button>
+          <button class="btn-prev" style="display:inline-flex;" onclick="window.goToContactNotebook()">🗒️ Contact Notebook</button>
+          <button class="btn-prev" style="display:inline-flex;" onclick="window.goToGallery()">🖼 Gallery</button>
+        </div>
+        ${showReturnToDashboard ? '<button onclick="window.switchToLecturerView()" style="background:var(--navy);color:white;border:none;padding:10px 18px;border-radius:20px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">← Lecturer Dashboard</button>' : ''}
         <div class="user-pill">
           <div class="user-avatar">${name[0].toUpperCase()}</div>
           <div class="user-info">
@@ -89,6 +251,46 @@ export function renderStudentDashboard() {
           <p>ALE00Y1 — Academic Literacies in the Age of AI</p>
         </div>
 
+        <section class="dash-section" style="margin-top:8px;">
+          <div id="student-announcement-banner" style="position:relative;overflow:hidden;border-radius:18px;border:1px solid rgba(15,23,42,.08);background:linear-gradient(135deg,#10213a 0%,#16385c 56%,#1f5f7a 100%);box-shadow:0 16px 34px rgba(15,23,42,.14);">
+            <div id="student-announcement-track" style="display:flex;transition:transform .45s ease;">
+              ${DASHBOARD_CONTENT.announcements.map((a, index) => `
+                <article data-announcement-slide="${index}" style="min-width:100%;padding:20px 22px 18px 22px;color:white;">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                    <div style="display:flex;gap:14px;align-items:flex-start;max-width:820px;">
+                      <div style="width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.12);font-size:24px;flex-shrink:0;">${a.icon}</div>
+                      <div>
+                        <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#8ecae6;font-family:var(--font-mono);margin-bottom:6px;">Announcement ${index + 1} of ${DASHBOARD_CONTENT.announcements.length}</div>
+                        <h2 style="margin:0 0 6px 0;font-size:22px;line-height:1.2;color:white;">${a.title}</h2>
+                        <p style="margin:0;color:rgba(255,255,255,.82);font-size:14px;line-height:1.75;">${a.content}</p>
+                        ${a.ctaAction ? `
+                          <div style="margin-top:14px;">
+                            <button
+                              type="button"
+                              class="btn-primary"
+                              data-announcement-action="${_escHtml(a.ctaAction)}"
+                              style="box-shadow:none;padding:10px 14px;font-size:13px;"
+                            >${_escHtml(a.ctaLabel || 'Open')}</button>
+                          </div>
+                        ` : ''}
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                      <button type="button" id="student-announcement-prev" class="btn-prev" style="display:inline-flex;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.16);color:white;">←</button>
+                      <button type="button" id="student-announcement-next" class="btn-prev" style="display:inline-flex;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.16);color:white;">→</button>
+                    </div>
+                  </div>
+                </article>
+              `).join('')}
+            </div>
+            <div id="student-announcement-dots" style="display:flex;gap:8px;justify-content:center;padding:0 0 16px 0;">
+              ${DASHBOARD_CONTENT.announcements.map((_, index) => `
+                <button type="button" data-announcement-dot="${index}" aria-label="Go to announcement ${index + 1}" style="width:10px;height:10px;border-radius:999px;border:none;cursor:pointer;background:${index === 0 ? '#ffb703' : 'rgba(255,255,255,.32)'};"></button>
+              `).join('')}
+            </div>
+          </div>
+        </section>
+
         <!-- Recommendation card — loads async -->
         <div id="rec-card" class="rec-card rec-card--loading">
           <div class="rec-loading-row">
@@ -97,73 +299,152 @@ export function renderStudentDashboard() {
           </div>
         </div>
 
+        <div id="featured-gallery-strip"></div>
+
         ${_renderEscalationNotice(STATE.escalations || [])}
 
-        <!-- Skill map -->
-        <section class="dash-section">
-          <h2 class="dash-section-heading">Your Skill Profile</h2>
-          <div class="skill-map-grid">
-            ${renderSkillMap(adaptive)}
-          </div>
-          <div id="cohort-strip"></div>
-        </section>
-
-        <!-- Standard info grid -->
-        <div class="student-dash-grid">
-
-          <div class="dash-card">
-            <div class="dash-card-header"><h3>📢 Announcements</h3></div>
-            <div class="dash-card-body">
-              ${DASHBOARD_CONTENT.announcements.map(a => `
-                <div class="info-item">
-                  <div class="info-icon">${a.icon}</div>
-                  <div><h4>${a.title}</h4><p>${a.content}</p></div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-
-          <div class="dash-card">
-            <div class="dash-card-header"><h3>💡 Reminders & Key Info</h3></div>
-            <div class="dash-card-body">
-              ${DASHBOARD_CONTENT.reminders.map(r => `
-                <div class="info-item">
-                  <div class="info-icon">${r.icon}</div>
-                  <div><h4>${r.title}</h4><p>${r.content}</p></div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-
-          <div class="dash-card">
-            <div class="dash-card-header"><h3>📊 Your Progress</h3></div>
-            <div class="dash-card-body">
-              <div class="prog-container" style="padding:0;border:none;">
-                <div class="prog-label">
-                  <span>Course Progress</span>
-                  <span>${progressPct}%</span>
-                </div>
+        <section class="dash-section" style="margin-top:18px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;">
+            <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Course progress</div>
+              <div style="font-size:26px;font-weight:900;color:var(--navy);margin-top:6px;">${progressPct}%</div>
+              <div class="prog-container" style="padding:0;border:none;margin-top:10px;">
                 <div class="prog-bar-bg">
                   <div class="prog-bar-fill" style="width:${progressPct}%;"></div>
                 </div>
               </div>
-              <p style="font-size:14px;color:var(--muted);margin-top:16px;">
-                You have visited ${visitedCount} of ${UNITS.length} units.
-              </p>
-              <button class="btn-primary" onclick="window.goToCourse()">Start Learning →</button>
+              <p style="font-size:12px;color:var(--muted);margin:10px 0 0 0;">${visitedCount} of ${UNITS.length} units visited</p>
+            </div>
+            <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Today</div>
+              <div style="font-size:18px;font-weight:800;color:${qrVerifiedToday ? '#166534' : '#92400e'};margin-top:6px;">${qrVerifiedToday ? 'Checked in' : 'Waiting for check-in'}</div>
+              <p style="font-size:12px;color:var(--muted);line-height:1.7;margin:8px 0 0 0;">Total time: ${totalMinutes} min<br>Class: ${classMinutes} min · Tutorial: ${tutorialMinutes} min</p>
+            </div>
+            <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+              <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Quick actions</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                <button class="btn-primary" onclick="window.goToCourse()">Continue Course</button>
+                <button class="btn-prev" style="display:inline-flex;" onclick="window.goToTutorialSection()">Tutorial</button>
+                <button class="btn-prev" style="display:inline-flex;" onclick="window.goToContactNotebook()">Notebook</button>
+              </div>
             </div>
           </div>
+        </section>
 
-          <div class="dash-card">
-            <div class="dash-card-header"><h3>📅 Attendance</h3></div>
-            <div class="dash-card-body">
-              <p style="font-size:14px;color:var(--muted);">
-                Attendance tracking will be enabled once contact sessions begin.
-              </p>
-            </div>
+        <section class="dash-section" style="margin-top:18px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+            <button class="dash-card" style="text-align:left;cursor:pointer;background:white;" onclick="window.goToTutorialSection()">
+              <div class="dash-card-body">
+                <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">My spaces</div>
+                <h3 style="margin:8px 0 6px 0;color:var(--navy);">📝 Tutorial Notebook</h3>
+                <p style="font-size:13px;color:var(--muted);line-height:1.6;margin:0;">${latestNotebook ? `Last updated ${_escHtml(latestNotebookDate)} at ${_escHtml(latestNotebookTime)} · ${_escHtml(String(tutorialNotebookAnalytics.totalWords || 0))} words · ${_escHtml(String(tutorialNotebookAnalytics.totalAttachments || 0))} uploads` : 'Open your tutorial notebook and continue working.'}</p>
+              </div>
+            </button>
+            <button class="dash-card" style="text-align:left;cursor:pointer;background:white;" onclick="window.goToContactNotebook()">
+              <div class="dash-card-body">
+                <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">My spaces</div>
+                <h3 style="margin:8px 0 6px 0;color:var(--navy);">🗒️ Contact Notebook</h3>
+                <p style="font-size:13px;color:var(--muted);line-height:1.6;margin:0;">${latestContactNotebook ? `Last updated ${_escHtml(latestContactNotebookDate)} at ${_escHtml(latestContactNotebookTime)} · ${_escHtml(String(contactNotebookAnalytics.totalWords || 0))} words · ${_escHtml(String(contactNotebookAnalytics.totalAttachments || 0))} uploads` : 'Capture notes, uploads, and contact-session work here.'}</p>
+              </div>
+            </button>
+            <button class="dash-card" style="text-align:left;cursor:pointer;background:white;" onclick="window.goToGallery()">
+              <div class="dash-card-body">
+                <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">My spaces</div>
+                <h3 style="margin:8px 0 6px 0;color:var(--navy);">🖼️ Gallery Walk</h3>
+                <p style="font-size:13px;color:var(--muted);line-height:1.6;margin:0;">Browse peer work, upload artefacts, and leave feedback when you are ready.</p>
+              </div>
+            </button>
           </div>
+        </section>
 
-        </div>
+        <section class="dash-section" style="margin-top:18px;">
+          <div style="display:grid;gap:12px;">
+            <details style="background:white;border:1px solid var(--border);border-radius:16px;padding:0 16px;box-shadow:0 10px 24px rgba(15,23,42,.04);" open>
+              <summary style="list-style:none;cursor:pointer;padding:16px 0;font-weight:800;color:var(--navy);display:flex;justify-content:space-between;align-items:center;">📅 Attendance Details <span style="font-size:12px;color:var(--muted);font-weight:600;">${qrVerifiedToday ? 'Live today' : 'Open'}</span></summary>
+              <div style="padding:0 0 16px 0;">
+                <p style="font-size:14px;color:${qrVerifiedToday ? 'var(--green)' : 'var(--amber2)'};margin-bottom:8px;">
+                  ${qrVerifiedToday ? '✅ QR check-in verified — activity monitoring active' : '⏳ Waiting for initial QR check-in to start attendance monitoring'}
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+                  <div style="padding:10px;border:1px solid var(--border);border-radius:10px;background:#f8fafc;">
+                    <div style="font-size:11px;color:var(--muted);">Contact session</div>
+                    <div style="font-size:12px;font-weight:700;color:${classCheckedIn ? '#166534' : '#92400e'};">${classCheckedIn ? 'Checked in' : 'Not checked in'}</div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:2px;">Last: ${fmtCheckin(latestClassCheckin)}</div>
+                  </div>
+                  <div style="padding:10px;border:1px solid var(--border);border-radius:10px;background:#f8fafc;">
+                    <div style="font-size:11px;color:var(--muted);">Tutorial</div>
+                    <div style="font-size:12px;font-weight:700;color:${tutorialCheckedIn ? '#166534' : '#92400e'};">${tutorialCheckedIn ? 'Checked in' : 'Not checked in'}</div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:2px;">Last: ${fmtCheckin(latestTutorialCheckin)}</div>
+                  </div>
+                </div>
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+                  <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px;">Scan lecturer QR or enter rotating token</label>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input id="attendance-qr-token" type="text" placeholder="e.g. A1B2C3" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;text-transform:uppercase;" />
+                    <button class="btn-prev" onclick="window.openAttendanceQrScanner()" style="display:inline-flex;">Scan QR</button>
+                    <button class="btn-next" onclick="window.verifyAttendanceQr()" style="display:inline-flex;">Check In</button>
+                  </div>
+                  <div id="attendance-qr-scan-status" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
+                </div>
+              </div>
+            </details>
+
+            <details style="background:white;border:1px solid var(--border);border-radius:16px;padding:0 16px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+              <summary style="list-style:none;cursor:pointer;padding:16px 0;font-weight:800;color:var(--navy);display:flex;justify-content:space-between;align-items:center;">🧠 Skill Profile <span style="font-size:12px;color:var(--muted);font-weight:600;">Open</span></summary>
+              <div style="padding:0 0 16px 0;">
+                <div class="skill-map-grid">
+                  ${renderSkillMap(adaptive)}
+                </div>
+                <div id="cohort-strip"></div>
+              </div>
+            </details>
+
+            <details style="background:white;border:1px solid var(--border);border-radius:16px;padding:0 16px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+              <summary style="list-style:none;cursor:pointer;padding:16px 0;font-weight:800;color:var(--navy);display:flex;justify-content:space-between;align-items:center;">💡 Reminders & Key Info <span style="font-size:12px;color:var(--muted);font-weight:600;">Open</span></summary>
+              <div style="padding:0 0 16px 0;">
+                ${DASHBOARD_CONTENT.reminders.map(r => `
+                  <div class="info-item">
+                    <div class="info-icon">${r.icon}</div>
+                    <div><h4>${r.title}</h4><p>${r.content}</p></div>
+                  </div>
+                `).join('')}
+              </div>
+            </details>
+
+            <details style="background:white;border:1px solid var(--border);border-radius:16px;padding:0 16px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+              <summary style="list-style:none;cursor:pointer;padding:16px 0;font-weight:800;color:var(--navy);display:flex;justify-content:space-between;align-items:center;">🧰 My Learning Spaces <span style="font-size:12px;color:var(--muted);font-weight:600;">Open</span></summary>
+              <div style="padding:0 0 16px 0;display:grid;gap:12px;">
+                <div style="padding:14px;border:1px solid var(--border);border-radius:12px;background:#f8fafc;">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-weight:800;color:var(--navy);">Tutorial Notebook ${tutorialCheckedIn ? '· Live today' : ''}</div>
+                      <div style="font-size:12px;color:var(--muted);margin-top:4px;">${latestNotebook ? `${_escHtml(latestNotebook.sessionTitle || latestNotebook.sessionId || 'Tutorial Session')} · ${_escHtml(latestNotebookDate)} ${_escHtml(latestNotebookTime)}` : 'No tutorial notes yet.'}</div>
+                    </div>
+                    <button class="btn-prev" style="display:inline-flex;" onclick="window.goToTutorialSection()">Open</button>
+                  </div>
+                </div>
+                <div style="padding:14px;border:1px solid var(--border);border-radius:12px;background:#f8fafc;">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-weight:800;color:var(--navy);">Contact Notebook</div>
+                      <div style="font-size:12px;color:var(--muted);margin-top:4px;">${latestContactNotebook ? `${_escHtml(latestContactNotebook.sessionTitle || latestContactNotebook.sessionId || 'Contact Session')} · ${_escHtml(latestContactNotebookDate)} ${_escHtml(latestContactNotebookTime)}` : 'No contact notebook updates yet.'}</div>
+                    </div>
+                    <button class="btn-prev" style="display:inline-flex;" onclick="window.goToContactNotebook()">Open</button>
+                  </div>
+                </div>
+                <div style="padding:14px;border:1px solid var(--border);border-radius:12px;background:#f8fafc;">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-weight:800;color:var(--navy);">Gallery Walk Studio</div>
+                      <div style="font-size:12px;color:var(--muted);margin-top:4px;">Share artefacts, view peer work, and return when you want to engage.</div>
+                    </div>
+                    <button class="btn-prev" style="display:inline-flex;" onclick="window.goToGallery()">Open</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
       </main>
     </div>
   `;
@@ -171,14 +452,126 @@ export function renderStudentDashboard() {
   // Populate recommendation card and cohort strip after render
   _loadRecommendation();
   _loadCohortContext();
+  _loadFeaturedGalleryStrip();
+  _initAnnouncementRotator();
+  _initAttendanceQrScanner();
+}
+
+function _initAnnouncementRotator() {
+  const banner = document.getElementById('student-announcement-banner');
+  const track = document.getElementById('student-announcement-track');
+  const dots = [...document.querySelectorAll('[data-announcement-dot]')];
+  const total = DASHBOARD_CONTENT.announcements.length;
+  if (!banner || !track || total <= 1) return;
+
+  if (window._studentAnnouncementRotator) {
+    clearInterval(window._studentAnnouncementRotator.timer);
+    window._studentAnnouncementRotator = null;
+  }
+
+  let index = 0;
+  const render = () => {
+    track.style.transform = `translateX(-${index * 100}%)`;
+    dots.forEach((dot, dotIndex) => {
+      dot.style.background = dotIndex === index ? '#ffb703' : 'rgba(255,255,255,.32)';
+      dot.style.transform = dotIndex === index ? 'scale(1.15)' : 'scale(1)';
+    });
+  };
+  const next = () => {
+    index = (index + 1) % total;
+    render();
+  };
+  const prev = () => {
+    index = (index - 1 + total) % total;
+    render();
+  };
+  const resetTimer = () => {
+    if (window._studentAnnouncementRotator?.timer) clearInterval(window._studentAnnouncementRotator.timer);
+    window._studentAnnouncementRotator = {
+      timer: window.setInterval(next, 5500),
+    };
+  };
+
+  document.getElementById('student-announcement-next')?.addEventListener('click', () => {
+    next();
+    resetTimer();
+  });
+  document.getElementById('student-announcement-prev')?.addEventListener('click', () => {
+    prev();
+    resetTimer();
+  });
+  dots.forEach((dot, dotIndex) => {
+    dot.addEventListener('click', () => {
+      index = dotIndex;
+      render();
+      resetTimer();
+    });
+  });
+  banner.querySelectorAll('[data-announcement-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = String(button.dataset.announcementAction || '').trim();
+      if (action === 'governance-rewards') {
+        window.goToGovernanceFramework?.();
+      }
+    });
+  });
+  banner.addEventListener('mouseenter', () => {
+    if (window._studentAnnouncementRotator?.timer) clearInterval(window._studentAnnouncementRotator.timer);
+  });
+  banner.addEventListener('mouseleave', resetTimer);
+
+  render();
+  resetTimer();
+}
+
+async function _loadFeaturedGalleryStrip() {
+  const strip = document.getElementById('featured-gallery-strip');
+  if (!strip) return;
+  try {
+    const pinned = await getPinnedGalleryPosts(4);
+    if (!pinned.length) {
+      strip.innerHTML = '';
+      return;
+    }
+
+    strip.innerHTML = `
+      <section class="dash-section" style="margin-top:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          <h2 class="dash-section-heading" style="margin:0;">🌟 Featured Gallery Highlights</h2>
+          <button class="btn-prev" style="display:inline-flex;" onclick="window.goToGallery()">Open Gallery Walk</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+          ${pinned.map((p) => `
+            <div onclick="window.goToGalleryPost('${p.id}')" style="background:white;border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.03);cursor:pointer;transition:transform .15s ease, box-shadow .15s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 16px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 10px rgba(0,0,0,.03)'">
+              <div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:999px;padding:2px 8px;display:inline-flex;">📌 Highlight</div>
+              <h4 style="margin:8px 0 6px 0;color:var(--navy);font-size:14px;line-height:1.4;">${_escHtml(p.title || 'Untitled')}</h4>
+              <p style="margin:0 0 8px 0;color:var(--muted);font-size:12px;line-height:1.5;">${_escHtml((p.content || '').slice(0, 120))}${(p.content || '').length > 120 ? '…' : ''}</p>
+              <div style="font-size:11px;color:var(--muted);">${_escHtml(p.authorName || 'Anonymous')} · ${_escHtml(p.mode === 'group' ? (p.groupName || 'Group') : 'Individual')} · <span style="color:var(--accent)">Open ↗</span></div>
+            </div>
+          `).join('')}
+        </div>
+      </section>
+    `;
+  } catch {
+    strip.innerHTML = '';
+  }
+}
+
+function _escHtml(v = '') {
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ── Skill map renderer ────────────────────────
 function renderSkillMap(adaptive) {
   return Object.entries(SKILL_LABELS).map(([skillId, label]) => {
-    const status   = adaptive?.skill_status?.[skillId] || 'untested';
-    const entries  = adaptive?.skill_scores?.[skillId] || [];
-    const cfg      = STATUS_CONFIG[status];
+    const status = adaptive?.skill_status?.[skillId] || 'untested';
+    const entries = adaptive?.skill_scores?.[skillId] || [];
+    const cfg = STATUS_CONFIG[status];
     const needsFocus = (adaptive?.needs_remediation || []).includes(skillId);
 
     const recentScores = entries.slice(-3).map(e => e.score);
@@ -231,7 +624,7 @@ async function _loadRecommendation() {
     // Build action button
     let btnHtml = '';
     if (rec.action_label) {
-      const target  = rec.action_target;
+      const target = rec.action_target;
       const toolLbl = target ? (MODULE_LABELS[target] ?? target) : null;
 
       if (target && MICRO_MODULE_IDS.has(target)) {
@@ -334,4 +727,212 @@ async function _loadCohortContext() {
   } catch {
     // Fail silently — cohort data is optional
   }
+}
+
+function _initAttendanceQrScanner() {
+  if (window._attendanceScannerInit) return;
+  window._attendanceScannerInit = true;
+
+  const _setScannerStatus = (message = '', modalMessage = '') => {
+    const statusEl = document.getElementById('attendance-qr-scan-status');
+    const modalStatus = document.getElementById('attendance-qr-modal-status');
+    if (statusEl && message) statusEl.textContent = message;
+    if (modalStatus && modalMessage) modalStatus.textContent = modalMessage;
+  };
+
+  const _cameraPermissionState = async () => {
+    try {
+      if (!navigator.permissions?.query) return 'unknown';
+      const result = await navigator.permissions.query({ name: 'camera' });
+      return result?.state || 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  };
+
+  const _cameraErrorMessage = (err) => {
+    const code = String(err?.name || '').trim();
+    if (code === 'NotAllowedError' || code === 'SecurityError') {
+      return 'Camera permission denied. Allow camera access in browser/app settings, then try again.';
+    }
+    if (code === 'NotFoundError' || code === 'OverconstrainedError') {
+      return 'No usable camera was found on this device.';
+    }
+    if (code === 'NotReadableError') {
+      return 'Camera is busy in another app. Close it and try again.';
+    }
+    if (code === 'AbortError') {
+      return 'Camera startup was interrupted. Please retry.';
+    }
+    return 'Could not access camera. Enter token manually.';
+  };
+
+  window._attendanceScannerState = {
+    running: false,
+    stream: null,
+    rafId: null,
+    detector: null,
+    lastHintAt: 0,
+  };
+
+  window.openAttendanceQrScanner = async () => {
+    const state = window._attendanceScannerState;
+    if (state?.running) {
+      _setScannerStatus('Scanner is already running.', 'Point camera at the lecturer QR code…');
+      return;
+    }
+
+    if (!('mediaDevices' in navigator) || !navigator.mediaDevices?.getUserMedia) {
+      _setScannerStatus('Camera not available on this device. Enter token manually.', 'Camera not supported here.');
+      return;
+    }
+
+    if (!('BarcodeDetector' in window)) {
+      _setScannerStatus('QR scanner not supported here. Enter token manually.', 'This device/browser does not support QR detection.');
+      console.error('BarcodeDetector API not available.');
+      return;
+    }
+
+    const permission = await _cameraPermissionState();
+    if (permission === 'denied') {
+      _setScannerStatus(
+        'Camera permission may be blocked. We will still try to request access now.',
+        'Camera may be blocked in settings. Attempting access…'
+      );
+    }
+
+    if (!document.getElementById('attendance-qr-modal')) {
+      const modal = document.createElement('div');
+      modal.id = 'attendance-qr-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.7);z-index:9999;display:none;align-items:center;justify-content:center;padding:16px;';
+      modal.innerHTML = `
+        <div style="width:min(560px,95vw);background:white;border-radius:12px;padding:12px;border:1px solid var(--border);box-shadow:0 14px 30px rgba(0,0,0,.25);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong style="color:var(--navy);">Scan Attendance QR</strong>
+            <button id="attendance-qr-close" class="btn-prev" style="display:inline-flex;">Close</button>
+          </div>
+          <video id="attendance-qr-video" autoplay playsinline muted style="width:100%;max-height:60vh;border:1px solid var(--border);border-radius:10px;background:#111;"></video>
+          <div id="attendance-qr-modal-status" style="font-size:12px;color:var(--muted);margin-top:8px;">Point camera at the lecturer QR code…</div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      const closeBtn = document.getElementById('attendance-qr-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+          window.closeAttendanceQrScanner?.();
+        });
+      }
+
+      modal.addEventListener('click', (evt) => {
+        if (evt.target === modal) window.closeAttendanceQrScanner?.();
+      });
+    }
+
+    const modal = document.getElementById('attendance-qr-modal');
+    const video = document.getElementById('attendance-qr-video');
+    const modalStatus = document.getElementById('attendance-qr-modal-status');
+    if (!modal || !video) return;
+
+    window.closeAttendanceQrScanner?.();
+
+    modal.style.display = 'flex';
+    _setScannerStatus('Opening camera…', 'Requesting camera access…');
+
+    try {
+      state.detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      state.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+
+      video.srcObject = state.stream;
+      await video.play();
+      state.running = true;
+
+      const scanLoop = async () => {
+        if (!state.running) return;
+        try {
+          if (video.readyState >= 2) {
+            const codes = await state.detector.detect(video);
+            if (codes?.length) {
+              const raw = String(codes[0]?.rawValue || '').trim();
+              if (raw) {
+                _setScannerStatus('QR detected. Verifying…', 'QR detected. Verifying…');
+                if (typeof window.verifyAttendanceQrPayload !== 'function') {
+                  _setScannerStatus('QR detected, but verification function missing.', 'Verification function not found.');
+                  console.error('window.verifyAttendanceQrPayload is not defined or not a function.');
+                  return;
+                }
+                try {
+                  const result = await window.verifyAttendanceQrPayload(raw, true);
+                  if (result?.ok) {
+                    _setScannerStatus(`✅ Attendance confirmed for ${result.sessionType}.`, 'Attendance confirmed. Closing scanner…');
+                    // Save attendance to Firebase
+                    try {
+                      if (!window.saveState) {
+                        const mod = await import('../state.js');
+                        window.saveState = mod.saveState;
+                      }
+                      await window.saveState();
+                    } catch (err) {
+                      console.error('Attendance save failed:', err);
+                    }
+                    setTimeout(() => window.closeAttendanceQrScanner?.(), 500);
+                    return;
+                  }
+                  // Debug output for token validation failure
+                  console.warn('QR validation failed:', {
+                    scannedToken: raw,
+                    result,
+                  });
+                  _setScannerStatus('QR code found but token is invalid or expired.', 'Invalid/expired token. Try scanning the latest QR code.');
+                  state.lastHintAt = Date.now();
+                } catch (err) {
+                  _setScannerStatus('Error verifying QR code.', 'Verification error.');
+                  console.error('Error in verifyAttendanceQrPayload:', err);
+                }
+              }
+            } else if (!state.lastHintAt || Date.now() - state.lastHintAt > 15000) {
+              if (modalStatus) modalStatus.textContent = 'Still scanning… keep the QR fully in frame and well lit.';
+              state.lastHintAt = Date.now();
+            }
+          }
+        } catch (err) {
+          console.error('Error during QR scan loop:', err);
+          // keep scanning
+        }
+        state.rafId = window.requestAnimationFrame(scanLoop);
+      };
+
+      state.rafId = window.requestAnimationFrame(scanLoop);
+      _setScannerStatus('Camera opened. Point at QR code…', 'Point camera at the lecturer QR code…');
+    } catch (err) {
+      const msg = _cameraErrorMessage(err);
+      _setScannerStatus(msg, msg);
+      console.error('Camera initialization error:', err);
+    }
+  };
+
+  window.closeAttendanceQrScanner = () => {
+    const state = window._attendanceScannerState;
+    if (state?.rafId) {
+      window.cancelAnimationFrame(state.rafId);
+      state.rafId = null;
+    }
+    state.running = false;
+
+    const video = document.getElementById('attendance-qr-video');
+    if (video) video.srcObject = null;
+
+    if (state?.stream) {
+      state.stream.getTracks().forEach((t) => t.stop());
+      state.stream = null;
+    }
+
+    state.lastHintAt = 0;
+
+    const modal = document.getElementById('attendance-qr-modal');
+    if (modal) modal.style.display = 'none';
+  };
 }

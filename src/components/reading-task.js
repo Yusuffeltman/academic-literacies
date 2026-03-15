@@ -11,9 +11,75 @@
 // ─────────────────────────────────────────────
 
 import { _aiChat } from '../ai.js';
+import { scoreSubmissionForAI, getStudentBaselineProfile } from '../ai-detection.js';
 
-window._rtCfg   = window._rtCfg   || {};
+window._rtCfg = window._rtCfg || {};
 window._rtState = window._rtState || {};
+
+const RT_STORAGE_PREFIX = 'acadlit-rt-v1';
+
+function _rtStorageKey(id) {
+  const cfg = window._rtCfg[id] || {};
+  return `${RT_STORAGE_PREFIX}:${cfg.unitId || 'nouid'}:${id}`;
+}
+
+function _rtPersist(id) {
+  const st = window._rtState[id];
+  if (!st) return;
+  try {
+    const now = new Date();
+    const cfg = window._rtCfg[id] || {}; // Define cfg here for use in STATE sync
+    const data = {
+      step: st.step,
+      answers: st.answers || {},
+      writing: st.writing || '',
+      feedback: st.feedback || null,
+      annotations: st.annotations || [],
+      survey: st.survey || null,
+      aiDetection: st.aiDetection || null,
+      savedAt: now.getTime(),
+    };
+    localStorage.setItem(_rtStorageKey(id), JSON.stringify(data));
+
+    // Sync with global STATE for Firebase persistence
+    if (window.STATE && window.STATE.progress && cfg.unitId) {
+      if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
+      window.STATE.progress[cfg.unitId].readingTaskState = window.STATE.progress[cfg.unitId].readingTaskState || {};
+      window.STATE.progress[cfg.unitId].readingTaskState[id] = data;
+    }
+
+    _rtSetSaveIndicator(id, now);
+  } catch { }
+}
+
+function _rtSetSaveIndicator(id, dateObj = null) {
+  const el = document.getElementById(`rt-save-${id}`);
+  if (!el) return;
+  if (!dateObj) dateObj = new Date();
+  const h = String(dateObj.getHours()).padStart(2, '0');
+  const m = String(dateObj.getMinutes()).padStart(2, '0');
+  el.textContent = `Last saved at ${h}:${m}`;
+  el.style.color = 'var(--green)';
+}
+
+function _rtRestore(id, baseState) {
+  try {
+    const raw = localStorage.getItem(_rtStorageKey(id));
+    if (!raw) return baseState;
+    const saved = JSON.parse(raw);
+    return {
+      ...baseState,
+      step: saved.step || baseState.step,
+      answers: saved.answers || baseState.answers,
+      writing: saved.writing || baseState.writing,
+      feedback: saved.feedback ?? baseState.feedback,
+      annotations: saved.annotations || baseState.annotations,
+      survey: saved.survey || baseState.survey,
+    };
+  } catch {
+    return baseState;
+  }
+}
 
 export function readingTask(id, config) {
   window._rtCfg[id] = config;
@@ -25,26 +91,27 @@ export function initAllReadingTasks() {
     const cfg = window._rtCfg[el.id];
     if (!cfg) return;
     el.dataset.rtReady = '1';
-    
+
     let savedAnnotations = [];
     if (window.STATE && window.STATE.progress && window.STATE.progress[cfg.unitId] && window.STATE.progress[cfg.unitId].annotations) {
       savedAnnotations = window.STATE.progress[cfg.unitId].annotations;
     }
-    
-    window._rtState[el.id] = { step: 'vocab', answers: {}, writing: '', feedback: null, annotations: savedAnnotations };
+
+    const baseState = { step: 'vocab', answers: {}, writing: '', feedback: null, annotations: savedAnnotations, survey: null };
+    window._rtState[el.id] = _rtRestore(el.id, baseState);
     _render(el.id);
   });
 }
 
 function _render(id) {
-  const el  = document.getElementById(id);
+  const el = document.getElementById(id);
   const cfg = window._rtCfg[id];
-  const st  = window._rtState[id];
+  const st = window._rtState[id];
   if (!el || !cfg || !st) return;
 
-  const STEPS  = ['vocab', 'reading', 'questions', 'survey', 'writing', 'feedback'];
+  const STEPS = ['vocab', 'reading', 'questions', 'survey', 'writing', 'feedback'];
   const LABELS = ['Vocabulary', 'Reading', 'Questions', 'Survey', 'Writing', 'Feedback'];
-  const idx    = STEPS.indexOf(st.step);
+  const idx = STEPS.indexOf(st.step);
 
   el.innerHTML = `
     <div class="rt-wrapper">
@@ -74,13 +141,13 @@ function _render(id) {
 
 function _renderStep(id, cfg, st) {
   switch (st.step) {
-    case 'vocab':     return _vocabStep(id, cfg);
-    case 'reading':   return _readingStep(id, cfg);
+    case 'vocab': return _vocabStep(id, cfg);
+    case 'reading': return _readingStep(id, cfg);
     case 'questions': return _questionsStep(id, cfg, st);
-    case 'survey':    return _surveyStep(id, cfg, st);
-    case 'writing':   return _writingStep(id, cfg, st);
-    case 'feedback':  return _feedbackStep(id, cfg, st);
-    default:          return '';
+    case 'survey': return _surveyStep(id, cfg, st);
+    case 'writing': return _writingStep(id, cfg, st);
+    case 'feedback': return _feedbackStep(id, cfg, st);
+    default: return '';
   }
 }
 
@@ -107,7 +174,7 @@ function _vocabStep(id, cfg) {
 // ── Step 2: Reading ───────────────────────────
 function _readingStep(id, cfg) {
   const st = window._rtState[id];
-  const annotationsHtml = st.annotations && st.annotations.length > 0 
+  const annotationsHtml = st.annotations && st.annotations.length > 0
     ? st.annotations.map((a, i) => `
         <div class="rt-note-card">
           <div class="rt-note-quote">"${a.quote}"</div>
@@ -193,7 +260,7 @@ function _questionsStep(id, cfg, st) {
 // ── Step 3.5: Reading Strategy Survey ─────────
 function _surveyStep(id, cfg, st) {
   const survey = st.survey || { difficulty: 3, interest: 3, strategies: [] };
-  
+
   return `
     <div class="rt-step-content anim-fade">
       <div class="rt-survey-box">
@@ -221,10 +288,10 @@ function _surveyStep(id, cfg, st) {
         <div class="rt-survey-q">
           <label>3. Which active reading strategies did you use today? (Check all that apply)</label>
           <div class="rt-survey-checks">
-            <label><input type="checkbox" value="highlighting" class="rt-surv-chk-${id}" ${survey.strategies.includes('highlighting')?'checked':''} onchange="_rtUpdateSurvey('${id}')"> Highlighting key quotes</label>
-            <label><input type="checkbox" value="rereading" class="rt-surv-chk-${id}" ${survey.strategies.includes('rereading')?'checked':''} onchange="_rtUpdateSurvey('${id}')"> Re-reading difficult paragraphs</label>
-            <label><input type="checkbox" value="summarising" class="rt-surv-chk-${id}" ${survey.strategies.includes('summarising')?'checked':''} onchange="_rtUpdateSurvey('${id}')"> Summarising ideas in my head</label>
-            <label><input type="checkbox" value="guessing" class="rt-surv-chk-${id}" ${survey.strategies.includes('guessing')?'checked':''} onchange="_rtUpdateSurvey('${id}')"> Guessing unknown words from context</label>
+            <label><input type="checkbox" value="highlighting" class="rt-surv-chk-${id}" ${survey.strategies.includes('highlighting') ? 'checked' : ''} onchange="_rtUpdateSurvey('${id}')"> Highlighting key quotes</label>
+            <label><input type="checkbox" value="rereading" class="rt-surv-chk-${id}" ${survey.strategies.includes('rereading') ? 'checked' : ''} onchange="_rtUpdateSurvey('${id}')"> Re-reading difficult paragraphs</label>
+            <label><input type="checkbox" value="summarising" class="rt-surv-chk-${id}" ${survey.strategies.includes('summarising') ? 'checked' : ''} onchange="_rtUpdateSurvey('${id}')"> Summarising ideas in my head</label>
+            <label><input type="checkbox" value="guessing" class="rt-surv-chk-${id}" ${survey.strategies.includes('guessing') ? 'checked' : ''} onchange="_rtUpdateSurvey('${id}')"> Guessing unknown words from context</label>
           </div>
         </div>
       </div>
@@ -240,11 +307,11 @@ function _surveyStep(id, cfg, st) {
 function _writingStep(id, cfg, st) {
   let promptText = cfg.writingPrompt;
   let adaptiveHintHtml = '';
-  
+
   if (st.survey) {
     const diff = st.survey.difficulty;
     const hasStrats = st.survey.strategies && st.survey.strategies.length > 0;
-    
+
     if (diff <= 2 && hasStrats) {
       // Found it easy AND used strategies = push them harder
       adaptiveHintHtml = `
@@ -298,12 +365,14 @@ function _writingStep(id, cfg, st) {
       <div class="rt-writing-footer">
         <span class="rt-word-count" id="rt-wc-${id}">0 words</span>
         <span class="rt-word-target">Target: ${cfg.wordTarget} words</span>
+        <span id="rt-save-${id}" style="font-size:12px;color:var(--green);">Saved locally</span>
       </div>
 
       <p id="rt-w-err-${id}" class="rt-err" style="display:none;">Please write at least 30 words before submitting.</p>
 
       <div class="rt-nav">
         <button class="rt-btn-secondary" onclick="_rtAdvance('${id}', 'questions')">← Back to questions</button>
+        <button class="rt-btn-secondary" onclick="_rtClearWork('${id}')">Clear response</button>
         <button class="rt-btn-submit" onclick="_rtSubmitWriting('${id}')">✨ Submit for Feedback</button>
       </div>
     </div>`;
@@ -313,11 +382,11 @@ function _writingStep(id, cfg, st) {
 
 // Level config — used to render the rating badge and colour-coded bar
 const LEVELS = {
-  1: { label: 'Needs significant development',  color: '#ef4444', bg: '#fef2f2', bar: 20,  icon: '🔴' },
-  2: { label: 'Below university standard',       color: '#f97316', bg: '#fff7ed', bar: 40,  icon: '🟠' },
-  3: { label: 'Approaching university standard', color: '#eab308', bg: '#fefce8', bar: 60,  icon: '🟡' },
-  4: { label: 'Meets university standard',       color: '#22c55e', bg: '#f0fdf4', bar: 80,  icon: '🟢' },
-  5: { label: 'Exceeds university standard',     color: '#6366f1', bg: '#f5f3ff', bar: 100, icon: '🌟' },
+  1: { label: 'Needs significant development', color: '#ef4444', bg: '#fef2f2', bar: 20, icon: '🔴' },
+  2: { label: 'Below university standard', color: '#f97316', bg: '#fff7ed', bar: 40, icon: '🟠' },
+  3: { label: 'Approaching university standard', color: '#eab308', bg: '#fefce8', bar: 60, icon: '🟡' },
+  4: { label: 'Meets university standard', color: '#22c55e', bg: '#f0fdf4', bar: 80, icon: '🟢' },
+  5: { label: 'Exceeds university standard', color: '#6366f1', bg: '#f5f3ff', bar: 100, icon: '🌟' },
 };
 
 function _feedbackStep(id, cfg, st) {
@@ -331,8 +400,22 @@ function _feedbackStep(id, cfg, st) {
       </div>`;
   }
 
-  const lv  = LEVELS[fb.level] || LEVELS[3];
+  const lv = LEVELS[fb.level] || LEVELS[3];
   const canRevise = fb.level <= 2; // prompt revision for below-standard work
+
+  // AI detection warning
+  const aiWarn = st.aiDetection && st.aiDetection.isRiskFlag ? `
+    <div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:6px;padding:16px;margin-bottom:20px;">
+      <div style="display:flex;gap:12px;">
+        <div style="font-size:24px;">⚠️</div>
+        <div style="flex:1;">
+          <div style="font-weight:700;color:#991b1b;margin-bottom:6px;">Academic Integrity Warning</div>
+          <p style="color:#7f1d1d;font-size:14px;margin:0;line-height:1.5;">${st.aiDetection.recommendation}</p>
+          ${st.aiDetection.reasons && st.aiDetection.reasons.length > 0 ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #fca5a5;font-size:12px;color:#991b1b;"><strong>Detected signs:</strong><ul style="margin:4px 0 0 18px;padding:0;">${st.aiDetection.reasons.map(r => '<li>' + r + '</li>').join('')}</ul></div>` : ''}
+        </div>
+      </div>
+    </div>
+  ` : '';
 
   const voiceChallenge = fb.voice_challenge ? `
     <div class="rt-voice-challenge">
@@ -348,6 +431,7 @@ function _feedbackStep(id, cfg, st) {
     <div class="rt-step-content anim-fade">
 
       <div class="rt-feedback-header">
+        ${aiWarn}
         <div class="rt-feedback-icon">📋</div>
         <div>
           <div class="rt-feedback-title">Tutor Feedback</div>
@@ -435,9 +519,11 @@ function _feedbackStep(id, cfg, st) {
         <button class="rt-btn-secondary" onclick="_rtAdvance('${id}', 'writing')">
           ← ${canRevise ? '⚠️ Revise and resubmit' : 'Revise my writing'}
         </button>
+        <button class="rt-btn-secondary" onclick="_rtClearWork('${id}')">Clear response</button>
+        <div id="rt-save-${id}" style="font-size:12px;color:var(--green);align-self:center;">Saved locally</div>
         ${canRevise
-          ? `<div class="rt-revise-nudge">Your tutor recommends revising before moving on.</div>`
-          : `<div style="font-size:13px;color:var(--muted);align-self:center;">✅ Activity complete</div>`}
+      ? `<div class="rt-revise-nudge">Your tutor recommends revising before moving on.</div>`
+      : `<div style="font-size:13px;color:var(--muted);align-self:center;">✅ Activity complete</div>`}
       </div>
     </div>`;
 }
@@ -467,22 +553,24 @@ window._rtSaveAnnotation = (id) => {
   const ta = document.getElementById(`rt-annot-ta-${id}`);
   const st = window._rtState[id];
   const cfg = window._rtCfg[id];
-  
+
   if (!quoteEl || !ta || !st || !cfg) return;
   const quote = quoteEl.dataset.fullQuote || quoteEl.textContent;
   const note = ta.value.trim();
-  
+
   if (note.length === 0) return;
 
   if (!st.annotations) st.annotations = [];
   st.annotations.push({ quote, text: note, timestamp: new Date().toISOString() });
-  
+
   if (window.STATE && window.STATE.progress && cfg.unitId) {
     if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
     window.STATE.progress[cfg.unitId].annotations = st.annotations;
     if (window.saveState) window.saveState();
   }
-  
+
+  _rtPersist(id);
+
   _render(id);
 };
 
@@ -490,14 +578,16 @@ window._rtDeleteAnnotation = (id, idx) => {
   const st = window._rtState[id];
   const cfg = window._rtCfg[id];
   if (!st || !st.annotations) return;
-  
+
   st.annotations.splice(idx, 1);
-  
+
   if (window.STATE && window.STATE.progress && cfg.unitId) {
     window.STATE.progress[cfg.unitId].annotations = st.annotations;
     if (window.saveState) window.saveState();
   }
-  
+
+  _rtPersist(id);
+
   _render(id);
 };
 
@@ -514,6 +604,7 @@ window._rtAdvance = (id, step) => {
     });
   }
   window._rtState[id].step = step;
+  _rtPersist(id);
   _render(id);
 };
 
@@ -523,11 +614,12 @@ window._rtCheckAnswers = (id) => {
     const ta = document.getElementById(`rt-ans-${id}-${i}`);
     if (ta) window._rtState[id].answers[i] = ta.value;
   });
+  _rtPersist(id);
 };
 
 window._rtSubmitComprehension = (id) => {
   const cfg = window._rtCfg[id];
-  const st  = window._rtState[id];
+  const st = window._rtState[id];
   const err = document.getElementById(`rt-q-err-${id}`);
   const allAnswered = cfg.questions.every((_, i) => {
     const ta = document.getElementById(`rt-ans-${id}-${i}`);
@@ -544,13 +636,15 @@ window._rtUpdateSurvey = (id) => {
   const st = window._rtState[id];
   const cfg = window._rtCfg[id];
   if (!st) return;
-  
+
   const diff = document.getElementById(`rt-surv-diff-${id}`)?.value || 3;
-  const int  = document.getElementById(`rt-surv-int-${id}`)?.value || 3;
+  const int = document.getElementById(`rt-surv-int-${id}`)?.value || 3;
   const strats = Array.from(document.querySelectorAll(`.rt-surv-chk-${id}:checked`)).map(c => c.value);
-  
+
   st.survey = { difficulty: parseInt(diff), interest: parseInt(int), strategies: strats };
-  
+
+  _rtPersist(id);
+
   if (window.STATE && window.STATE.progress && cfg.unitId) {
     if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
     window.STATE.progress[cfg.unitId].readingSurvey = st.survey;
@@ -559,29 +653,32 @@ window._rtUpdateSurvey = (id) => {
 };
 
 window._rtWordCount = (id) => {
-  const ta  = document.getElementById(`rt-writing-${id}`);
-  const wc  = document.getElementById(`rt-wc-${id}`);
+  const ta = document.getElementById(`rt-writing-${id}`);
+  const wc = document.getElementById(`rt-wc-${id}`);
   const cfg = window._rtCfg[id];
   if (!ta || !wc) return;
   const count = ta.value.trim().split(/\s+/).filter(Boolean).length;
+  window._rtState[id].writing = ta.value;
+  _rtPersist(id);
   wc.textContent = `${count} words`;
   wc.style.color = count >= cfg.wordTarget ? 'var(--green)' : 'var(--muted)';
 };
 
 window._rtSubmitWriting = async (id) => {
-  const ta  = document.getElementById(`rt-writing-${id}`);
+  const ta = document.getElementById(`rt-writing-${id}`);
   const err = document.getElementById(`rt-w-err-${id}`);
   const cfg = window._rtCfg[id];
-  const st  = window._rtState[id];
+  const st = window._rtState[id];
 
   const text = ta?.value?.trim() ?? '';
   const wordCount = text.split(/\s+/).filter(Boolean).length;
   if (wordCount < 30) { if (err) err.style.display = 'block'; return; }
   if (err) err.style.display = 'none';
 
-  st.writing  = text;
-  st.step     = 'feedback';
+  st.writing = text;
+  st.step = 'feedback';
   st.feedback = null;
+  _rtPersist(id);
   _render(id);
 
   // ── THE FEEDBACK ALGORITHM ─────────────────────────────────────────────
@@ -664,23 +761,28 @@ Respond ONLY with valid JSON — no markdown fences, no preamble, no trailing te
 }`;
 
   try {
-    const raw   = await _aiChat(systemPrompt, { maxTokens: 600 });
+    const raw = await _aiChat(systemPrompt, { maxTokens: 600 });
     const clean = raw.replace(/```json|```/g, '').trim();
     st.feedback = JSON.parse(clean);
+
+    // Check for potential AI use and store detection result
+    const baseline = getStudentBaselineProfile(cfg.unitId);
+    const aiScore = scoreSubmissionForAI(text, baseline);
+    st.aiDetection = aiScore;
   } catch (e) {
     // Honest fallback — does not pretend to have evaluated the writing
     st.feedback = {
-      level:              3,
-      content:            'Feedback could not be generated at this time — the AI service is unavailable. Please resubmit or check back shortly.',
-      language:           'Unable to evaluate language at this time.',
-      register:           'Unable to evaluate register at this time.',
-      priority:           'Please resubmit your writing when the service is restored.',
+      level: 3,
+      content: 'Feedback could not be generated at this time — the AI service is unavailable. Please resubmit or check back shortly.',
+      language: 'Unable to evaluate language at this time.',
+      register: 'Unable to evaluate register at this time.',
+      priority: 'Please resubmit your writing when the service is restored.',
       example_correction: null,
-      originality_score:  7,
-      originality_note:   null,
-      voice_challenge:    false,
+      originality_score: 7,
+      originality_note: null,
+      voice_challenge: false,
       knowledge_gap_advice: null,
-      extension_reading:  null
+      extension_reading: null
     };
   }
 
@@ -688,14 +790,17 @@ Respond ONLY with valid JSON — no markdown fences, no preamble, no trailing te
     const unitId = cfg.unitId;
     if (!window.STATE.progress[unitId]) window.STATE.progress[unitId] = {};
     window.STATE.progress[unitId].readingComplete = true;
+    window.STATE.progress[unitId].readingAiDetection = st.aiDetection || null;
     if (window.saveState) window.saveState();
   }
+
+  _rtPersist(id);
 
   _render(id);
 };
 
 window._rtSubmitVoiceChallenge = async (id) => {
-  const ta   = document.getElementById(`rt-vc-${id}`);
+  const ta = document.getElementById(`rt-vc-${id}`);
   const text = ta?.value?.trim() ?? '';
   if (text.length < 30) { alert('Please write a fuller reflection before submitting.'); return; }
   const st = window._rtState[id];
@@ -704,5 +809,23 @@ window._rtSubmitVoiceChallenge = async (id) => {
     st.feedback.originality_note = null;
     st.feedback.register += ` Your additional reflection shows personal thinking — this kind of specificity is exactly what university writing requires.`;
   }
+  _rtPersist(id);
   _render(id);
+};
+
+window._rtClearWork = (id) => {
+  if (!confirm('Clear your saved response and feedback for this activity?')) return;
+  const st = window._rtState[id];
+  if (!st) return;
+
+  st.answers = {};
+  st.writing = '';
+  st.feedback = null;
+  st.survey = null;
+  st.step = st.step === 'feedback' ? 'writing' : st.step;
+
+  try { localStorage.removeItem(_rtStorageKey(id)); } catch { }
+  _render(id);
+  const el = document.getElementById(`rt-save-${id}`);
+  if (el) { el.textContent = 'Cleared'; el.style.color = 'var(--muted)'; }
 };

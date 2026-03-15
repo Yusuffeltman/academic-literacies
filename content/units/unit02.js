@@ -3,7 +3,7 @@
 // Phase 1 — Understanding the Landscape
 // Reading Level: ACCESS Level 2
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, heutagogyCycle, pathwayChallenge, essayMilestone, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 const RT_CONFIG = {
@@ -86,26 +86,26 @@ export const unit02 = {
     <div id="ivp-unit2" data-video-key="unit2" class="ivp-container"></div>
 
     ${quiz('q2a',
-      'Pariser argues the internet shows us less of what we need and more of what we want. For a student writing an academic essay, why is this a serious problem?',
-      [
-        'It makes searching for sources slower and less efficient',
-        'You may only encounter evidence that confirms your existing views, weakening your academic argument',
-        'It results in too many search results to sort through',
-        'It prevents you from accessing academic databases directly',
-      ], 1,
-      '✅ Academic writing requires engaging with the full range of evidence — including evidence that challenges your position. If your information environment only confirms your existing views, your arguments will be one-sided. This is what Pariser warned about in 2011 — and it has intensified significantly since then.'
-    )}
+    'Pariser argues the internet shows us less of what we need and more of what we want. For a student writing an academic essay, why is this a serious problem?',
+    [
+      'It makes searching for sources slower and less efficient',
+      'You may only encounter evidence that confirms your existing views, weakening your academic argument',
+      'It results in too many search results to sort through',
+      'It prevents you from accessing academic databases directly',
+    ], 1,
+    '✅ Academic writing requires engaging with the full range of evidence — including evidence that challenges your position. If your information environment only confirms your existing views, your arguments will be one-sided. This is what Pariser warned about in 2011 — and it has intensified significantly since then.'
+  )}
 
     ${quiz('q2b',
-      'A student researches "the benefits of AI in education" using only Google and YouTube. After two days she concludes "all evidence shows AI is great for education." What has most likely happened?',
-      [
-        'She has done thorough research and found a clear answer',
-        'She has been inside a filter bubble — algorithms prioritised content that matched her search terms, hiding critical perspectives',
-        'AI in education genuinely has no critics, so her research is complete',
-        'Google and YouTube are not valid research tools so her work is entirely invalid',
-      ], 1,
-      '✅ This is a classic filter bubble effect. By searching for "benefits" rather than simply "AI in education", she signalled to the algorithm what kind of content she wanted — and it delivered. Academic research requires deliberately seeking out critical perspectives and counterarguments. This is called seeking disconfirming evidence, and it is a hallmark of scholarly thinking.'
-    )}
+    'A student researches "the benefits of AI in education" using only Google and YouTube. After two days she concludes "all evidence shows AI is great for education." What has most likely happened?',
+    [
+      'She has done thorough research and found a clear answer',
+      'She has been inside a filter bubble — algorithms prioritised content that matched her search terms, hiding critical perspectives',
+      'AI in education genuinely has no critics, so her research is complete',
+      'Google and YouTube are not valid research tools so her work is entirely invalid',
+    ], 1,
+    '✅ This is a classic filter bubble effect. By searching for "benefits" rather than simply "AI in education", she signalled to the algorithm what kind of content she wanted — and it delivered. Academic research requires deliberately seeking out critical perspectives and counterarguments. This is called seeking disconfirming evidence, and it is a hallmark of scholarly thinking.'
+  )}
 
     <h2>The Architecture of Your Information World</h2>
     <p>Every major platform — Google, Meta, TikTok, YouTube — runs on an engagement algorithm. The goal is simple: maximise the time you spend on the platform, because more time means more advertising revenue. Notice what this system does <em>not</em> optimise for: accuracy, balance, complexity, or importance. These are precisely the qualities academic information requires.</p>
@@ -129,10 +129,53 @@ export const unit02 = {
       <p>The question is not whether your learners will encounter misinformation. They already do, every day. The question is whether they will have the tools to recognise it.</p>
     </div>
 
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u2', {
+    title: 'Unit 2 Challenge Tracks',
+    intro: 'Choose the challenge level that best matches your current readiness.',
+    supportedTasks: [
+      'Compare one social media source and one academic source on the same topic.',
+      'Write two sentences on how algorithmic curation can bias learning.',
+    ],
+    coreTasks: [
+      'Find one counter-source that challenges your initial viewpoint.',
+      'Use chart evidence to support one claim in your paragraph.',
+    ],
+    advancedTasks: [
+      'Create a mini evidence set with at least three contrasting perspectives.',
+      'Evaluate which source set best supports balanced academic argumentation.',
+    ],
+  })}
+
     <h2>Reading & Writing Activity</h2>
     <p>This activity uses a reading text and a bar chart together. Read the text carefully first, then study the chart as a second source of evidence. Both will support your comprehension answers and writing task.</p>
 
     ${readingTask('rt-u2', RT_CONFIG)}
+
+    ${essayMilestone('u2', {
+    title: 'Essay Milestone (Unit 2)',
+    target: 'Strengthen your argument base by adding contrasting evidence.',
+    checklist: [
+      'Keep your Unit 1 claim and add one counter-perspective.',
+      'Record two source types and why each is useful or risky.',
+      'Draft a 3–4 sentence evidence paragraph in formal tone.',
+    ],
+  })}
+
+    <h2>Self-Directed Learning Cycle</h2>
+    <p>Decide how you will challenge your own filter bubble this week and record your evidence.</p>
+    ${heutagogyCycle('u2-contract', {
+    title: 'Unit 2 Learning Contract',
+    prompt: 'Set one concrete target for escaping algorithmic bias in your research process.',
+    context: 'Unit 2: algorithms, filter bubbles, source diversity',
+    pathwayOptions: ['Supported: Use one academic and one social source, then compare', 'Core: Find one source that challenges your initial position', 'Advanced: Build a mini evidence set with at least three contrasting perspectives'],
+    evidenceHint: 'Capture one example of a source that challenged your prior view and why it mattered.',
+  })}
+
+    ${portfolioEvidence('u2-pe', {
+    title: 'Information Ecosystem Portfolio Artifact',
+    target: 'Link to a comparative reading log or a filter-bubble escape plan.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

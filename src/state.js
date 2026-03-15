@@ -4,93 +4,288 @@ import { ref, set, get } from 'firebase/database';
 
 const VITE_FIREBASE = import.meta.env.VITE_USE_FIREBASE;
 const DEV_MODE = false; // Force disabled for testing // keep in sync with auth.js
+const LOCAL_STATE_KEY = 'acadlit-state';
 
 // ── Adaptive defaults ─────────────────────────
-const SKILLS = ['critical_reading','evidence_use','argument_structure','academic_tone',
-                'source_evaluation','citation_practice','research_skills','ai_literacy'];
+const SKILLS = ['critical_reading', 'evidence_use', 'argument_structure', 'academic_tone',
+  'source_evaluation', 'citation_practice', 'research_skills', 'ai_literacy'];
 
 function defaultAdaptive() {
-  const scores  = {};
-  const status  = {};
+  const scores = {};
+  const status = {};
   SKILLS.forEach(s => { scores[s] = []; status[s] = 'untested'; });
   return {
-    skill_scores:        scores,
-    skill_status:        status,
-    needs_remediation:   [],
-    frustration_index:   0,
-    frustration_triggers:[],
-    study_topics:        [],
+    skill_scores: scores,
+    skill_status: status,
+    needs_remediation: [],
+    frustration_index: 0,
+    frustration_triggers: [],
+    study_topics: [],
     last_recommendation: null,
-    recommendation_at:   null,
-    outcomes:            [],
-    high_performer:      false,
+    recommendation_at: null,
+    outcomes: [],
+    high_performer: false,
   };
 }
 
 export const STATE = {
-  user:       null,
+  user: null,
   activeUnit: 0,
-  progress:   {},
+  progress: {},
   tutorChats: {},
+  tutorialNotebook: { entries: {}, lastUnitId: null, lastSessionId: null, archivedUnits: {}, analytics: {} },
+  contactNotebook: { entries: {}, lastUnitId: null, lastSessionId: null, archivedUnits: {}, analytics: {} },
   erProgress: { extraMarks: 0, completedReadings: [] },
+  attendance: { byDate: {} },
   deviceInfo: null,
-  aiUsage:    { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
-  adaptive:   defaultAdaptive(),
+  aiUsage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
+  adaptive: defaultAdaptive(),
   escalations: [],
 };
 
-export async function saveState() {
-  if (DEV_MODE || !STATE.user) {
-    // In dev mode, persist to localStorage so progress survives refresh
-    localStorage.setItem('acadlit-state', JSON.stringify({
-      progress:   STATE.progress,
-      tutorChats: STATE.tutorChats,
-      erProgress: STATE.erProgress,
-      deviceInfo: STATE.deviceInfo,
-      aiUsage:    STATE.aiUsage,
-      adaptive:   STATE.adaptive,
-      escalations: STATE.escalations,
-    }));
-    return;
-  }
-  await set(ref(db, `users/${STATE.user.uid}/state`), {
-    progress:   STATE.progress,
+function _captureStatePayload() {
+  return {
+    progress: STATE.progress,
     tutorChats: STATE.tutorChats,
+    tutorialNotebook: STATE.tutorialNotebook,
+    contactNotebook: STATE.contactNotebook,
     erProgress: STATE.erProgress,
+    attendance: STATE.attendance,
     deviceInfo: STATE.deviceInfo,
-    aiUsage:    STATE.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
-    adaptive:   STATE.adaptive,
+    aiUsage: STATE.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
+    adaptive: STATE.adaptive,
     escalations: STATE.escalations,
-  });
+  };
 }
 
-export async function loadState() {
-  if (DEV_MODE) {
-    const saved = localStorage.getItem('acadlit-state');
-    if (saved) {
-      const data = JSON.parse(saved);
-      STATE.progress   = data.progress   || {};
-      STATE.tutorChats = data.tutorChats || {};
-      STATE.erProgress = data.erProgress || { extraMarks: 0, completedReadings: [] };
-      STATE.deviceInfo = data.deviceInfo || null;
-      STATE.aiUsage    = data.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 };
-      STATE.adaptive   = _mergeAdaptive(data.adaptive);
-      STATE.escalations = data.escalations || [];
-    }
+function _localStateKey(user = null) {
+  const activeUser = user || STATE.user;
+  return activeUser?.uid ? `${LOCAL_STATE_KEY}:${activeUser.uid}` : LOCAL_STATE_KEY;
+}
+
+function _writeLocalState(payload, user = null) {
+  try {
+    localStorage.setItem(_localStateKey(user), JSON.stringify(payload));
+  } catch (err) {
+    console.warn('Local state backup failed:', err);
+  }
+}
+
+function _readLocalState(user = null) {
+  try {
+    const scoped = localStorage.getItem(_localStateKey(user));
+    if (scoped) return JSON.parse(scoped);
+
+    const saved = localStorage.getItem(LOCAL_STATE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch (err) {
+    console.warn('Local state read failed:', err);
+    return null;
+  }
+}
+
+function _applyState(data) {
+  if (!data) return;
+  STATE.progress = data.progress || {};
+  STATE.tutorChats = data.tutorChats || {};
+  STATE.tutorialNotebook = data.tutorialNotebook || { entries: {}, lastUnitId: null, lastSessionId: null, archivedUnits: {}, analytics: {} };
+  STATE.tutorialNotebook.archivedUnits = STATE.tutorialNotebook.archivedUnits || {};
+  STATE.tutorialNotebook.analytics = STATE.tutorialNotebook.analytics || {};
+  STATE.contactNotebook = data.contactNotebook || { entries: {}, lastUnitId: null, lastSessionId: null, archivedUnits: {}, analytics: {} };
+  STATE.contactNotebook.archivedUnits = STATE.contactNotebook.archivedUnits || {};
+  STATE.contactNotebook.analytics = STATE.contactNotebook.analytics || {};
+  STATE.erProgress = data.erProgress || { extraMarks: 0, completedReadings: [] };
+  STATE.attendance = data.attendance || { byDate: {} };
+  STATE.deviceInfo = data.deviceInfo || null;
+  STATE.aiUsage = data.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 };
+  STATE.adaptive = _mergeAdaptive(data.adaptive);
+  STATE.escalations = data.escalations || [];
+}
+
+function _shouldUseFirebase(userOverride = null) {
+  const toggle = String(VITE_FIREBASE ?? 'true').toLowerCase();
+  const enabled = toggle !== 'false' && toggle !== '0';
+  const configOk = Boolean(import.meta.env.VITE_FIREBASE_DATABASE_URL && import.meta.env.VITE_FIREBASE_API_KEY);
+  const user = userOverride || STATE.user;
+  return enabled && configOk && !!user;
+}
+
+function _parseIso(value) {
+  const ts = Date.parse(value || '');
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function _pickNewerEntry(remoteEntry, localEntry) {
+  if (!remoteEntry) return localEntry || null;
+  if (!localEntry) return remoteEntry || null;
+
+  const remoteTs = _parseIso(remoteEntry.updatedAt);
+  const localTs = _parseIso(localEntry.updatedAt);
+
+  if (localTs > remoteTs) return localEntry;
+  if (remoteTs > localTs) return remoteEntry;
+
+  const remoteAttachments = Array.isArray(remoteEntry.attachments) ? remoteEntry.attachments.length : 0;
+  const localAttachments = Array.isArray(localEntry.attachments) ? localEntry.attachments.length : 0;
+  return localAttachments >= remoteAttachments ? { ...remoteEntry, ...localEntry } : { ...localEntry, ...remoteEntry };
+}
+
+function _mergeNotebookState(remoteNotebook, localNotebook) {
+  const remote = remoteNotebook || { entries: {} };
+  const local = localNotebook || { entries: {} };
+  const keys = new Set([
+    ...Object.keys(remote.entries || {}),
+    ...Object.keys(local.entries || {}),
+  ]);
+  const entries = {};
+
+  keys.forEach((key) => {
+    const picked = _pickNewerEntry(remote.entries?.[key], local.entries?.[key]);
+    if (picked) entries[key] = picked;
+  });
+
+  return {
+    ...remote,
+    ...local,
+    entries,
+    lastUnitId: local.lastUnitId || remote.lastUnitId || null,
+    lastSessionId: local.lastSessionId || remote.lastSessionId || null,
+  };
+}
+
+function _mergeStatePayload(remoteData, localData) {
+  const remote = remoteData || {};
+  const local = localData || {};
+  return {
+    ...remote,
+    ...local,
+    progress: local.progress || remote.progress || {},
+    tutorChats: local.tutorChats || remote.tutorChats || {},
+    tutorialNotebook: _mergeNotebookState(remote.tutorialNotebook, local.tutorialNotebook),
+    contactNotebook: _mergeNotebookState(remote.contactNotebook, local.contactNotebook),
+    erProgress: local.erProgress || remote.erProgress || { extraMarks: 0, completedReadings: [] },
+    attendance: local.attendance || remote.attendance || { byDate: {} },
+    deviceInfo: local.deviceInfo || remote.deviceInfo || null,
+    aiUsage: local.aiUsage || remote.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
+    adaptive: _mergeAdaptive(local.adaptive || remote.adaptive),
+    escalations: local.escalations || remote.escalations || [],
+  };
+}
+
+export async function saveState() {
+  const payload = _captureStatePayload();
+  _writeLocalState(payload);
+
+  if (DEV_MODE || !_shouldUseFirebase()) return true;
+
+  try {
+    await set(ref(db, `users/${STATE.user.uid}/state`), payload);
+    console.log('✅ State saved successfully to Firebase');
+    return true;
+  } catch (err) {
+    console.error('❌ Failed to save state to Firebase, kept local copy:', err);
+    return false;
+  }
+}
+
+export async function loadState(user = null) {
+  const activeUser = user || STATE.user || null;
+  if (activeUser && !STATE.user) STATE.user = activeUser;
+  const localData = _readLocalState(activeUser);
+
+  if (DEV_MODE || !_shouldUseFirebase(activeUser)) {
+    _applyState(localData);
     return;
   }
-  if (!STATE.user) return;
-  const snap = await get(ref(db, `users/${STATE.user.uid}/state`));
-  if (snap.exists()) {
-    const data = snap.val();
-    STATE.progress   = data.progress   || {};
-    STATE.tutorChats = data.tutorChats || {};
-    STATE.erProgress = data.erProgress || { extraMarks: 0, completedReadings: [] };
-    STATE.deviceInfo = data.deviceInfo || null;
-    STATE.aiUsage    = data.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 };
-    STATE.adaptive   = _mergeAdaptive(data.adaptive);
-    STATE.escalations = data.escalations || [];
+
+  try {
+    const snap = await get(ref(db, `users/${activeUser.uid}/state`));
+    if (snap.exists()) {
+      const data = snap.val();
+      const merged = _mergeStatePayload(data, localData);
+      _applyState(merged);
+      _writeLocalState(_captureStatePayload(), activeUser);
+
+      const remoteJson = JSON.stringify(data || {});
+      const mergedJson = JSON.stringify(merged || {});
+      if (remoteJson !== mergedJson) {
+        await set(ref(db, `users/${activeUser.uid}/state`), merged);
+      }
+      return;
+    }
+  } catch (err) {
+    console.warn('Firebase state load failed, falling back to local copy:', err);
   }
+
+  _applyState(localData);
+}
+
+export function attendanceDateKey(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function markPresent(sessionType = 'class') {
+  const day = attendanceDateKey();
+  if (!STATE.attendance || typeof STATE.attendance !== 'object') {
+    STATE.attendance = { byDate: {} };
+  }
+  STATE.attendance.byDate = STATE.attendance.byDate || {};
+
+  const nowIso = new Date().toISOString();
+  const rec = STATE.attendance.byDate[day] || {
+    present: false,
+    firstSeen: null,
+    lastSeen: null,
+    totalSeconds: 0,
+    classSeconds: 0,
+    tutorialSeconds: 0,
+    lastSessionType: 'class',
+  };
+
+  rec.present = true;
+  rec.firstSeen = rec.firstSeen || nowIso;
+  rec.lastSeen = nowIso;
+  rec.lastSessionType = sessionType === 'tutorial' ? 'tutorial' : 'class';
+  STATE.attendance.byDate[day] = rec;
+}
+
+export function addAttendanceTime(seconds, sessionType = 'class') {
+  const sec = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (!sec) return;
+
+  const day = attendanceDateKey();
+  if (!STATE.attendance || typeof STATE.attendance !== 'object') {
+    STATE.attendance = { byDate: {} };
+  }
+  STATE.attendance.byDate = STATE.attendance.byDate || {};
+
+  const nowIso = new Date().toISOString();
+  const rec = STATE.attendance.byDate[day] || {
+    present: false,
+    firstSeen: null,
+    lastSeen: null,
+    totalSeconds: 0,
+    classSeconds: 0,
+    tutorialSeconds: 0,
+    lastSessionType: 'class',
+  };
+
+  rec.present = true;
+  rec.firstSeen = rec.firstSeen || nowIso;
+  rec.lastSeen = nowIso;
+  rec.totalSeconds = (rec.totalSeconds || 0) + sec;
+  if (sessionType === 'tutorial') {
+    rec.tutorialSeconds = (rec.tutorialSeconds || 0) + sec;
+    rec.lastSessionType = 'tutorial';
+  } else {
+    rec.classSeconds = (rec.classSeconds || 0) + sec;
+    rec.lastSessionType = 'class';
+  }
+
+  STATE.attendance.byDate[day] = rec;
 }
 
 // Safely merge saved adaptive data with defaults (handles missing keys for existing users)
@@ -100,9 +295,9 @@ function _mergeAdaptive(saved) {
   return {
     ...def,
     ...saved,
-    skill_scores:  { ...def.skill_scores,  ...(saved.skill_scores  || {}) },
-    skill_status:  { ...def.skill_status,  ...(saved.skill_status  || {}) },
-    outcomes:      Array.isArray(saved.outcomes) ? saved.outcomes : [],
+    skill_scores: { ...def.skill_scores, ...(saved.skill_scores || {}) },
+    skill_status: { ...def.skill_status, ...(saved.skill_status || {}) },
+    outcomes: Array.isArray(saved.outcomes) ? saved.outcomes : [],
   };
 }
 
@@ -120,10 +315,10 @@ export function recordSkillScore(skillId, score, maxScore, source, triggeredBy =
   if (!SKILLS.includes(skillId)) return;
   const normalised = Math.round((score / maxScore) * 5 * 10) / 10;
   const entry = {
-    score:        normalised,
-    raw:          score,
-    max:          maxScore,
-    timestamp:    new Date().toISOString(),
+    score: normalised,
+    raw: score,
+    max: maxScore,
+    timestamp: new Date().toISOString(),
     source,
     triggered_by: triggeredBy,
   };
@@ -140,11 +335,11 @@ function _updateSkillStatus(skillId) {
   if (entries.length < 2) { STATE.adaptive.skill_status[skillId] = 'untested'; return; }
 
   const recent = entries.slice(-3).map(e => e.score);
-  const avg    = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
 
-  if      (avg < 2.5)  STATE.adaptive.skill_status[skillId] = 'weak';
-  else if (avg < 3.5)  STATE.adaptive.skill_status[skillId] = 'developing';
-  else                 STATE.adaptive.skill_status[skillId] = 'strong';
+  if (avg < 2.5) STATE.adaptive.skill_status[skillId] = 'weak';
+  else if (avg < 3.5) STATE.adaptive.skill_status[skillId] = 'developing';
+  else STATE.adaptive.skill_status[skillId] = 'strong';
 
   // Remediation flag — 2 consecutive scores below 3
   const last2 = entries.slice(-2).map(e => e.score);
@@ -174,21 +369,21 @@ function _updateSkillStatus(skillId) {
  */
 export function getScaffoldLevel(skillId) {
   const status = STATE.adaptive?.skill_status?.[skillId] || 'untested';
-  if (status === 'weak')       return 'scaffolded';
+  if (status === 'weak') return 'scaffolded';
   if (status === 'developing') return 'guided';
   return 'independent';
 }
 
 const FRUSTRATION_KEYWORDS = /\b(confused|confusing|don'?t (get|understand)|don'?t know|stuck|lost|help me|what does|i can'?t|no idea|makes no sense|not sure|struggling)\b/i;
 const TOPIC_MAP = {
-  citation_practice:   /\b(cit(e|ation)|reference|apa|in.?text|reference list|plagiar)\b/i,
-  argument_structure:  /\b(arg(ue|ument)|claim|premise|conclusion|reasoning|logic)\b/i,
-  source_evaluation:   /\b(source|credib|evaluat|reliab|peer.?review|journal)\b/i,
-  ai_literacy:         /\b(ai|artificial intelligence|chatgpt|gemini|llm|generated|hallucin)\b/i,
-  research_skills:     /\b(research|database|search|find(ing)? source|literature)\b/i,
-  academic_tone:       /\b(tone|formal|informal|colloqui|academic writing|third person)\b/i,
-  evidence_use:        /\b(evidence|support|proof|data|statistic|finding)\b/i,
-  critical_reading:    /\b(read(ing)?|comprehend|understand|annotate|active read)\b/i,
+  citation_practice: /\b(cit(e|ation)|reference|apa|in.?text|reference list|plagiar)\b/i,
+  argument_structure: /\b(arg(ue|ument)|claim|premise|conclusion|reasoning|logic)\b/i,
+  source_evaluation: /\b(source|credib|evaluat|reliab|peer.?review|journal)\b/i,
+  ai_literacy: /\b(ai|artificial intelligence|chatgpt|gemini|llm|generated|hallucin)\b/i,
+  research_skills: /\b(research|database|search|find(ing)? source|literature)\b/i,
+  academic_tone: /\b(tone|formal|informal|colloqui|academic writing|third person)\b/i,
+  evidence_use: /\b(evidence|support|proof|data|statistic|finding)\b/i,
+  critical_reading: /\b(read(ing)?|comprehend|understand|annotate|active read)\b/i,
 };
 
 /**
@@ -242,14 +437,14 @@ export function recordOutcome(moduleId, skillId, scoreBefore) {
   );
   if (existing) return;
   STATE.adaptive.outcomes.push({
-    id:            `out_${Date.now()}`,
+    id: `out_${Date.now()}`,
     moduleId,
-    skill:         skillId,
-    scoreBefore:   scoreBefore ?? null,
+    skill: skillId,
+    scoreBefore: scoreBefore ?? null,
     recommendedAt: new Date().toISOString(),
-    scoreAfter:    null,
-    improvement:   null,
-    status:        'pending',
+    scoreAfter: null,
+    improvement: null,
+    status: 'pending',
   });
   saveState().catch(console.error);
 }
@@ -265,13 +460,13 @@ export function closeOutcomes(skillId, newScore) {
       const improvement = o.scoreBefore != null ? +(newScore - o.scoreBefore).toFixed(2) : null;
       return {
         ...o,
-        scoreAfter:  newScore,
+        scoreAfter: newScore,
         improvement,
-        status:      improvement == null ? 'unchanged'
-                   : improvement > 0     ? 'improved'
-                   : improvement < 0     ? 'declined'
-                   :                       'unchanged',
-        closedAt:    new Date().toISOString(),
+        status: improvement == null ? 'unchanged'
+          : improvement > 0 ? 'improved'
+            : improvement < 0 ? 'declined'
+              : 'unchanged',
+        closedAt: new Date().toISOString(),
       };
     }
     return o;
@@ -291,12 +486,12 @@ export function createEscalation(trigger, skill, severity, message) {
   );
   if (existing) return;
   STATE.escalations.push({
-    id:        `esc_${Date.now()}`,
+    id: `esc_${Date.now()}`,
     trigger,
-    skill:     skill || null,
+    skill: skill || null,
     severity,
     timestamp: new Date().toISOString(),
-    resolved:  false,
+    resolved: false,
     message,
   });
   saveState().catch(console.error);
@@ -336,7 +531,7 @@ export function checkEscalationTriggers() {
     const entries = adaptive.skill_scores[skillId] || [];
     if (entries.length >= 6) {
       const first = entries[0].score;
-      const last  = entries[entries.length - 1].score;
+      const last = entries[entries.length - 1].score;
       if (last < first - 0.5) {
         createEscalation(
           'declining-performance',
@@ -350,7 +545,7 @@ export function checkEscalationTriggers() {
 
   // Trigger 3: Disengaged — no engagement for more than 10 days
   if (adaptive.recommendation_at) {
-    const age     = Date.now() - new Date(adaptive.recommendation_at).getTime();
+    const age = Date.now() - new Date(adaptive.recommendation_at).getTime();
     const tenDays = 10 * 24 * 60 * 60 * 1000;
     if (age > tenDays) {
       createEscalation(

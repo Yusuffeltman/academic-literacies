@@ -1,7 +1,7 @@
 // content/units/unit05.js — Unit 5: The Scholarly Publication Ecosystem
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, heutagogyCycle, pathwayChallenge, essayMilestone, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_CONFIG = {
   id: 'rt-u5', unitId: 'u5', unitNum: 5,
@@ -92,13 +92,57 @@ export const unit05 = {
     <div class="section-label">🎬 Watch First</div>
     <p>This short Elsevier explainer walks through exactly what happens to a research article between submission and publication. Understanding this process will permanently change how you read an academic paper.</p>
     <div id="ivp-unit5" data-video-key="unit5" class="ivp-container"></div>
-    ${quiz('q5a','A journal article has been through peer review. A blog post has not. A student argues: "But the blog is written by a professor — surely it\'s just as reliable?" How do you respond?',['The student is right — author expertise is what matters','Peer review adds independent scrutiny that author expertise alone cannot substitute — even experts have blind spots','The student is wrong — professors should never blog','It depends which journal the professor publishes in'],1,'✅ Even the most expert researchers benefit from peer review. Independent scrutiny catches errors, challenges assumptions, and strengthens arguments. A professor\'s blog may be excellent — but it has not been through that process.')}
-    ${quiz('q5b','You are researching the National Curriculum Statement (NCS) for your assignment. The best primary source is:',['A textbook chapter about the NCS','An academic article critiquing the NCS','The actual NCS document published by the Department of Basic Education','A Wikipedia article summarising the NCS'],2,'✅ The DBE\'s own published document is the primary source for the NCS — it is the original policy itself. A textbook chapter or academic article about it is a secondary source. Always go to the original where possible.')}
+    ${quiz('q5a', 'A journal article has been through peer review. A blog post has not. A student argues: "But the blog is written by a professor — surely it\'s just as reliable?" How do you respond?', ['The student is right — author expertise is what matters', 'Peer review adds independent scrutiny that author expertise alone cannot substitute — even experts have blind spots', 'The student is wrong — professors should never blog', 'It depends which journal the professor publishes in'], 1, '✅ Even the most expert researchers benefit from peer review. Independent scrutiny catches errors, challenges assumptions, and strengthens arguments. A professor\'s blog may be excellent — but it has not been through that process.')}
+    ${quiz('q5b', 'You are researching the National Curriculum Statement (NCS) for your assignment. The best primary source is:', ['A textbook chapter about the NCS', 'An academic article critiquing the NCS', 'The actual NCS document published by the Department of Basic Education', 'A Wikipedia article summarising the NCS'], 2, '✅ The DBE\'s own published document is the primary source for the NCS — it is the original policy itself. A textbook chapter or academic article about it is a secondary source. Always go to the original where possible.')}
     <h2>📊 Visual Activity: Reading a Comparison Table</h2>
     <p>Academic papers and reports frequently present information in comparison tables. Being able to read a table critically — not just describe what it says, but interpret what it means — is a core academic skill. Work through this activity carefully.</p>
     ${visualTask('vt-u5', VT_CONFIG)}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u5', {
+    title: 'Unit 5 Challenge Tracks',
+    intro: 'Use the source hierarchy to justify stronger evidence decisions.',
+    supportedTasks: [
+      'Classify three sources by type (peer-reviewed, grey literature, news).',
+      'Identify one source you should avoid for core argument claims.',
+    ],
+    coreTasks: [
+      'Build a short source matrix with reliability rationale.',
+      'Justify one inclusion and one exclusion in writing.',
+    ],
+    advancedTasks: [
+      'Build a multi-source evidence chain (primary + secondary + policy context).',
+      'Evaluate limits of each source in relation to your argument.',
+    ],
+  })}
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u5', RT_CONFIG)}
+
+    ${essayMilestone('u5', {
+    title: 'Essay Milestone (Unit 5)',
+    target: 'Prepare your reference-ready evidence architecture for full essay drafting.',
+    checklist: [
+      'Select at least three credible sources with different roles.',
+      'Write one annotated evidence sentence per source.',
+      'Draft a provisional reference list in correct academic format.',
+    ],
+  })}
+
+    <h2>Self-Directed Learning Cycle</h2>
+    <p>Choose your evidence-quality challenge and build a source decision trail that you can justify.</p>
+    ${heutagogyCycle('u5-contract', {
+    title: 'Unit 5 Learning Contract',
+    prompt: 'Set one source-evaluation goal and define what counts as trustworthy evidence for your next assignment.',
+    context: 'Unit 5: scholarly publication ecosystem, peer review, source hierarchy',
+    pathwayOptions: ['Supported: Classify three sources using the hierarchy', 'Core: Justify one source inclusion and one exclusion', 'Advanced: Build a source matrix with credibility rationale for each source'],
+    evidenceHint: 'Include source type, reliability judgement, and one citation you will use or reject.',
+  })}
+
+    ${portfolioEvidence('u5-pe', {
+    title: 'Source Evaluation Portfolio Artifact',
+    target: 'Link to an annotated bibliography or a source reliability matrix.',
+  })}
+
     <div class="unit-closing"><div class="unit-closing-label">Before You Move On</div>
     <p>"Knowing the difference between a peer-reviewed article and a blog post is not elitism. It is the foundation of intellectual honesty — knowing exactly what kind of evidence you are standing on."</p></div>`,
 };

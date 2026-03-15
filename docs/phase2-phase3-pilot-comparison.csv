@@ -1,0 +1,13 @@
+pilot_phase,objective_id,pathway_level,students_assigned,completed,completion_rate_pct,quality_met,quality_partial,quality_not_met,revision_uptake_pct,avg_minutes,time_fit_rating,placement_decision,notes
+Phase 2,p2.source_eval.verify,supported,,,,,,,,,,
+Phase 2,p2.source_eval.verify,core,,,,,,,,,,
+Phase 2,p2.source_eval.verify,advanced,,,,,,,,,,
+Phase 2,p2.write.claim_verdict,supported,,,,,,,,,,
+Phase 2,p2.write.claim_verdict,core,,,,,,,,,,
+Phase 2,p2.write.claim_verdict,advanced,,,,,,,,,,
+Phase 3,p3.read.deep_academic,supported,,,,,,,,,,
+Phase 3,p3.read.deep_academic,core,,,,,,,,,,
+Phase 3,p3.read.deep_academic,advanced,,,,,,,,,,
+Phase 3,p3.write.argument_synthesis,supported,,,,,,,,,,
+Phase 3,p3.write.argument_synthesis,core,,,,,,,,,,
+Phase 3,p3.write.argument_synthesis,advanced,,,,,,,,,,

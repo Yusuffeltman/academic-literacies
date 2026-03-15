@@ -3,7 +3,7 @@
 // Phase 1 — Understanding the Landscape
 // Reading Level: ACCESS Level 4 — moving toward Foundation
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, heutagogyCycle, pathwayChallenge, essayMilestone, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
 
 const RT_CONFIG = {
@@ -106,26 +106,26 @@ export const unit04 = {
     <div id="ivp-unit4" data-video-key="unit4" class="ivp-container"></div>
 
     ${quiz('q4a',
-      'Newport argues that "deep work" — focused, distraction-free thinking — is becoming rarer and more valuable at the same time. What does this mean for your career as an educator?',
-      [
-        'Teachers do not need deep work skills because teaching is a social profession',
-        'The ability to think deeply and produce high-quality work will distinguish excellent teachers from average ones',
-        'Technology will eventually replace the need for deep thinking in education',
-        'Deep work only matters for researchers, not for classroom teachers',
-      ], 1,
-      '✅ Teaching looks like a social profession — and it is. But behind every excellent lesson is deep preparation work: designing learning activities, studying content deeply, giving thoughtful written feedback, reading research. These all require sustained, focused thought. Teachers who cannot do deep work produce shallow lessons. Newport would say your capacity for deep focus is one of the most important professional skills you can develop.'
-    )}
+    'Newport argues that "deep work" — focused, distraction-free thinking — is becoming rarer and more valuable at the same time. What does this mean for your career as an educator?',
+    [
+      'Teachers do not need deep work skills because teaching is a social profession',
+      'The ability to think deeply and produce high-quality work will distinguish excellent teachers from average ones',
+      'Technology will eventually replace the need for deep thinking in education',
+      'Deep work only matters for researchers, not for classroom teachers',
+    ], 1,
+    '✅ Teaching looks like a social profession — and it is. But behind every excellent lesson is deep preparation work: designing learning activities, studying content deeply, giving thoughtful written feedback, reading research. These all require sustained, focused thought. Teachers who cannot do deep work produce shallow lessons. Newport would say your capacity for deep focus is one of the most important professional skills you can develop.'
+  )}
 
     ${quiz('q4b',
-      'A student says: "I study better with music and my phone nearby — I check it quickly when I feel stuck and it helps me refocus." Based on what you have learned, what is most likely happening?',
-      [
-        'She has found her ideal study method and should continue it',
-        'The phone checks feel helpful but are actually fragmenting her attention and preventing deep focus',
-        'Background music always improves academic performance',
-        'Checking the phone is a valid study strategy if done quickly',
-      ], 1,
-      '✅ This is one of the most common study myths. Research consistently shows that even very brief interruptions — under 30 seconds — break the state of deep focus and require 15–20 minutes to fully rebuild. The phone checks feel helpful because they relieve the discomfort of concentration — but that discomfort is actually the sign that learning is happening. The relief of checking your phone is the relief of stopping learning.'
-    )}
+    'A student says: "I study better with music and my phone nearby — I check it quickly when I feel stuck and it helps me refocus." Based on what you have learned, what is most likely happening?',
+    [
+      'She has found her ideal study method and should continue it',
+      'The phone checks feel helpful but are actually fragmenting her attention and preventing deep focus',
+      'Background music always improves academic performance',
+      'Checking the phone is a valid study strategy if done quickly',
+    ], 1,
+    '✅ This is one of the most common study myths. Research consistently shows that even very brief interruptions — under 30 seconds — break the state of deep focus and require 15–20 minutes to fully rebuild. The phone checks feel helpful because they relieve the discomfort of concentration — but that discomfort is actually the sign that learning is happening. The relief of checking your phone is the relief of stopping learning.'
+  )}
 
     <h2>The Neuroscience of Distraction</h2>
     <p>When you switch from studying to checking a notification, your brain does not simply pause and restart. It carries a "residue" of the previous task into the next one, and vice versa. This residue degrades your performance on both tasks. Researchers call this "attention residue" — and it explains why students who study in 20-minute bursts with regular phone checks perform significantly worse than those who study for 60 uninterrupted minutes, even if their total study time is the same.</p>
@@ -142,10 +142,53 @@ export const unit04 = {
     <p>The learners you will teach are growing up in an attention economy designed for adults. Children's brains — still developing executive function — are especially vulnerable to its effects. Research from the HSRC shows that South African learners show declining sustained attention spans in reading assessments over the past decade, correlating with increased smartphone access.</p>
     <p>As a teacher, you cannot solve this alone. But you can model deep attention, design learning that requires sustained focus, and explicitly teach your learners about the system that is competing for their minds.</p>
 
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u4', {
+    title: 'Unit 4 Challenge Tracks',
+    intro: 'Choose a focus challenge and measure your deep-work practice outcomes.',
+    supportedTasks: [
+      'Complete one 25-minute uninterrupted study block.',
+      'Record one distraction trigger and one mitigation strategy.',
+    ],
+    coreTasks: [
+      'Complete two 45-minute deep-work blocks across the week.',
+      'Compare output quality before vs after distraction control.',
+    ],
+    advancedTasks: [
+      'Complete three 60-minute deep-work blocks and log evidence.',
+      'Write a short analysis linking attention discipline to argument quality.',
+    ],
+  })}
+
     <h2>Reading & Writing Activity</h2>
     <p>This unit's reading is the most directly personal so far — it asks you to reflect honestly on your own study habits. The writing task cannot be completed by AI because it requires specific personal details only you know.</p>
 
     ${readingTask('rt-u4', RT_CONFIG)}
+
+    ${essayMilestone('u4', {
+    title: 'Essay Milestone (Unit 4)',
+    target: 'Stabilise writing production through deliberate deep-work drafting.',
+    checklist: [
+      'Produce one timed draft segment under distraction-free conditions.',
+      'Revise the draft for clarity and coherence in a second focused block.',
+      'Log what changed in quality when deep work was applied.',
+    ],
+  })}
+
+    <h2>Self-Directed Learning Cycle</h2>
+    <p>Commit to a deep-work experiment and capture measurable evidence from your own study behaviour.</p>
+    ${heutagogyCycle('u4-contract', {
+    title: 'Unit 4 Learning Contract',
+    prompt: 'Set one deep-work target for the week and define how you will measure whether it worked.',
+    context: 'Unit 4: attention economy, deep work, distraction management',
+    pathwayOptions: ['Supported: Complete one 25-minute distraction-free session', 'Core: Complete two 45-minute sessions and log interruptions', 'Advanced: Complete three 60-minute sessions and compare output quality'],
+    evidenceHint: 'Record session lengths, interruptions, and one quality gain in your writing or reading.',
+  })}
+
+    ${portfolioEvidence('u4-pe', {
+    title: 'Attention Management Portfolio Artifact',
+    target: 'Link to a deep-work log or a reflection on cognitive capacity gains.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

@@ -1,9 +1,9 @@
 // content/units/unit17.js — AI for Literature Mapping & Synthesis
 // Phase 4 — AI as a Scholarly Tool
 
-import { quiz }        from '../../src/components/activities.js';
+import { quiz, pathwayChallenge, essayMilestone, heutagogyCycle, portfolioEvidence } from '../../src/components/activities.js';
 import { readingTask } from '../../src/components/reading-task.js';
-import { visualTask }  from '../../src/components/visual-task.js';
+import { visualTask } from '../../src/components/visual-task.js';
 
 const RT_U17 = {
   id: 'rt-u17', unitId: 'u17', unitNum: 17,
@@ -91,34 +91,75 @@ export const unit17 = {
     <div id="ivp-unit17" data-video-key="unit17" class="ivp-container"></div>
 
     ${quiz('q17a',
-      'A student writes their literature review as: "Smith (2020) argues... Jones (2021) argues... Patel (2022) argues..." — each source in a separate paragraph. What is the fundamental problem with this structure?',
-      [
-        'They have too many sources',
-        'This is a list of summaries, not a synthesis — it shows what individual researchers say but not how the ideas relate, where they agree, where they conflict, or what patterns emerge across the field',
-        'The citations are in the wrong format',
-        'Literature reviews should not use multiple sources',
-      ],
-      1,
-      '✅ Summarising sources one by one is the most common literature review error. It shows you have read the sources but not that you have thought across them. A synthesis asks: what do these sources collectively establish? Where do they converge? Where do they contradict? What question do they all leave unanswered? These are the questions that produce literature review paragraphs.'
-    )}
+    'A student writes their literature review as: "Smith (2020) argues... Jones (2021) argues... Patel (2022) argues..." — each source in a separate paragraph. What is the fundamental problem with this structure?',
+    [
+      'They have too many sources',
+      'This is a list of summaries, not a synthesis — it shows what individual researchers say but not how the ideas relate, where they agree, where they conflict, or what patterns emerge across the field',
+      'The citations are in the wrong format',
+      'Literature reviews should not use multiple sources',
+    ],
+    1,
+    '✅ Summarising sources one by one is the most common literature review error. It shows you have read the sources but not that you have thought across them. A synthesis asks: what do these sources collectively establish? Where do they converge? Where do they contradict? What question do they all leave unanswered? These are the questions that produce literature review paragraphs.'
+  )}
 
     ${quiz('q17b',
-      'You use ResearchRabbit to map your topic and it identifies 47 potentially relevant papers. What should you do BEFORE reading all 47?',
-      [
-        'Read all 47 papers in full before deciding which to use',
-        'Use the citation network to identify the 5–8 most central, most-cited papers as your starting point — applying Pass One (abstract only) to each before deciding which deserve full reading',
-        'Choose the 5 most recent papers and ignore older ones',
-        'Ask AI to summarise all 47 for you',
-      ],
-      1,
-      '✅ Citation network tools are most useful as filtering tools, not reading lists. The most-cited, most-central papers give you the field\'s foundational knowledge. Then use the three-pass method from Unit 10: abstract first, decide whether to read in full, apply critical reading only to the most relevant. Reading 47 papers without a strategy is neither efficient nor effective.'
-    )}
+    'You use ResearchRabbit to map your topic and it identifies 47 potentially relevant papers. What should you do BEFORE reading all 47?',
+    [
+      'Read all 47 papers in full before deciding which to use',
+      'Use the citation network to identify the 5–8 most central, most-cited papers as your starting point — applying Pass One (abstract only) to each before deciding which deserve full reading',
+      'Choose the 5 most recent papers and ignore older ones',
+      'Ask AI to summarise all 47 for you',
+    ],
+    1,
+    '✅ Citation network tools are most useful as filtering tools, not reading lists. The most-cited, most-central papers give you the field\'s foundational knowledge. Then use the three-pass method from Unit 10: abstract first, decide whether to read in full, apply critical reading only to the most relevant. Reading 47 papers without a strategy is neither efficient nor effective.'
+  )}
+
+    <h2>Pathway Challenge Structure</h2>
+    ${pathwayChallenge('u17', {
+    title: 'Unit 17 Challenge Tracks',
+    intro: 'Move from paper collection to field-level synthesis and positioning.',
+    supportedTasks: [
+      'Build a 3-source synthesis matrix with key themes.',
+      'Write one thematic sentence of agreement across sources.',
+    ],
+    coreTasks: [
+      'Build a 5-source matrix and identify one convergence plus one divergence.',
+      'Draft one integrated thematic paragraph from matrix evidence.',
+    ],
+    advancedTasks: [
+      'Map citation clusters and produce a positioning note for your argument.',
+      'Write one synthesis paragraph that includes a gap statement.',
+    ],
+  })}
 
     <h2>Visual Literacy Task</h2>
     ${visualTask(VT_U17)}
 
     <h2>Reading & Writing Activity</h2>
     ${readingTask('rt-u17', RT_U17)}
+
+    ${essayMilestone('u17', {
+    title: 'Essay Milestone (Unit 17)',
+    target: 'Convert literature mapping outputs into argument-ready synthesis writing.',
+    checklist: [
+      'Complete a synthesis matrix for your active essay topic.',
+      'Draft one integrated paragraph that avoids source-by-source listing.',
+      'Add one sentence positioning your argument in relation to the field.',
+    ],
+  })}
+
+    ${heutagogyCycle('u17-contract', {
+    title: 'Unit 17 Learning Contract',
+    prompt: 'Move from individual paper summaries to mapping a research field.',
+    context: 'Unit 17: literature mapping, synthesis matrix, thematic synthesis, citation network',
+    pathwayOptions: ['Supported: Build a 3-source synthesis matrix', 'Core: Integrate 5 sources into a thematic paragraph', 'Advanced: Map a full citation cluster and justify your position'],
+    evidenceHint: 'Log your synthesis matrix or a thematic paragraph integrated into your draft.',
+  })}
+
+    ${portfolioEvidence('u17-pe', {
+    title: 'Literature Mapping Portfolio Artifact',
+    target: 'Link to a completed synthesis matrix or a thematic literature review draft.',
+  })}
 
     <div class="unit-closing">
       <div class="unit-closing-label">Before You Move On</div>

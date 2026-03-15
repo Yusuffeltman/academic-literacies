@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────
 
 import { _aiChat } from '../ai.js';
+import { scoreSubmissionForAI, getStudentBaselineProfile } from '../ai-detection.js';
 
 // ── Global registries ─────────────────────────
 window._ytQueue     = window._ytQueue     || [];
@@ -16,6 +17,37 @@ window._players     = window._players     || {};
 window._ytReady     = window._ytReady     || false;
 window._ivpRegistry = window._ivpRegistry || {}; // {cid: {cfg, meta, key}}
 window._ivpHistory  = window._ivpHistory  || {}; // {cid: [{role,content}]}
+
+const IVP_REFL_STORAGE_PREFIX = 'acadlit-ivp-refl-v1';
+
+function _ivpReflectionStorageKey(cid, xid) {
+  return `${IVP_REFL_STORAGE_PREFIX}:${cid}:${xid}`;
+}
+
+function _ivpSaveReflectionState(cid, xid, state) {
+  try {
+    localStorage.setItem(_ivpReflectionStorageKey(cid, xid), JSON.stringify(state));
+  } catch {}
+}
+
+function _ivpLoadReflectionState(cid, xid) {
+  try {
+    const raw = localStorage.getItem(_ivpReflectionStorageKey(cid, xid));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function _ivpSetReflectionSavedIndicator(cid, xid, dateObj = null) {
+  const el = document.getElementById(`ivp-refl-save-${cid}-${xid}`);
+  if (!el) return;
+  if (!dateObj) dateObj = new Date();
+  const h = String(dateObj.getHours()).padStart(2, '0');
+  const m = String(dateObj.getMinutes()).padStart(2, '0');
+  el.textContent = `Last saved at ${h}:${m}`;
+  el.style.color = 'var(--green)';
+}
 
 window.onYouTubeIframeAPIReady = () => {
   window._ytReady = true;
@@ -109,6 +141,12 @@ window._ivpSubmitReflection = async (cid, xid, encodedQ) => {
   const btn    = document.getElementById(`ivp-refl-btn-${cid}-${xid}`);
   const text   = ta?.value?.trim() ?? '';
 
+  if (ta) {
+    const now = new Date();
+    _ivpSaveReflectionState(cid, xid, { text: ta.value, feedback: null, submitted: false, savedAt: now.getTime() });
+    _ivpSetReflectionSavedIndicator(cid, xid, now);
+  }
+
   if (text.length < 20) {
     if (ta) ta.style.borderColor = '#ef4444';
     return;
@@ -127,22 +165,81 @@ Give honest feedback in 2–3 sentences. If shallow or vague, say so directly an
   try {
     const answer = await _aiChat(prompt, { maxTokens: 200 });
 
+    // Score reflection for AI detection
+    const reg = window._ivpRegistry[cid];
+    const unitId = reg?.cfg?.unitId;
+    const baseline = unitId ? getStudentBaselineProfile(unitId) : null;
+    const aiScore = scoreSubmissionForAI(text, baseline);
+
     if (fbEl) {
       fbEl.style.display = 'block';
-      fbEl.innerHTML = `<div class="ivp-fb-text">💬 ${answer}</div>
+      const aiWarn = aiScore && aiScore.isRiskFlag ? `
+        <div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:8px;padding:12px;margin:12px 0 12px 0;">
+          <div style="display:flex;gap:12px;align-items:flex-start;font-size:13px;">
+            <div style="font-size:20px;flex-shrink:0;">⚠️</div>
+            <div style="flex:1;">
+              <div style="font-weight:700;color:#991b1b;margin-bottom:4px;">Integrity Alert</div>
+              <p style="color:#7f1d1d;margin:0 0 4px 0;font-size:12px;">${aiScore.recommendation}</p>
+              <div style="font-size:11px;color:#7f1d1d;">
+                <strong>Why:</strong> ${(aiScore.reasons || []).slice(0, 2).join(' ')}
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : '';
+      fbEl.innerHTML = `${aiWarn}<div class="ivp-fb-text">💬 ${answer}</div>
         <div style="margin-top:14px;text-align:right;">
           <button class="ivp-go" onclick="resumeVideo('${cid}')">Continue watching →</button>
         </div>`;
     }
     if (btn) btn.style.display = 'none';
     if (ta)  ta.readOnly = true;
+    const now = new Date();
+    _ivpSaveReflectionState(cid, xid, { text, feedback: answer, submitted: true, aiDetection: aiScore, savedAt: now.getTime() });
+    if (window.STATE && unitId) {
+      if (!window.STATE.progress[unitId]) window.STATE.progress[unitId] = {};
+      if (!window.STATE.progress[unitId].videoAiDetections) window.STATE.progress[unitId].videoAiDetections = {};
+      window.STATE.progress[unitId].videoAiDetections[xid] = aiScore;
+      if (window.saveState) window.saveState();
+    }
+    _ivpSetReflectionSavedIndicator(cid, xid, now);
   } catch (err) {
+    const errText = `AI unavailable: ${err.message}`;
     if (fbEl) {
       fbEl.style.display = 'block';
-      fbEl.innerHTML = `<div class="ivp-fb-text">AI unavailable: ${err.message}</div>
+      fbEl.innerHTML = `<div class="ivp-fb-text">${errText}</div>
         <div style="margin-top:10px;text-align:right;"><button class="ivp-go" onclick="resumeVideo('${cid}')">Continue →</button></div>`;
     }
+    const now = new Date();
+    _ivpSaveReflectionState(cid, xid, { text, feedback: errText, submitted: false, savedAt: now.getTime() });
+    _ivpSetReflectionSavedIndicator(cid, xid, now);
   }
+};
+
+window._ivpClearReflection = (cid, xid) => {
+  if (!confirm('Clear your saved reflection and feedback for this pause point?')) return;
+  try { localStorage.removeItem(_ivpReflectionStorageKey(cid, xid)); } catch {}
+
+  const ta = document.getElementById(`ivp-refl-${cid}-${xid}`);
+  const fbEl = document.getElementById(`ivp-refl-fb-${cid}-${xid}`);
+  const btn = document.getElementById(`ivp-refl-btn-${cid}-${xid}`);
+
+  if (ta) {
+    ta.value = '';
+    ta.readOnly = false;
+    ta.style.borderColor = '';
+  }
+  if (fbEl) {
+    fbEl.style.display = 'none';
+    fbEl.innerHTML = '';
+  }
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Get AI feedback';
+    btn.style.display = '';
+  }
+  const el = document.getElementById(`ivp-refl-save-${cid}-${xid}`);
+  if (el) { el.textContent = 'Cleared'; el.style.color = 'var(--muted)'; }
 };
 
 // ── MCQ answer check ──────────────────────────
@@ -205,6 +302,8 @@ export class InteractiveVideoPlayer {
     this.done = new Set();
     this.t    = 0;
     this.player = null;
+    this._usingFallback = false;
+    this._ytInitFallbackTimer = null;
 
     // Register — no inline JSON needed
     window._ivpRegistry[this.cid] = { cfg: this.cfg, meta: this.meta, key: this.key };
@@ -224,6 +323,10 @@ export class InteractiveVideoPlayer {
         s.src     = 'https://www.youtube.com/iframe_api';
         document.head.appendChild(s);
       }
+
+      this._ytInitFallbackTimer = setTimeout(() => {
+        if (!window._ytReady) this._renderFallbackPlayer();
+      }, 7000);
     }
   }
 
@@ -295,11 +398,39 @@ export class InteractiveVideoPlayer {
     const frameEl = document.getElementById(`yt-frame-${this.cid}`);
     if (!frameEl) return;
 
+    if (!window.YT || !window.YT.Player) {
+      this._renderFallbackPlayer();
+      return;
+    }
+
+    if (this._ytInitFallbackTimer) {
+      clearTimeout(this._ytInitFallbackTimer);
+      this._ytInitFallbackTimer = null;
+    }
+
+    let ready = false;
+    this._ytInitFallbackTimer = setTimeout(() => {
+      if (!ready) this._renderFallbackPlayer();
+    }, 8000);
+
     this.player = new YT.Player(`yt-frame-${this.cid}`, {
       videoId:    this.meta.id,
-      playerVars: { rel: 0, modestbranding: 1 },
+      playerVars: {
+        rel: 0,
+        modestbranding: 1,
+        playsinline: 1,
+        enablejsapi: 1,
+        origin: window.location.origin,
+        controls: 1,
+        fs: 1
+      },
       events: {
         onReady: () => {
+          ready = true;
+          if (this._ytInitFallbackTimer) {
+            clearTimeout(this._ytInitFallbackTimer);
+            this._ytInitFallbackTimer = null;
+          }
           window._players[this.cid] = this.player;
           setInterval(() => this._tick(), 1000);
           setTimeout(() => {
@@ -310,9 +441,31 @@ export class InteractiveVideoPlayer {
               });
             }
           }, 2000);
-        }
+        },
+        onError: () => this._renderFallbackPlayer()
       }
     });
+  }
+
+  _renderFallbackPlayer() {
+    if (this._usingFallback) return;
+
+    const frameEl = document.getElementById(`yt-frame-${this.cid}`);
+    if (!frameEl || !this.meta?.id) return;
+
+    this._usingFallback = true;
+    frameEl.innerHTML = `
+      <iframe
+        src="https://www.youtube-nocookie.com/embed/${this.meta.id}?rel=0&playsinline=1"
+        title="${this.meta.title}"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin">
+      </iframe>
+      <div class="ivp-fallback-note">
+        If video does not load,
+        <button class="ivp-open-btn" onclick="window.open('https://www.youtube.com/watch?v=${this.meta.id}', '_blank')">Open on YouTube</button>
+      </div>`;
   }
 
   _tick() {
@@ -356,21 +509,56 @@ export class InteractiveVideoPlayer {
     } else {
       // Reflection — encode question to avoid quote issues in onclick
       const encodedQ = encodeURIComponent(x.q || '');
+      const reflState = _ivpLoadReflectionState(this.cid, x.id);
+      const savedText = reflState?.text || '';
+      const savedFeedback = reflState?.feedback || '';
+      const submitted = !!reflState?.submitted;
+      const aiDetection = reflState?.aiDetection;
+      const aiWarnHtml = aiDetection && aiDetection.isRiskFlag ? `
+        <div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:8px;padding:12px;margin:12px 0 12px 0;">
+          <div style="display:flex;gap:12px;align-items:flex-start;font-size:13px;">
+            <div style="font-size:20px;flex-shrink:0;">⚠️</div>
+            <div style="flex:1;">
+              <div style="font-weight:700;color:#991b1b;margin-bottom:4px;">Integrity Alert</div>
+              <p style="color:#7f1d1d;margin:0 0 4px 0;font-size:12px;">${aiDetection.recommendation}</p>
+              <div style="font-size:11px;color:#7f1d1d;">
+                <strong>Why:</strong> ${(aiDetection.reasons || []).slice(0, 2).join(' ')}
+              </div>
+            </div>
+          </div>
+        </div>
+      ` : '';
       ovl.innerHTML = `
         <div class="ivp-card">
           <div class="ivp-card-type">Pause &amp; Reflect</div>
           <p class="ivp-card-q">${x.q}</p>
           <textarea id="ivp-refl-${this.cid}-${x.id}" class="ivp-refl-ta"
-            rows="3" placeholder="${x.ph || 'Write your reflection here…'}"></textarea>
+            rows="3" placeholder="${x.ph || 'Write your reflection here…'}" ${submitted ? 'readonly' : ''}>${savedText}</textarea>
+          <div id="ivp-refl-save-${this.cid}-${x.id}" style="font-size:12px;color:var(--green);margin-top:6px;">Saved locally</div>
           <div class="ivp-refl-footer">
-            <button class="ivp-refl-btn" id="ivp-refl-btn-${this.cid}-${x.id}"
+            <button class="ivp-refl-btn" id="ivp-refl-btn-${this.cid}-${x.id}" ${submitted ? 'style="display:none;"' : ''}
               onclick="_ivpSubmitReflection('${this.cid}','${x.id}','${encodedQ}')">
               Get AI feedback
             </button>
+            <button class="ivp-go-plain" onclick="_ivpClearReflection('${this.cid}','${x.id}')">Clear</button>
             <button class="ivp-go-plain" onclick="resumeVideo('${this.cid}')">Skip →</button>
           </div>
-          <div id="ivp-refl-fb-${this.cid}-${x.id}" class="ivp-mcq-fb" style="display:none;"></div>
+          <div id="ivp-refl-fb-${this.cid}-${x.id}" class="ivp-mcq-fb" style="display:${savedFeedback ? 'block' : 'none'};">${savedFeedback ? `${aiWarnHtml}<div class="ivp-fb-text">💬 ${savedFeedback}</div><div style="margin-top:14px;text-align:right;"><button class="ivp-go" onclick="resumeVideo('${this.cid}')">Continue watching →</button></div>` : ''}</div>
         </div>`;
+
+      const ta = document.getElementById(`ivp-refl-${this.cid}-${x.id}`);
+      if (ta && !submitted) {
+        ta.addEventListener('input', () => {
+          const now = new Date();
+          _ivpSaveReflectionState(this.cid, x.id, {
+            text: ta.value,
+            feedback: savedFeedback,
+            submitted: false,
+            savedAt: now.getTime()
+          });
+          _ivpSetReflectionSavedIndicator(this.cid, x.id, now);
+        });
+      }
     }
 
     ovl.classList.add('show');

@@ -1,103 +1,475 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <link rel="manifest" href="./manifest.json" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Academic Literacies in the Age of AI</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
   <script type="module" src="/src/main.js"></script>
 
   <style>
     :root {
-      --navy:#0f172a;--amber:#fbbf24;--amber2:#f59e0b;
-      --amber-dim:rgba(251,191,36,.12);--border:rgba(0,0,0,.08);
-      --cream:#f8fafc;--muted:#64748b;--radius-sm:10px;
-      --transition:all 0.3s cubic-bezier(0.4,0,0.2,1);
+      --navy: #122033;
+      --ink: #10213a;
+      --amber: #ffb703;
+      --amber2: #fb8500;
+      --teal: #219ebc;
+      --sky: #8ecae6;
+      --rose: #f28482;
+      --amber-dim: rgba(255, 183, 3, .16);
+      --border: rgba(16, 33, 58, .12);
+      --cream: #f7f4ee;
+      --panel: rgba(255, 255, 255, .82);
+      --muted: #5b6b84;
+      --radius-sm: 14px;
+      --radius-lg: 28px;
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Lora',Georgia,serif;background:var(--navy);height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
-    #auth-screen{width:100%;max-width:500px;}
-    .auth-box{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35);}
-    .auth-hero{padding:50px 40px;background:linear-gradient(135deg,#0f172a,#1e1b4b,#171717);color:#fff;text-align:center;}
-    .auth-hero-logo{font-family:'DM Mono',monospace;font-size:12px;letter-spacing:3px;font-weight:700;text-transform:uppercase;color:var(--amber);margin-bottom:12px;}
-    .auth-hero-title{font-family:'Playfair Display',serif;font-size:28px;margin-bottom:8px;color:#fff;line-height:1.3;}
-    .auth-hero-sub{color:rgba(255,255,255,.6);font-style:italic;font-size:14px;}
-    .auth-tabs{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border);}
-    .auth-tab{padding:18px;text-align:center;cursor:pointer;color:var(--muted);font-weight:700;font-size:14px;transition:var(--transition);border:none;background:#fff;font-family:'Lora',serif;}
-    .auth-tab.on{color:#1e293b;border-bottom:3px solid var(--amber);}
-    .auth-body{padding:40px;}
-    .auth-form{display:none;}
-    .auth-form.on{display:block;}
-    .auth-field{margin-bottom:22px;}
-    .auth-field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:700;margin-bottom:8px;font-family:'DM Mono',monospace;}
-    .auth-field input{width:100%;padding:13px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:15px;background:var(--cream);transition:var(--transition);font-family:'Lora',serif;}
-    .auth-field input:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 4px var(--amber-dim);background:#fff;}
-    .auth-submit{width:100%;padding:15px;background:var(--amber);color:#fff;border:none;border-radius:var(--radius-sm);font-size:16px;font-weight:700;cursor:pointer;transition:var(--transition);font-family:'Lora',serif;}
-    .auth-submit:hover{background:var(--amber2);transform:translateY(-2px);}
-    .role-selector{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:22px;}
-    .role-opt{border:1px solid var(--border);padding:12px 8px;text-align:center;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:600;background:var(--cream);transition:var(--transition);}
-    .role-opt.active{border-color:var(--amber);background:var(--amber-dim);}
-    .auth-err{color:#ef4444;font-size:13px;margin-bottom:12px;min-height:18px;}
-    #app{display:none;}
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Lora', Georgia, serif;
+      background:
+        radial-gradient(circle at top left, rgba(33, 158, 188, 0.18), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(255, 183, 3, 0.18), transparent 24%),
+        linear-gradient(135deg, #0d1b2a 0%, #10213a 42%, #1f3b5b 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      position: relative;
+      overflow: auto;
+      overflow-x: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      border-radius: 999px;
+      filter: blur(18px);
+      pointer-events: none;
+      opacity: .72;
+    }
+
+    body::before {
+      width: 280px;
+      height: 280px;
+      top: -40px;
+      left: -40px;
+      background: radial-gradient(circle, rgba(142, 202, 230, .34) 0%, rgba(142, 202, 230, 0) 70%);
+    }
+
+    body::after {
+      width: 320px;
+      height: 320px;
+      right: -60px;
+      bottom: -60px;
+      background: radial-gradient(circle, rgba(255, 183, 3, .28) 0%, rgba(255, 183, 3, 0) 72%);
+    }
+
+    #auth-screen {
+      width: min(100%, 720px);
+      margin: 0 auto;
+    }
+
+    .auth-box {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 34px;
+      overflow: hidden;
+      box-shadow: 0 28px 90px rgba(0, 0, 0, .28);
+      border: 1px solid rgba(255, 255, 255, .12);
+      backdrop-filter: blur(18px);
+      display: block;
+      width: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid rgba(16, 33, 58, .08);
+      gap: 10px;
+      padding: 12px 12px 0 12px;
+      background: rgba(255,255,255,.72);
+    }
+
+    .auth-tab {
+      padding: 16px 18px;
+      text-align: center;
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 14px;
+      transition: var(--transition);
+      border: 1px solid transparent;
+      background: transparent;
+      font-family: 'Inter', sans-serif;
+      border-top-left-radius: 16px;
+      border-top-right-radius: 16px;
+    }
+
+    .auth-tab.on {
+      color: var(--ink);
+      background: white;
+      border-color: rgba(16, 33, 58, .08);
+      box-shadow: 0 -8px 16px rgba(16, 33, 58, .05);
+    }
+
+    .auth-body {
+      padding: 30px 28px 32px 28px;
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.98));
+    }
+
+    .auth-form {
+      display: none;
+    }
+
+    .auth-form.on {
+      display: block;
+    }
+
+    .auth-field {
+      margin-bottom: 22px;
+    }
+
+    .auth-field label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 8px;
+      font-family: 'DM Mono', monospace;
+    }
+
+    .auth-field input {
+      width: 100%;
+      padding: 13px 16px;
+      border: 1px solid rgba(16, 33, 58, .12);
+      border-radius: var(--radius-sm);
+      font-size: 15px;
+      background: rgba(247, 244, 238, .8);
+      transition: var(--transition);
+      font-family: 'Inter', sans-serif;
+      color: var(--ink);
+    }
+
+    .auth-field input:focus {
+      outline: none;
+      border-color: var(--teal);
+      box-shadow: 0 0 0 4px rgba(33, 158, 188, .14);
+      background: #fff;
+    }
+
+    .auth-pass-wrap {
+      position: relative;
+    }
+
+    .auth-pass-wrap input {
+      padding-right: 48px;
+    }
+
+    .auth-pass-toggle {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 6px;
+      opacity: .8;
+    }
+
+    .auth-submit {
+      width: 100%;
+      padding: 15px 18px;
+      background: linear-gradient(135deg, var(--amber) 0%, var(--amber2) 100%);
+      color: #10213a;
+      border: none;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: var(--transition);
+      font-family: 'Inter', sans-serif;
+      box-shadow: 0 12px 24px rgba(251, 133, 0, .2);
+    }
+
+    .auth-submit:hover {
+      transform: translateY(-2px) scale(1.01);
+      box-shadow: 0 18px 30px rgba(251, 133, 0, .26);
+    }
+
+    .auth-note {
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin: -8px 0 18px 0;
+    }
+
+    .role-selector {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    .role-opt {
+      border: 1px solid var(--border);
+      padding: 14px 12px;
+      text-align: center;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(247, 244, 238, .65);
+      transition: var(--transition);
+      color: var(--ink);
+    }
+
+    .role-opt.active {
+      border-color: rgba(33, 158, 188, .35);
+      background: rgba(33, 158, 188, .12);
+      color: #0f4c5c;
+    }
+
+    .auth-err {
+      color: #ef4444;
+      font-size: 13px;
+      margin-bottom: 12px;
+      min-height: 18px;
+    }
+
+    #app {
+      display: none;
+    }
+
+    .auth-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+    }
+
+    .auth-kicker {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--teal);
+      margin-bottom: 12px;
+    }
+
+    .auth-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 32px;
+      line-height: 1.15;
+      color: var(--ink);
+      margin-bottom: 10px;
+    }
+
+    .auth-copy {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+
+    .auth-forgot {
+      margin-top: 12px;
+      background: transparent;
+      border: none;
+      color: var(--teal);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .auth-success {
+      color: #166534;
+      font-size: 13px;
+      margin-bottom: 12px;
+      min-height: 18px;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 12px;
+      }
+
+      .auth-box {
+        border-radius: 22px;
+      }
+
+      .auth-tabs {
+        padding: 10px 10px 0 10px;
+        gap: 8px;
+      }
+
+      .auth-tab {
+        padding: 14px 10px;
+        font-size: 13px;
+      }
+
+      .auth-body {
+        padding: 22px 14px 24px 14px;
+      }
+    }
   </style>
 </head>
+
 <body>
   <div id="auth-screen">
     <div class="auth-box">
-      <div class="auth-hero">
-        <div class="auth-hero-logo">ACADLIT · AI</div>
-        <h1 class="auth-hero-title">Academic Literacies<br>in the Age of AI</h1>
-        <p class="auth-hero-sub">Your learning environment. Sign in to continue.</p>
-      </div>
-      <div class="auth-tabs">
-        <button class="auth-tab on" id="tab-login" onclick="switchTab('login')">Sign In</button>
-        <button class="auth-tab" id="tab-reg" onclick="switchTab('reg')">Register</button>
-      </div>
-      <div class="auth-body">
+      <div class="auth-panel">
+        <div class="auth-tabs">
+          <button class="auth-tab on" id="tab-login" onclick="switchTab('login')">Sign In</button>
+          <button class="auth-tab" id="tab-reg" onclick="switchTab('reg')">Register</button>
+        </div>
+        <div class="auth-body">
+        <div class="auth-hero-logo" style="color:var(--teal);margin-bottom:14px;">ACADLIT · AI</div>
+        <div class="auth-kicker">UJ Account Access</div>
+        <div class="auth-title">Access your student space</div>
+        <div class="auth-copy">Use your UJ student username to enter the platform. If your profile needs attention, the system will guide you through it before you continue.</div>
         <div class="auth-form on" id="form-login">
-          <div class="auth-field"><label>Email</label><input type="email" id="login-email" placeholder="you@university.ac" /></div>
-          <div class="auth-field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" onkeypress="if(event.key==='Enter') document.getElementById('btn-login').click()" /></div>
+          <div class="auth-field"><label>Username (Student number or UJ Email)</label><input type="text" id="login-email"
+              placeholder="e.g. 222000000 or 222000000@student.uj.za" /></div>
+          <div style="margin-top:-6px;font-size:12px;color:var(--muted);line-height:1.5;">If you enter only your student number, the password reset link will be sent to your UJ email address.</div>
+          <div class="auth-field">
+            <label>Password</label>
+            <div class="auth-pass-wrap">
+              <input type="password" id="login-pass" placeholder="••••••••"
+                onkeypress="if(event.key==='Enter') document.getElementById('btn-login').click()" />
+              <button type="button" class="auth-pass-toggle" onclick="togglePassword('login-pass', this)" aria-label="Show password" title="Show password">👁️</button>
+            </div>
+          </div>
+          <p class="auth-note" style="margin:-10px 0 14px 0;">Use the password already linked to your student account. If you do not have one yet, register with a strong new password and keep it safe.</p>
           <p class="auth-err" id="login-err"></p>
+          <p class="auth-success" id="login-success"></p>
           <button class="auth-submit" id="btn-login">Sign In</button>
+          <button type="button" class="auth-forgot" id="btn-forgot">Forgot password?</button>
         </div>
         <div class="auth-form" id="form-reg">
-          <div class="auth-field"><label>Display Name</label><input type="text" id="reg-name" placeholder="Your full name" /></div>
-          <div class="auth-field"><label>Email</label><input type="email" id="reg-email" placeholder="you@university.ac" /></div>
-          <div class="auth-field"><label>Password</label><input type="password" id="reg-pass" placeholder="At least 6 characters" /></div>
+          <div class="auth-field"><label>Username (Student number or UJ Email)</label><input type="text" id="reg-username"
+              placeholder="e.g. 222000000 or 222000000@student.uj.za" /></div>
+          <div class="auth-field">
+            <label>Password</label>
+            <div class="auth-pass-wrap">
+              <input type="password" id="reg-pass" placeholder="At least 6 characters" />
+              <button type="button" class="auth-pass-toggle" onclick="togglePassword('reg-pass', this)" aria-label="Show password" title="Show password">👁️</button>
+            </div>
+          </div>
+          <p class="auth-note">If you already have an account, use your existing password to sign in instead of registering again. If you do not have one yet, create the account with your UJ student username and a strong new password. After sign-in you will be asked to complete any missing roster fields.</p>
           <div class="auth-field">
             <label>Role</label>
             <div class="role-selector">
               <div class="role-opt active" data-role="student" onclick="selectRole(this)">Student</div>
-              <div class="role-opt" data-role="lecturer" onclick="selectRole(this)">Lecturer</div>
-              <div class="role-opt" data-role="tutor" onclick="selectRole(this)">Tutor</div>
             </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:8px;">Tutor, Lecturer, and Moderator accounts are
+              created in Lecturer Management.</div>
           </div>
           <p class="auth-err" id="reg-err"></p>
           <button class="auth-submit" id="btn-reg">Create Account</button>
         </div>
       </div>
+      </div>
     </div>
   </div>
   <div id="app"></div>
   <script>
-    function switchTab(tab){
-      ['login','reg'].forEach(t=>{
-        document.getElementById('form-'+t).classList.toggle('on',t===tab);
-        document.getElementById('tab-'+t).classList.toggle('on',t===tab);
+    function switchTab(tab) {
+      ['login', 'reg'].forEach(t => {
+        document.getElementById('form-' + t).classList.toggle('on', t === tab);
+        document.getElementById('tab-' + t).classList.toggle('on', t === tab);
       });
     }
-    function selectRole(el){
-      document.querySelectorAll('.role-opt').forEach(r=>r.classList.remove('active'));
+    function selectRole(el) {
+      document.querySelectorAll('.role-opt').forEach(r => r.classList.remove('active'));
       el.classList.add('active');
     }
-    
+    function togglePassword(inputId, btn) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      if (btn) {
+        btn.textContent = showing ? '👁️' : '🙈';
+        btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+        btn.setAttribute('title', showing ? 'Show password' : 'Hide password');
+      }
+    }
+
     // Service Worker disabled for Moodle/LMS compatibility
     /*
     if ('serviceWorker' in navigator) { ... }
     */
+    // --- DEEP DIAGNOSTICS FOR MOODLE/IFRAME ---
+    const debugBox = document.createElement('div');
+    debugBox.id = 'debug-console';
+    debugBox.style.cssText = 'position:fixed; bottom:0; left:0; right:0; height:150px; background:rgba(0,0,0,0.9); color:#00ff00; font-family:monospace; font-size:10px; padding:10px; overflow-y:auto; z-index:999999; border-top:2px solid #333; display:none;';
+    document.body.appendChild(debugBox);
+
+    const toggle = document.createElement('button');
+    toggle.textContent = 'DEBUG LOG';
+    toggle.style.cssText = 'position:fixed; bottom:155px; right:10px; background:#333; color:#fff; border:none; padding:5px 10px; border-radius:5px; font-size:10px; z-index:999999; opacity:0.5;';
+    toggle.onclick = () => debugBox.style.display = debugBox.style.display === 'none' ? 'block' : 'none';
+    document.body.appendChild(toggle);
+
+    function logToScreen(msg, type = 'log') {
+      const line = document.createElement('div');
+      line.style.color = type === 'error' ? '#ff5555' : (type === 'warn' ? '#ffff55' : '#00ff00');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      debugBox.appendChild(line);
+      debugBox.scrollTop = debugBox.scrollHeight;
+      if (type === 'error') toggle.style.background = '#ff0000', toggle.style.opacity = '1';
+    }
+
+    // Intercept console
+    const _log = console.log, _err = console.error, _warn = console.warn;
+    console.log = (...args) => { _log(...args); logToScreen(args.join(' ')); };
+    console.error = (...args) => { _err(...args); logToScreen(args.join(' '), 'error'); };
+    console.warn = (...args) => { _warn(...args); logToScreen(args.join(' '), 'warn'); };
+
+    window.onerror = (msg, url, line, col, error) => {
+      console.error(`GLOBAL ERROR: ${msg} @ ${line}:${col}`);
+      return false;
+    };
+
+    // Environment Check
+    console.log(`User Agent: ${navigator.userAgent}`);
+    console.log(`Inside IFrame: ${window.self !== window.top}`);
+    try {
+      localStorage.setItem('test', '1'); localStorage.removeItem('test');
+      console.log('LocalStorage: WORKING');
+    } catch (e) { console.warn('LocalStorage: BLOCKED'); }
+
+    try {
+      const db = indexedDB.open('test');
+      console.log('IndexedDB: AVAILABLE');
+    } catch (e) { console.warn('IndexedDB: BLOCKED'); }
   </script>
 </body>
+
 </html>

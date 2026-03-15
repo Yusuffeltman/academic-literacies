@@ -46,10 +46,31 @@ window.runPromptSandbox = async function(id) {
   const btnEl = document.getElementById(`${id}-btn`);
   
   const promptText = inputEl.value.trim();
-  if (!promptText) {
-    alert('Please enter a prompt first.');
-    return;
-  }
+    if (!promptText) {
+      alert('Please enter a prompt first.');
+      return;
+    }
+
+    // Save prompt input to notebook
+    try {
+      // Import state and saveState if not already
+      if (!window.STATE || !window.saveState) {
+        const mod = await import('../state.js');
+        window.STATE = mod.STATE;
+        window.saveState = mod.saveState;
+      }
+      // Create notebook entry
+      const entryId = `${id}-${Date.now()}`;
+      if (!window.STATE.tutorialNotebook) window.STATE.tutorialNotebook = { entries: {} };
+      window.STATE.tutorialNotebook.entries[entryId] = {
+        prompt: promptText,
+        timestamp: new Date().toISOString(),
+        source: 'prompt-sandbox',
+      };
+      await window.saveState();
+    } catch (err) {
+      console.error('Notebook save failed:', err);
+    }
   
   // UI Loading State
   btnEl.disabled = true;
