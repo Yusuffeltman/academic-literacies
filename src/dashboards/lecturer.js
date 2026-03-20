@@ -408,8 +408,6 @@ window.compareStudentLists = function () {
     rosterMissingBoth: breakdownRoster.missingBoth.length,
   };
 
-  console.log('Active students not in roster:', anomaliesActive);
-  console.log('Roster students not active:', anomaliesRoster);
   return {
     anomaliesActive,
     anomaliesRoster,
@@ -443,15 +441,62 @@ import { addResource, vettResource, removeResource } from '../resources.js';
 import { TUTOR_GROUP_ASSIGNMENTS } from '../../content/tutorial-groups/assignments.js';
 import { STATE, saveState } from '../state.js';
 import { uploadGalleryAsset } from '../gallery.js';
+import { rebuildDerivedMetricsForDate } from '../analytics.js';
+import { generateQrDataUrl } from '../qr.js';
+import { downloadXlsx } from '../xlsx.js';
+import { renderGoLiveToggle } from '../components/chat-panel.js';
 
 const PROMOTION_WHATSAPP_WEBHOOK_URL = String(import.meta.env.VITE_WHATSAPP_PROMOTION_WEBHOOK_URL || '').trim();
 
 let _activeSession = 'c1';
 let _analyticsAutoRefreshEnabled = false;
 let _analyticsAutoRefreshTimer = null;
+const _ROSTER_RESET_ALERT_DISMISS_PREFIX = 'lecturer-roster-reset-alert-dismissed:';
 
 function _normEmail(v = '') {
   return String(v || '').trim().toLowerCase();
+}
+
+function _rosterResetAlertDismissKey(dateKey = '') {
+  return `${_ROSTER_RESET_ALERT_DISMISS_PREFIX}${String(dateKey || '').trim()}`;
+}
+
+function _getRosterResetAlertDismissedCount(dateKey = '') {
+  if (!dateKey) return 0;
+  try {
+    const raw = window.localStorage.getItem(_rosterResetAlertDismissKey(dateKey));
+    const parsed = Number(raw || 0);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+window._dismissRosterResetAlert = function (dateKey, count) {
+  if (!dateKey) return;
+  try {
+    window.localStorage.setItem(_rosterResetAlertDismissKey(dateKey), String(Math.max(0, Number(count || 0))));
+  } catch {
+    // ignore storage failures
+  }
+  document.getElementById('lecturer-roster-reset-alert')?.remove();
+};
+
+function _eventTimestampMs(eventRow = {}) {
+  const candidates = [eventRow?.at, eventRow?.createdAt, eventRow?.timestamp, eventRow?.occurredAt];
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = new Date(value).getTime();
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return NaN;
+}
+
+function _isReasonableTrafficTimestamp(tsMs, nowMs = Date.now()) {
+  if (!Number.isFinite(tsMs)) return false;
+  return tsMs <= (nowMs + 5 * 60 * 1000);
 }
 
 function _normName(v = '') {
@@ -640,7 +685,7 @@ function _buildRosterEnrollmentReport(users = {}, rosterRows = []) {
       return;
     }
     if (!isValidStudentUsername(authEmail)) {
-      report.invalidRows.push({ row, rowNo, authEmail, reason: `Invalid UJ username "${authEmail}". Use a student number or @student.uj.za email.` });
+        report.invalidRows.push({ row, rowNo, authEmail, reason: `Invalid UJ username "${authEmail}". Use a student number or @student.uj.ac.za email.` });
       return;
     }
     if (claimedEmails.has(authEmail)) {
@@ -1116,6 +1161,7 @@ export function renderLecturerDashboard(container) {
   });
 
   window._dashLoadSession = _loadSession;
+  renderGoLiveToggle('lecturer-go-live-mount');
 }
 
 function _buildSidebar(type) {
@@ -1160,6 +1206,7 @@ function _buildSidebar(type) {
         </div>`).join('')}
 
       <div class="dash-sidebar-footer">
+        <div id="lecturer-go-live-mount"></div>
         <div class="dash-quick-tools">
           <div class="dash-qt-label">Quick Tools</div>
           <button class="dash-qt-btn" onclick="_openAttendanceQrTool('class')">📲 Class QR Check-in</button>
@@ -2924,6 +2971,420 @@ function _buildRosterEnrollmentProfilePayload(item, uid) {
   });
 }
 
+let _umBulkActivationLastInput = '';
+
+function _canonicalBulkActivationEmail(studentId = '') {
+  const digits = String(studentId || '').replace(/\D+/g, '').trim();
+  return digits ? normalizeStudentUsername(`${digits}@student.uj.ac.za`) : '';
+}
+
+function _parseBulkStudentActivationList(raw = '') {
+  const entries = [];
+  const invalid = [];
+
+  String(raw || '')
+    .split(/\r?\n/)
+    .map((line) => String(line || '').trim())
+    .filter(Boolean)
+    .forEach((line, index) => {
+      const match = line.match(/^(.*?)\s*\(([^,()]+)\s*,\s*([0-9]{6,})\)\s*$/);
+      if (!match) {
+        invalid.push({ line, lineNo: index + 1, reason: 'Expected "Name (email, studentNumber)" format.' });
+        return;
+      }
+      const [, rawName, rawPersonalEmail, rawStudentId] = match;
+      const studentId = String(rawStudentId || '').replace(/\D+/g, '').trim();
+      const authEmail = _canonicalBulkActivationEmail(studentId);
+      const personalEmail = _normEmail(rawPersonalEmail || '');
+      if (!studentId || !authEmail) {
+        invalid.push({ line, lineNo: index + 1, reason: 'Missing a valid student number.' });
+        return;
+      }
+      entries.push({
+        line,
+        lineNo: index + 1,
+        name: String(rawName || '').trim(),
+        personalEmail,
+        studentId,
+        authEmail,
+      });
+    });
+
+  return { entries, invalid };
+}
+
+function _renderBulkStudentActivationSummary(results = {}) {
+  const block = (title, items = [], tone = '#0f172a') => {
+    if (!items.length) return '';
+    return `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:white;">
+        <div style="font-size:12px;font-weight:800;color:${tone};text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">${_esc(title)} · ${items.length}</div>
+        <div style="display:grid;gap:6px;max-height:140px;overflow:auto;">
+          ${items.map((item) => `<div style="font-size:12px;color:var(--navy);line-height:1.45;">${_esc(item)}</div>`).join('')}
+        </div>
+      </div>`;
+  };
+
+  return `
+    <div style="display:grid;gap:10px;margin-top:14px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+        <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:10px;padding:10px 12px;">
+          <div style="font-size:11px;color:#166534;text-transform:uppercase;letter-spacing:.08em;font-weight:800;">Processed</div>
+          <div style="font-size:26px;color:#166534;font-weight:800;line-height:1.1;">${Number(results.processed || 0)}</div>
+        </div>
+        <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:10px;padding:10px 12px;">
+          <div style="font-size:11px;color:#1d4ed8;text-transform:uppercase;letter-spacing:.08em;font-weight:800;">Created</div>
+          <div style="font-size:26px;color:#1d4ed8;font-weight:800;line-height:1.1;">${Number(results.createdCount || 0)}</div>
+        </div>
+        <div style="border:1px solid #c7d2fe;background:#eef2ff;border-radius:10px;padding:10px 12px;">
+          <div style="font-size:11px;color:#5b21b6;text-transform:uppercase;letter-spacing:.08em;font-weight:800;">Restored</div>
+          <div style="font-size:26px;color:#5b21b6;font-weight:800;line-height:1.1;">${Number(results.restoredCount || 0)}</div>
+        </div>
+        <div style="border:1px solid #fde68a;background:#fffbeb;border-radius:10px;padding:10px 12px;">
+          <div style="font-size:11px;color:#92400e;text-transform:uppercase;letter-spacing:.08em;font-weight:800;">Manual review</div>
+          <div style="font-size:26px;color:#92400e;font-weight:800;line-height:1.1;">${Number(results.manualCount || 0)}</div>
+        </div>
+      </div>
+      ${block('Created accounts', results.created || [], '#1d4ed8')}
+      ${block('Restored or aligned accounts', results.restored || [], '#5b21b6')}
+      ${block('Reset sent to existing auth account', results.authOnly || [], '#0369a1')}
+      ${block('Manual review required', results.manual || [], '#92400e')}
+      ${block('Failed', results.failed || [], '#b91c1c')}
+      ${block('Invalid lines', results.invalidLines || [], '#b91c1c')}
+    </div>`;
+}
+
+window._openBulkStudentActivationModal = () => {
+  document.getElementById('um-bulk-activate-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'um-bulk-activate-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.74);z-index:100002;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div style="width:min(920px,100%);max-height:min(90vh,920px);overflow:auto;background:#fff;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:0 24px 54px rgba(0,0,0,.28);">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <h3 style="margin:0;color:var(--navy);font-size:20px;">Bulk Activate Students from List</h3>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.6;">
+            Paste lines in the format <strong>Name (personal email, student number)</strong>. The tool reconstructs the canonical UJ sign-in as <strong>studentNumber@student.uj.ac.za</strong>, checks the active roster, and only auto-processes safe cases.
+          </div>
+        </div>
+        <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('um-bulk-activate-overlay')?.remove()">Close</button>
+      </div>
+      <textarea id="um-bulk-activate-input" rows="18" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:12px;font-size:12px;font-family:'DM Mono',monospace;line-height:1.5;resize:vertical;" placeholder="G H Zulu (gcinahope.zulu@gmail.com, 218022155)">${_esc(_umBulkActivationLastInput)}</textarea>
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;">
+        <div style="font-size:12px;color:#92400e;line-height:1.5;max-width:640px;">
+          Disabled non-canonical duplicates are not auto-restored. They are flagged for manual review so the tool does not revive the wrong account.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('um-bulk-activate-input').value=''">Clear</button>
+          <button class="btn-next" style="display:inline-flex;" onclick="_submitBulkStudentActivation()">Activate Safe Matches</button>
+        </div>
+      </div>
+      <div id="um-bulk-activate-results"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+};
+
+function _matchBulkActivationRows(entry, activeRows = _activeUsersRows(_umUsersCache, _umProcessedAuthUsersCache)) {
+  const authEmail = normalizeStudentUsername(entry?.authEmail || '');
+  const personalEmail = _normEmail(entry?.personalEmail || '');
+  const studentId = String(entry?.studentId || '').trim();
+  return (activeRows || []).filter((row) => {
+    if (String(row?.role || '').trim().toLowerCase() !== 'student') return false;
+    const rowAuthEmail = normalizeStudentUsername(_studentRowAuthEmail(row));
+    const rowPersonalEmail = _normEmail(row?.personalEmail || row?.email || '');
+    const rowStudentId = _studentRowId(row);
+    return Boolean(
+      (authEmail && rowAuthEmail === authEmail)
+      || (personalEmail && rowPersonalEmail === personalEmail)
+      || (studentId && rowStudentId === studentId)
+    );
+  });
+}
+
+function _buildBulkActivationItem(entry, rosterEntry, existingProfile = {}, uid = null) {
+  const authEmail = normalizeStudentUsername(entry?.authEmail || '');
+  const personalEmail = _normEmail(entry?.personalEmail || '');
+  const studentId = String(entry?.studentId || '').trim();
+  const mergedProfile = buildStudentProfileDraft(
+    { uid: uid || null, email: authEmail },
+    existingProfile || {},
+    rosterEntry || {},
+    {
+      authEmail,
+      username: authEmail,
+      email: personalEmail,
+      personalEmail,
+      studentId,
+    }
+  );
+  return {
+    row: rosterEntry || {},
+    authEmail,
+    personalEmail,
+    studentId,
+    displayName: _rosterDisplayName(rosterEntry || {}) || String(entry?.name || '').trim() || mergedProfile?.displayName || authEmail,
+    existing: uid ? { uid, existingProfile: existingProfile || {} } : null,
+    uid: uid || null,
+    mergedProfile,
+  };
+}
+
+async function _activateSingleStudentFromList(entry) {
+  const authEmail = normalizeStudentUsername(entry?.authEmail || '');
+  const studentId = String(entry?.studentId || '').trim();
+  const displayLabel = `${entry?.name || authEmail} (${studentId || authEmail})`;
+  const rosterEntry = _findActiveRosterEntryForStudent({
+    authEmail,
+    username: authEmail,
+    email: entry?.personalEmail || '',
+    personalEmail: entry?.personalEmail || '',
+    studentId,
+  });
+
+  if (!rosterEntry) {
+    await _logProfileRecoveryAttempt({
+      email: authEmail,
+      status: 'warn',
+      statusLabel: 'Not on roster',
+      message: `${displayLabel} was skipped because the student is not on the active class roster.`,
+      source: 'bulk-activate-list',
+    }).catch(() => { });
+    return { type: 'manual', message: `${displayLabel} -> not on active roster` };
+  }
+
+  const matches = _matchBulkActivationRows(entry);
+  const canonicalMatches = matches.filter((row) => normalizeStudentUsername(_studentRowAuthEmail(row)) === authEmail);
+  const realCanonical = canonicalMatches.filter((row) => !row.isAuthOnlyProcessed);
+  const authOnlyCanonical = canonicalMatches.find((row) => row.isAuthOnlyProcessed);
+  const conflictingRealMatches = matches.filter((row) => !row.isAuthOnlyProcessed);
+
+  if (realCanonical.length > 1 || conflictingRealMatches.length > 1) {
+    await _logProfileRecoveryAttempt({
+      email: authEmail,
+      status: 'warn',
+      statusLabel: 'Manual review',
+      message: `${displayLabel} matched multiple student profiles and was skipped for manual review.`,
+      source: 'bulk-activate-list',
+    }).catch(() => { });
+    return { type: 'manual', message: `${displayLabel} -> multiple existing student profiles matched` };
+  }
+
+  if (!realCanonical.length && conflictingRealMatches.length === 1) {
+    const conflicting = conflictingRealMatches[0];
+    await _logProfileRecoveryAttempt({
+      email: authEmail,
+      status: 'warn',
+      statusLabel: 'Manual review',
+      message: `${displayLabel} matched a non-canonical student profile (${_studentRowAuthEmail(conflicting) || conflicting.uid}) and was skipped to avoid restoring the wrong account.`,
+      source: 'bulk-activate-list',
+    }).catch(() => { });
+    return { type: 'manual', message: `${displayLabel} -> matched non-canonical account ${_studentRowAuthEmail(conflicting) || conflicting.uid}` };
+  }
+
+  if (realCanonical.length === 1) {
+    const row = realCanonical[0];
+    const user = _umUsersCache?.[row.uid];
+    if (!user) {
+      throw new Error(`${displayLabel}: user cache could not load ${row.uid}`);
+    }
+    const item = _buildBulkActivationItem(entry, rosterEntry, user.profile || {}, row.uid);
+    const basePayload = _buildRosterEnrollmentProfilePayload(item, row.uid);
+    const payload = _cleanFirebaseValue({
+      ...basePayload,
+      uid: row.uid,
+      disabled: false,
+      status: 'active',
+      authEmail,
+      username: authEmail,
+      email: item.personalEmail || basePayload.email || '',
+      personalEmail: item.personalEmail || basePayload.personalEmail || '',
+      rosterEnrollmentStatus: 'pending-reset-email',
+    });
+    await set(ref(db, `users/${row.uid}/profile`), payload);
+    await _sendRosterResetEmail(authEmail);
+    await set(ref(db, `users/${row.uid}/profile`), _cleanFirebaseValue({
+      ...payload,
+      uid: row.uid,
+      rosterEnrollmentStatus: 'reset-email-sent',
+      lastPasswordResetSentAt: new Date().toISOString(),
+      lastPasswordResetSentByUid: STATE.user?.uid || null,
+      lastPasswordResetError: '',
+    }));
+    await _logProfileRecoveryAttempt({
+      email: authEmail,
+      status: 'success',
+      statusLabel: row.disabled ? 'Restored + reset' : 'Aligned + reset',
+      message: `${displayLabel} ${row.disabled ? 'was restored' : 'was aligned to the canonical UJ account'} and a reset link was sent.`,
+      source: 'bulk-activate-list',
+    }).catch(() => { });
+    return { type: 'restored', message: `${displayLabel} -> ${row.disabled ? 'restored' : 'aligned'} and reset sent` };
+  }
+
+  if (authOnlyCanonical) {
+    await _sendRosterResetEmail(authEmail);
+    await _upsertProcessedAuthUser(authEmail, {
+      name: _rosterDisplayName(rosterEntry) || entry?.name || `Pending profile (${authEmail})`,
+      studentId,
+      rosterEnrollmentStatus: 'reset-email-sent',
+      lastPasswordResetSentAt: new Date().toISOString(),
+      lastPasswordResetSentByUid: STATE.user?.uid || null,
+      lastPasswordResetError: '',
+    });
+    await _logProfileRecoveryAttempt({
+      email: authEmail,
+      status: 'success',
+      statusLabel: 'Reset sent',
+      message: `${displayLabel} already had a Firebase Auth account without a visible profile. Reset link resent.`,
+      source: 'bulk-activate-list',
+    }).catch(() => { });
+    return { type: 'authOnly', message: `${displayLabel} -> reset sent to existing auth-only account` };
+  }
+
+  const authLookup = await _lookupAuthAccountByEmail(authEmail);
+  if (authLookup.registered) {
+    await _sendRosterResetEmail(authEmail);
+    await _upsertProcessedAuthUser(authEmail, {
+      name: _rosterDisplayName(rosterEntry) || entry?.name || `Pending profile (${authEmail})`,
+      studentId,
+      rosterEnrollmentStatus: 'reset-email-sent',
+      lastPasswordResetSentAt: new Date().toISOString(),
+      lastPasswordResetSentByUid: STATE.user?.uid || null,
+      lastPasswordResetError: '',
+    });
+    await _logProfileRecoveryAttempt({
+      email: authEmail,
+      status: 'success',
+      statusLabel: 'Reset sent',
+      message: `${displayLabel} had an existing Firebase Auth account. Reset link sent and auth-only recovery record updated.`,
+      source: 'bulk-activate-list',
+    }).catch(() => { });
+    return { type: 'authOnly', message: `${displayLabel} -> reset sent to existing Firebase Auth account` };
+  }
+
+  const created = await _createAuthUserViaRest({
+    name: _rosterDisplayName(rosterEntry) || entry?.name || authEmail,
+    email: authEmail,
+    password: _generateTempPassword(),
+    role: 'student',
+  });
+  const item = _buildBulkActivationItem(entry, rosterEntry, {}, created.uid);
+  const payload = _cleanFirebaseValue({
+    ..._buildRosterEnrollmentProfilePayload(item, created.uid),
+    uid: created.uid,
+    displayName: created.displayName || item.mergedProfile?.displayName || item.displayName,
+    disabled: false,
+    status: 'active',
+    rosterEnrollmentStatus: 'pending-reset-email',
+  });
+  await set(ref(db, `users/${created.uid}/profile`), payload);
+  await _sendRosterResetEmail(authEmail);
+  await set(ref(db, `users/${created.uid}/profile`), _cleanFirebaseValue({
+    ...payload,
+    uid: created.uid,
+    rosterEnrollmentStatus: 'reset-email-sent',
+    lastPasswordResetSentAt: new Date().toISOString(),
+    lastPasswordResetSentByUid: STATE.user?.uid || null,
+    lastPasswordResetError: '',
+  }));
+  await _logProfileRecoveryAttempt({
+    email: authEmail,
+    status: 'success',
+    statusLabel: 'Created + reset',
+    message: `${displayLabel} did not have an auth account. A new canonical UJ account was created and a reset link was sent.`,
+    source: 'bulk-activate-list',
+  }).catch(() => { });
+  return { type: 'created', message: `${displayLabel} -> new canonical UJ account created and reset sent` };
+}
+
+window._submitBulkStudentActivation = async () => {
+  const input = document.getElementById('um-bulk-activate-input');
+  const resultMount = document.getElementById('um-bulk-activate-results');
+  const raw = String(input?.value || '').trim();
+  _umBulkActivationLastInput = raw;
+
+  const parsed = _parseBulkStudentActivationList(raw);
+  if (!parsed.entries.length && !parsed.invalid.length) {
+    _showLecturerToast('Paste at least one student line first.', 'warn', 2600);
+    return;
+  }
+
+  const confirmMessage = [
+    `Process ${parsed.entries.length} valid student entr${parsed.entries.length === 1 ? 'y' : 'ies'}?`,
+    parsed.invalid.length ? `- Invalid lines to skip: ${parsed.invalid.length}` : null,
+    '',
+    'Safe cases will be created, aligned, restored, and sent reset links automatically.',
+    'Ambiguous or non-canonical matches will be skipped into manual review.',
+  ].filter(Boolean).join('\n');
+  if (!confirm(confirmMessage)) return;
+
+  const results = {
+    processed: parsed.entries.length,
+    createdCount: 0,
+    restoredCount: 0,
+    manualCount: 0,
+    created: [],
+    restored: [],
+    authOnly: [],
+    manual: [],
+    failed: [],
+    invalidLines: parsed.invalid.map((item) => `Line ${item.lineNo}: ${item.line} -> ${item.reason}`),
+  };
+
+  _showLecturerProcessing(`Activating ${parsed.entries.length} student account${parsed.entries.length === 1 ? '' : 's'} from the pasted list...`);
+  try {
+    for (const entry of parsed.entries) {
+      try {
+        const outcome = await _activateSingleStudentFromList(entry);
+        if (outcome.type === 'created') {
+          results.createdCount += 1;
+          results.created.push(outcome.message);
+        } else if (outcome.type === 'restored') {
+          results.restoredCount += 1;
+          results.restored.push(outcome.message);
+        } else if (outcome.type === 'authOnly') {
+          results.authOnly.push(outcome.message);
+        } else if (outcome.type === 'manual') {
+          results.manualCount += 1;
+          results.manual.push(outcome.message);
+        }
+      } catch (err) {
+        results.failed.push(`${entry.name || entry.authEmail} (${entry.studentId}) -> ${err?.message || err || 'Unknown error'}`);
+        await _logProfileRecoveryAttempt({
+          email: entry.authEmail,
+          status: 'error',
+          statusLabel: 'Activation failed',
+          message: `${entry.name || entry.authEmail} (${entry.studentId}) failed during bulk activation: ${err?.message || err || 'Unknown error'}`,
+          source: 'bulk-activate-list',
+        }).catch(() => { });
+      }
+    }
+
+    await _umRefreshUsers().catch(() => { });
+    await _loadProfileRecoveryLog().catch(() => { });
+
+    if (resultMount) {
+      resultMount.innerHTML = _renderBulkStudentActivationSummary(results);
+    }
+
+    const warnCount = results.manualCount + results.failed.length + results.invalidLines.length;
+    const successCount = results.createdCount + results.restoredCount + results.authOnly.length;
+    _showLecturerToast(
+      warnCount
+        ? `Processed ${parsed.entries.length} students. ${successCount} automatic recoveries succeeded; ${warnCount} need review.`
+        : `Processed ${parsed.entries.length} students. ${successCount} accounts were recovered automatically.`,
+      warnCount ? 'warn' : 'success',
+      warnCount ? 4600 : 3200
+    );
+    _finishLecturerProcessing(warnCount ? 'warn' : 'success', warnCount ? 'Completed with review items' : 'Bulk activation complete', warnCount ? 1600 : 1200);
+  } finally {
+    const overlay = document.getElementById('lecturer-processing-overlay');
+    if (overlay && overlay.style.display !== 'none' && overlay.dataset.finishing !== '1') {
+      _hideLecturerProcessing();
+    }
+  }
+};
+
 window._runRosterEnrollmentRollout = async () => {
   const [usersSnap, rosterSnap] = await Promise.all([
     get(ref(db, 'users')),
@@ -3186,12 +3647,13 @@ window._copyRosterOnlyCleanupNotice = async () => {
   const text = [
     'Academic Literacies account update',
     '',
-    'Your previous account on the Academic Literacies platform has been removed as part of class-roster cleanup.',
+    'Your previous account on the Academic Literacies platform is no longer active because of class-roster cleanup.',
     '',
-    'What this means:',
-    '- only students on the current class roster can keep or create student accounts',
-    '- if you are on the class roster, sign in or register again using your official UJ student email',
-    '- if you are not on the roster but should be, contact your lecturer to update the roster first',
+    'What you must do now:',
+    '- do not create another account until your lecturer confirms which account you should use',
+    '- if you are on the class roster, sign in using your official UJ student email',
+    '- if you cannot access the correct account, send your lecturer your student number, your official UJ email, and the email you tried',
+    '- if you are not on the roster but should be, ask your lecturer to update the roster first',
     '',
     'If your old account was a duplicate or non-UJ account, do not use it again.',
     'Use only your official roster-listed UJ student account.',
@@ -3840,6 +4302,14 @@ function _rosterCell(cols = [], idx = -1) {
   return String(cols[idx] || '').trim();
 }
 
+function _rosterLooksNumericId(value = '') {
+  return /^\d{6,12}$/.test(String(value || '').trim());
+}
+
+function _rosterLooksEmail(value = '') {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(String(value || '').trim());
+}
+
 function _rosterParseText(raw = '') {
   const lines = String(raw || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return [];
@@ -3853,14 +4323,34 @@ function _rosterParseText(raw = '') {
   for (let i = startIndex; i < lines.length; i += 1) {
     const cols = _rosterSplit(lines[i], delimiter);
     if (!cols.length) continue;
-    const studentId = String(headerMap ? _rosterCell(cols, headerMap.studentId) : (cols[0] || '')).trim();
-    const firstName = String(headerMap ? _rosterCell(cols, headerMap.firstName) : (cols[1] || '')).trim();
-    const lastName = String(headerMap ? _rosterCell(cols, headerMap.lastName) : '').trim();
-    const username = String(headerMap ? _rosterCell(cols, headerMap.username) : '').trim();
+    const looksLikeOfficialSixColumn =
+      cols.length >= 5
+      && _rosterLooksNumericId(cols[3] || '')
+      && _rosterLooksEmail(cols[4] || '');
+    const looksLikeLegacyIdFirst =
+      cols.length >= 3
+      && _rosterLooksNumericId(cols[0] || '')
+      && _rosterLooksEmail(cols[2] || '');
+    const defaultStudentId = looksLikeLegacyIdFirst
+      ? (cols[0] || '')
+      : (cols.length >= 4 ? cols[3] : (cols[0] || ''));
+    const defaultFirstName = looksLikeLegacyIdFirst ? (cols[1] || '') : (cols[0] || '');
+    const defaultLastName = looksLikeLegacyIdFirst ? '' : (cols.length >= 2 ? cols[1] : '');
+    const defaultUsername = looksLikeLegacyIdFirst ? '' : (cols.length >= 3 ? cols[2] : '');
+    const defaultEmail = looksLikeLegacyIdFirst
+      ? (cols[2] || '')
+      : (cols.length >= 5 ? cols[4] : (cols[2] || ''));
+    const defaultTutorialGroup = looksLikeLegacyIdFirst
+      ? (cols[3] || '')
+      : (cols.length >= 6 ? cols[5] : (cols[3] || ''));
+    const studentId = String(headerMap ? _rosterCell(cols, headerMap.studentId) : defaultStudentId).trim();
+    const firstName = String(headerMap ? _rosterCell(cols, headerMap.firstName) : defaultFirstName).trim();
+    const lastName = String(headerMap ? _rosterCell(cols, headerMap.lastName) : defaultLastName).trim();
+    const username = String(headerMap ? _rosterCell(cols, headerMap.username) : defaultUsername).trim();
     const explicitName = String(headerMap ? _rosterCell(cols, headerMap.name) : '').trim();
     const name = explicitName || [firstName, lastName].filter(Boolean).join(' ').trim();
-    const email = String(headerMap ? _rosterCell(cols, headerMap.email) : (cols[2] || '')).trim().toLowerCase();
-    const tutorialGroup = String(headerMap ? _rosterCell(cols, headerMap.tutorialGroup) : (cols[3] || '')).trim().toUpperCase();
+    const email = String(headerMap ? _rosterCell(cols, headerMap.email) : defaultEmail).trim().toLowerCase();
+    const tutorialGroup = String(headerMap ? _rosterCell(cols, headerMap.tutorialGroup) : defaultTutorialGroup).trim().toUpperCase();
     if (!studentId && !email && !name) continue;
     rows.push({ studentId, firstName, lastName, username, name, email, tutorialGroup, active: true });
   }
@@ -4065,17 +4555,17 @@ window._rosterUploadFile = async (event) => {
   }
 };
 
-window._rosterSave = async () => {
+async function _saveRosterDraftToFirebase() {
   const rows = Array.isArray(_rosterDraftRows) ? _rosterDraftRows : [];
   if (!rows.length) {
     _showLecturerToast('Paste or upload roster rows before saving.', 'warn', 2800);
-    return;
+    return false;
   }
   const validation = _rosterValidateRows(rows);
   if (validation.criticalCount) {
     _rosterRenderPreview(rows);
     _showLecturerToast(`Resolve ${validation.criticalCount} critical issue(s) shown in Roster Preview before saving.`, 'warn', 3800);
-    return;
+    return false;
   }
   const payload = {};
   let collisionCount = 0;
@@ -4094,6 +4584,8 @@ window._rosterSave = async () => {
     }
     payload[key] = {
       studentId: r.studentId || r.studentNumber || '',
+      studentNumber: r.studentId || r.studentNumber || '',
+      studentNo: r.studentId || r.studentNumber || '',
       firstName: r.firstName || '',
       lastName: r.lastName || '',
       username: r.username || '',
@@ -4107,6 +4599,17 @@ window._rosterSave = async () => {
   await set(ref(db, 'rosters/classList'), payload);
   _tgmClassRosterCache = Object.values(payload);
   _showLecturerToast(`Class roster saved (${rows.length} rows).${collisionCount ? `\nResolved duplicate keys: ${collisionCount}` : ''}`, 'success', collisionCount ? 3400 : 2800);
+  return true;
+}
+
+window._rosterSave = async () => {
+  await _saveRosterDraftToFirebase();
+};
+
+window._rosterSaveAndActivate = async () => {
+  const saved = await _saveRosterDraftToFirebase();
+  if (!saved) return;
+  await window._runRosterEnrollmentRollout?.();
 };
 
 window._rosterClearCurrent = async () => {
@@ -4137,14 +4640,16 @@ window._rosterLoadCurrent = async () => {
   window._rosterRender?.();
   const ta = document.getElementById('roster-text');
   if (ta) {
-    ta.value = rows.map((r) => [
+    const header = 'First name,Last name,Username,ID number,Email address,Groups';
+    const body = rows.map((r) => [
       r.firstName || '',
       r.lastName || '',
       r.username || '',
-      r.studentId || '',
+      r.studentId || r.studentNumber || r.studentNo || '',
       r.email || '',
       r.tutorialGroup || '',
     ].join(',')).join('\n');
+    ta.value = [header, body].filter(Boolean).join('\n');
   }
 };
 
@@ -4173,6 +4678,7 @@ window._loadRosterManager = async () => {
         </label>
         <button class="btn-prev" style="display:inline-flex;" onclick="_rosterParseDraft()">✅ Parse & Preview</button>
         <button class="btn-prev" style="display:inline-flex;background:var(--accent);color:white;border-color:var(--accent);" onclick="_rosterSave()">💾 Save Roster</button>
+        <button class="btn-prev" style="display:inline-flex;background:linear-gradient(135deg,#7c3aed,#6d28d9);border-color:#6d28d9;color:white;" onclick="_rosterSaveAndActivate()">🚀 Save + Activate Accounts</button>
         <button class="btn-prev" style="display:inline-flex;background:#fee2e2;border-color:#fecaca;color:#991b1b;" onclick="_rosterClearCurrent()">🗑 Clear Roster</button>
         <button class="btn-prev" style="display:inline-flex;" onclick="_rosterLoadCurrent()">↻ Load Current</button>
         <button class="btn-prev" style="display:inline-flex;" onclick="_rosterCancelDraft()">Cancel</button>
@@ -4993,6 +5499,7 @@ window._loadUserManagement = async () => {
         </label>
         <button class="btn-prev" style="display:inline-flex;background:#991b1b;border-color:#991b1b;color:white;" onclick="_applyRosterOnlyCleanup()">Apply Roster-Only Cleanup</button>
         <button class="btn-prev" style="display:inline-flex;background:#ede9fe;border-color:#ddd6fe;color:#5b21b6;" onclick="_umResendResetLinkBulk()">Resend Reset to Filtered</button>
+        <button class="btn-prev" style="display:inline-flex;background:#dbeafe;border-color:#bfdbfe;color:#1d4ed8;" onclick="_openBulkStudentActivationModal()">Bulk Activate from List</button>
         <button class="btn-prev" style="display:inline-flex;" onclick="_umRefreshUsers()">↻ Refresh</button>
       </div>
 
@@ -5207,7 +5714,7 @@ async function _publishLiveAttendanceToken(state) {
   });
 
   const appUrl = `${window.location.origin}${window.location.pathname}?session=${state.sessionType}&attend=${token}`;
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(appUrl)}`;
+  const qrSrc = generateQrDataUrl(appUrl, 260);
 
   const img = document.getElementById('att-qr-img');
   const code = document.getElementById('att-qr-code');
@@ -5360,14 +5867,34 @@ let _cachedRecentOverrideRows = [];
 let _cachedAllOverrideRows = [];
 let _cachedRecentPromotionRequests = [];
 let _cachedAllPromotionRequests = [];
+let _cachedAttendanceRegisterRows = [];
+let _cachedAttendanceRegisterDateKey = '';
+let _cachedAttendanceRegisterSourceLabel = '';
 const _bulkPromoteSelectedUids = new Set();
 let _bulkPromoteLastClickedIndex = null;
 const _shiftRangeLastIndexByGroup = {};
 let _rosterSearchQuery = '';
 let _rosterFilterMode = 'all';
+let _attendanceAnalyticsSelectedDate = new Date().toISOString().slice(0, 10);
 const _studentSupportModeByUid = {};
 const _studentSupportSaveStateByUid = {};
 const _studentSupportSaveTimerByUid = {};
+
+function _attendanceDateKeyLabel(dateKey = '') {
+  const normalized = String(dateKey || '').trim();
+  if (!normalized) return 'Unknown date';
+  const parsed = new Date(`${normalized}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return normalized;
+  return parsed.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+window._setAnalyticsAttendanceDate = (value = '') => {
+  const normalized = String(value || '').trim();
+  _attendanceAnalyticsSelectedDate = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? normalized
+    : new Date().toISOString().slice(0, 10);
+  window._loadAnalytics?.();
+};
 
 function _nextLockedForStudent(student) {
   const lockRows = _lockDiagnosticsForStudent(student || {});
@@ -5874,6 +6401,10 @@ async function _loadAnalytics() {
       const dd = String(d.getDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
     })();
+    const selectedAttendanceDateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(_attendanceAnalyticsSelectedDate || '').trim())
+      ? String(_attendanceAnalyticsSelectedDate).trim()
+      : todayKey;
+    _attendanceAnalyticsSelectedDate = selectedAttendanceDateKey;
     const trendDateKeys = Array.from({ length: 7 }, (_, idx) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - idx));
@@ -5891,8 +6422,12 @@ async function _loadAnalytics() {
       return `${yyyy}-${mm}-${dd}`;
     });
     const allTrendKeys = [...prevTrendDateKeys, ...trendDateKeys];
+    const derivedMetricsPromise = rebuildDerivedMetricsForDate(todayKey);
+    const trendDerivedMetricsPromise = Promise.all(
+      allTrendKeys.map((key) => (key === todayKey ? derivedMetricsPromise : rebuildDerivedMetricsForDate(key)))
+    );
 
-    const [snap, liveSnap, trafficSnap, eventsSnap, supportModesSnap, gallerySnap, unlockOverridesSnap, rosterSnap, promotionRequestsSnap] = await Promise.all([
+    const [snap, liveSnap, trafficSnap, eventsSnap, supportModesSnap, gallerySnap, unlockOverridesSnap, rosterSnap, promotionRequestsSnap, rosterResetSignInsSnap, readingTaskSnap, derivedMetrics, trendDerivedMetrics] = await Promise.all([
       get(ref(db, 'users')),
       get(ref(db, 'presence/live')),
       get(ref(db, `analytics/traffic/${todayKey}`)),
@@ -5902,6 +6437,10 @@ async function _loadAnalytics() {
       get(ref(db, 'analytics/unlock-overrides')),
       get(ref(db, 'rosters/classList')),
       get(ref(db, 'analytics/promotion-requests')),
+      get(ref(db, `analytics/roster-reset-signins/${todayKey}`)),
+      get(ref(db, 'analytics/reading-task-submissions')),
+      derivedMetricsPromise,
+      trendDerivedMetricsPromise,
     ]);
     const persistedModes = supportModesSnap.exists() ? supportModesSnap.val() : {};
     Object.keys(_studentSupportModeByUid).forEach((uid) => {
@@ -5913,12 +6452,12 @@ async function _loadAnalytics() {
         _studentSupportModeByUid[uid] = mode;
       }
     });
-    const trendSummarySnaps = await Promise.all(
-      allTrendKeys.map((k) => get(ref(db, `analytics/events-summary/${k}`)))
-    );
-
     const galleryPostsRaw = gallerySnap.exists() ? Object.values(gallerySnap.val() || {}) : [];
     const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+    const readingTaskRoot = readingTaskSnap.exists() ? readingTaskSnap.val() : {};
+    const readingTaskUnitMetaById = Object.fromEntries((UNITS || []).map((unit) => [unit.id, unit]));
+    const readingTaskRows = [];
+    const readingTaskByUid = new Map();
     const rosterNumberByEmail = {};
     rosterRows.forEach((row) => {
       const email = _normEmail(row?.email || '');
@@ -5926,6 +6465,52 @@ async function _loadAnalytics() {
       if (email && studentNumber) {
         rosterNumberByEmail[email] = studentNumber;
       }
+    });
+    Object.entries(readingTaskRoot || {}).forEach(([unitId, byStudent]) => {
+      const unitMeta = readingTaskUnitMetaById[unitId];
+      Object.entries(byStudent || {}).forEach(([uid, byTask]) => {
+        Object.entries(byTask || {}).forEach(([taskId, submission]) => {
+          if (!submission || typeof submission !== 'object') return;
+          const writing = String(submission.writing || submission.responseText || '').trim();
+          const feedback = String(submission.feedback || submission.tutorFeedback || '').trim();
+          const annotationsCount = Array.isArray(submission.annotations) ? submission.annotations.length : 0;
+          const answersCount = submission.answers && typeof submission.answers === 'object' ? Object.keys(submission.answers).length : 0;
+          const wordCount = Number(submission.writingWordCount || (writing ? writing.split(/\s+/).filter(Boolean).length : 0));
+          const statusRaw = String(submission.status || '').trim().toLowerCase();
+          const hasWork = Boolean(writing || feedback || annotationsCount || answersCount);
+          const row = {
+            unitId,
+            unitBadge: unitMeta?.badge || String(unitId || '').toUpperCase(),
+            unitTitle: unitMeta?.title || unitId,
+            uid,
+            taskId,
+            status: statusRaw || (feedback ? 'reviewed' : (hasWork ? 'in_progress' : 'empty')),
+            writing,
+            wordCount,
+            feedback,
+            hasFeedback: Boolean(feedback),
+            answersCount,
+            annotationsCount,
+            hasWork,
+            updatedAt: String(submission.updatedAt || submission.savedAt || submission.submittedAt || '').trim(),
+            aiScore: Number(
+              submission?.aiDetection?.suspicionScore
+              || submission?.aiDetection?.score
+              || submission?.aiAnalysis?.suspicionScore
+              || 0
+            ),
+            aiFlagged: Boolean(
+              submission?.aiDetection?.isRiskFlag
+              || submission?.aiDetection?.flagged
+              || submission?.aiAnalysis?.isRiskFlag
+              || submission?.aiAnalysis?.flagged
+            ),
+          };
+          readingTaskRows.push(row);
+          if (!readingTaskByUid.has(uid)) readingTaskByUid.set(uid, []);
+          readingTaskByUid.get(uid).push(row);
+        });
+      });
     });
     const tutorialSessionPostsByUid = new Map();
     galleryPostsRaw.forEach((p) => {
@@ -5948,6 +6533,7 @@ async function _loadAnalytics() {
 
     const users = snap.val();
     _cachedStudents = [];
+    const rosterResetProfileRows = [];
     const TOTAL_UNITS = 20;
 
     for (const [uid, user] of Object.entries(users)) {
@@ -5973,6 +6559,17 @@ async function _loadAnalytics() {
 
       const pct = Math.round((visitedCount / TOTAL_UNITS) * 100);
       const erMarks = s.erProgress?.extraMarks || 0;
+      const resetSignInAt = String(profile.resetLinkSignInAlertShownAt || '').trim();
+      if (resetSignInAt.startsWith(todayKey)) {
+        rosterResetProfileRows.push({
+          uid,
+          name: profile.displayName || `Student_${uid.substring(0, 6)}`,
+          email: String(profile.authEmail || profile.username || profile.email || '').trim(),
+          studentNumber,
+          signedInAt: resetSignInAt,
+          source: 'profile-fallback',
+        });
+      }
 
       // Reading engagement metrics
       let totalAnnotations = 0;
@@ -6013,6 +6610,18 @@ async function _loadAnalytics() {
       const aiTopReason = aiFlags[0]?.reasons?.[0] || null;
       const heutagogy = _heutagogySummary(progressObj);
       const workScore = _studentWorkScore(s || {});
+      const readingTaskSubmissions = [...(readingTaskByUid.get(uid) || [])]
+        .sort((a, b) => _lecturerSafeMs(b.updatedAt) - _lecturerSafeMs(a.updatedAt));
+      const readingTaskSubmissionCount = readingTaskSubmissions.length;
+      const readingTaskReviewedCount = readingTaskSubmissions.filter((row) => row.status === 'reviewed').length;
+      const readingTaskPendingCount = readingTaskSubmissions.filter((row) => row.status !== 'reviewed' && row.hasWork).length;
+      const readingTaskWordRows = readingTaskSubmissions.filter((row) => row.wordCount > 0);
+      const readingTaskAvgWords = readingTaskWordRows.length
+        ? Math.round(readingTaskWordRows.reduce((sum, row) => sum + row.wordCount, 0) / readingTaskWordRows.length)
+        : 0;
+      const readingTaskLowWordCount = readingTaskSubmissions.filter((row) => row.wordCount > 0 && row.wordCount < 80).length;
+      const readingTaskFlagCount = readingTaskSubmissions.filter((row) => row.aiFlagged).length;
+      const readingTaskLatestUpdatedAt = readingTaskSubmissions[0]?.updatedAt || '';
 
       let calibrationMatches = 0;
       Object.values(progressObj).forEach(u => {
@@ -6097,6 +6706,14 @@ async function _loadAnalytics() {
         tutorialMinutesToday,
         tutorialSessionContribToday: tutorialSessionContrib.today,
         tutorialSessionContribTotal: tutorialSessionContrib.total,
+        readingTaskSubmissions,
+        readingTaskSubmissionCount,
+        readingTaskReviewedCount,
+        readingTaskPendingCount,
+        readingTaskAvgWords,
+        readingTaskLowWordCount,
+        readingTaskFlagCount,
+        readingTaskLatestUpdatedAt,
         workScore,
         aiDetections, aiFlags, aiAvgScore, aiTopReason,
         heutagogy, calibrationMatches,
@@ -6123,6 +6740,77 @@ async function _loadAnalytics() {
     Array.from(_bulkPromoteSelectedUids).forEach((uid) => {
       if (!validUids.has(uid)) _bulkPromoteSelectedUids.delete(uid);
     });
+    const activeReadingTaskRows = readingTaskRows
+      .filter((row) => validUids.has(row.uid))
+      .sort((a, b) => _lecturerSafeMs(b.updatedAt) - _lecturerSafeMs(a.updatedAt));
+    const readingTaskStudentsCount = new Set(activeReadingTaskRows.map((row) => row.uid)).size;
+    const readingTaskSubmissionCount = activeReadingTaskRows.length;
+    const readingTaskReviewedCount = activeReadingTaskRows.filter((row) => row.status === 'reviewed').length;
+    const readingTaskPendingCount = activeReadingTaskRows.filter((row) => row.status !== 'reviewed' && row.hasWork).length;
+    const readingTaskWordRows = activeReadingTaskRows.filter((row) => row.wordCount > 0);
+    const readingTaskAvgWords = readingTaskWordRows.length
+      ? Math.round(readingTaskWordRows.reduce((sum, row) => sum + row.wordCount, 0) / readingTaskWordRows.length)
+      : 0;
+    const readingTaskAiFlagCount = activeReadingTaskRows.filter((row) => row.aiFlagged).length;
+    const studentByUid = Object.fromEntries(_cachedStudents.map((student) => [student.uid, student]));
+    const readingTaskUnitSummaries = Object.values(activeReadingTaskRows.reduce((acc, row) => {
+      const key = row.unitId;
+      if (!acc[key]) {
+        acc[key] = {
+          unitId: row.unitId,
+          unitBadge: row.unitBadge,
+          unitTitle: row.unitTitle,
+          submissions: 0,
+          reviewed: 0,
+          pending: 0,
+          aiFlags: 0,
+          wordTotal: 0,
+          wordRows: 0,
+          writers: new Set(),
+          latestAt: '',
+        };
+      }
+      const bucket = acc[key];
+      bucket.submissions += 1;
+      bucket.writers.add(row.uid);
+      if (row.status === 'reviewed') bucket.reviewed += 1;
+      if (row.status !== 'reviewed' && row.hasWork) bucket.pending += 1;
+      if (row.aiFlagged) bucket.aiFlags += 1;
+      if (row.wordCount > 0) {
+        bucket.wordTotal += row.wordCount;
+        bucket.wordRows += 1;
+      }
+      if (_lecturerSafeMs(row.updatedAt) > _lecturerSafeMs(bucket.latestAt)) bucket.latestAt = row.updatedAt;
+      return acc;
+    }, {})).map((bucket) => ({
+      ...bucket,
+      writerCount: bucket.writers.size,
+      avgWords: bucket.wordRows ? Math.round(bucket.wordTotal / bucket.wordRows) : 0,
+    })).sort((a, b) => b.submissions - a.submissions || b.writerCount - a.writerCount);
+    const readingTaskNeedsFollowUpRows = activeReadingTaskRows
+      .filter((row) => (row.status !== 'reviewed' && row.hasWork) || (row.wordCount > 0 && row.wordCount < 80) || row.aiFlagged)
+      .map((row) => {
+        const student = studentByUid[row.uid];
+        const reasons = [];
+        if (row.status !== 'reviewed' && row.hasWork) reasons.push('Needs review');
+        if (row.wordCount > 0 && row.wordCount < 80) reasons.push('Low word count');
+        if (row.aiFlagged) reasons.push(`AI score ${row.aiScore || 0}`);
+        return {
+          ...row,
+          studentName: student?.name?.split(' [')[0] || `Student_${row.uid.slice(0, 6)}`,
+          studentNumber: student?.studentNumber || '',
+          reasons,
+        };
+      })
+      .slice(0, 8);
+    const readingTaskTopWriters = _cachedStudents
+      .filter((student) => student.readingTaskSubmissionCount > 0)
+      .sort((a, b) =>
+        b.readingTaskSubmissionCount - a.readingTaskSubmissionCount
+        || b.readingTaskReviewedCount - a.readingTaskReviewedCount
+        || b.readingTaskAvgWords - a.readingTaskAvgWords
+      )
+      .slice(0, 6);
 
     const avgProg = Math.round(_cachedStudents.reduce((acc, s) => acc + s.pct, 0) / _cachedStudents.length);
     const atRiskCount = _cachedStudents.filter(s => s.riskLevel === 'High').length;
@@ -6130,21 +6818,45 @@ async function _loadAnalytics() {
     const aiFlaggedStudents = _cachedStudents.filter(s => (s.aiFlags || []).length > 0).length;
     const aiFlagEvents = _cachedStudents.reduce((sum, s) => sum + ((s.aiFlags || []).length), 0);
 
+    const derivedDaily = derivedMetrics?.daily || {};
+    const derivedHourly = derivedMetrics?.hourly || {};
+
     const attendanceRows = _cachedStudents.map((s) => {
-      const dayRec = s.attendanceData?.byDate?.[todayKey] || null;
+      const dayRec = s.attendanceData?.byDate?.[selectedAttendanceDateKey] || null;
       const qrCheckins = dayRec?.qrCheckins || [];
       const hasQrCheckin = Array.isArray(qrCheckins) && qrCheckins.length > 0;
       const latestQr = hasQrCheckin ? qrCheckins[qrCheckins.length - 1] : null;
       return {
         name: s.name,
+        studentNumber: s.studentNumber || '',
+        email: s.email || '',
+        present: Boolean(dayRec?.present),
         hasQrCheckin,
         latestAt: latestQr?.at || null,
         latestType: latestQr?.sessionType || null,
+        qrCount: qrCheckins.length,
+        totalMinutes: Math.max(0, Math.round((dayRec?.totalSeconds || 0) / 60)),
+        classMinutes: Math.max(0, Math.round((dayRec?.classSeconds || 0) / 60)),
+        tutorialMinutes: Math.max(0, Math.round((dayRec?.tutorialSeconds || 0) / 60)),
       };
     });
 
     const checkedInRows = attendanceRows.filter(r => r.hasQrCheckin);
     const missingRows = attendanceRows.filter(r => !r.hasQrCheckin);
+    const attendanceUsesDerived = selectedAttendanceDateKey === todayKey && String(derivedDaily?.coverage?.attendanceToday || '') === 'official';
+    const attendanceCheckedInCount = attendanceUsesDerived
+      ? Number(derivedDaily?.attendanceToday || 0)
+      : checkedInRows.length;
+    const attendanceSourceLabel = attendanceUsesDerived
+      ? 'analytics/raw-events derived'
+      : (selectedAttendanceDateKey === todayKey ? 'state attendance fallback' : 'state attendance history');
+    const attendanceRegisterRows = [...attendanceRows].sort((a, b) => {
+      if (Number(b.hasQrCheckin) !== Number(a.hasQrCheckin)) return Number(b.hasQrCheckin) - Number(a.hasQrCheckin);
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    _cachedAttendanceRegisterRows = attendanceRegisterRows;
+    _cachedAttendanceRegisterDateKey = selectedAttendanceDateKey;
+    _cachedAttendanceRegisterSourceLabel = attendanceSourceLabel;
 
     const nowMs = Date.now();
     const studentNameByUid = Object.fromEntries(_cachedStudents.map(s => [s.uid, s.name]));
@@ -6171,12 +6883,97 @@ async function _loadAnalytics() {
     const liveInClass = liveOnline.filter(r => r.qrVerifiedToday);
     const liveOutClass = liveOnline.filter(r => !r.qrVerifiedToday);
 
-    const trafficToday = trafficSnap.exists() ? trafficSnap.val() : {};
-    const hourRows = Array.from({ length: 24 }, (_, h) => {
-      const key = String(h).padStart(2, '0');
-      const row = trafficToday[key] || {};
-      return { hour: key, pings: row.pings || 0, activities: row.activities || {} };
+    const eventRoot = eventsSnap.exists() ? eventsSnap.val() : {};
+    const eventRows = Object.values(eventRoot).flatMap((userEvents) => Object.values(userEvents || {}));
+    const studentEventRows = eventRows.filter((e) => {
+      const role = String(e?.role || '').toLowerCase();
+      return !role || role === 'student';
     });
+    const trafficToday = trafficSnap.exists() ? trafficSnap.val() : {};
+    const trafficHasStoredPings = Object.values(trafficToday || {}).some((row) => Number(row?.pings || 0) > 0);
+    const eventTrafficByHour = {};
+    studentEventRows.forEach((eventRow) => {
+      const tsMs = _eventTimestampMs(eventRow);
+      if (!_isReasonableTrafficTimestamp(tsMs, nowMs)) return;
+      const ts = new Date(tsMs);
+      const hourKey = String(ts.getHours()).padStart(2, '0');
+      const bucket = eventTrafficByHour[hourKey] || { pings: 0, activities: {} };
+      bucket.pings += 1;
+      const activityKey = String(eventRow?.eventType || 'unknown').trim() || 'unknown';
+      bucket.activities[activityKey] = (bucket.activities[activityKey] || 0) + 1;
+      eventTrafficByHour[hourKey] = bucket;
+    });
+    const rosterResetRowsFromAnalytics = rosterResetSignInsSnap.exists()
+      ? Object.values(rosterResetSignInsSnap.val() || {})
+      : [];
+    const rosterResetRowsFromDerived = Array.isArray(derivedDaily?.resetLinkSignInRows)
+      ? derivedDaily.resetLinkSignInRows
+      : [];
+    const mergedRosterResetByUid = new Map();
+    [...rosterResetRowsFromAnalytics, ...rosterResetRowsFromDerived, ...rosterResetProfileRows].forEach((row) => {
+      const uid = String(row?.uid || '').trim();
+      if (!uid) return;
+      const prev = mergedRosterResetByUid.get(uid);
+      const prevAt = String(prev?.signedInAt || '');
+      const nextAt = String(row?.signedInAt || '');
+      if (!prev || nextAt > prevAt) mergedRosterResetByUid.set(uid, row);
+    });
+    const rosterResetRows = Array.from(mergedRosterResetByUid.values())
+      .sort((a, b) => String(b?.signedInAt || '').localeCompare(String(a?.signedInAt || '')));
+
+    const eventTrafficHasPings = Object.values(eventTrafficByHour).some((row) => Number(row?.pings || 0) > 0);
+    const derivedTrafficHasPings = Object.values(derivedHourly || {}).some((row) => Number(row?.pings || 0) > 0);
+    const trafficUsesDerived = String(derivedDaily?.coverage?.hourlyTraffic || '') === 'official';
+    const selectedTrafficSource = trafficUsesDerived
+      ? derivedHourly
+      : (trafficHasStoredPings
+        ? trafficToday
+        : (eventTrafficHasPings ? eventTrafficByHour : (derivedTrafficHasPings ? derivedHourly : eventTrafficByHour)));
+    let hourRows = Array.from({ length: 24 }, (_, h) => {
+      const key = String(h).padStart(2, '0');
+      const row = selectedTrafficSource[key] || {};
+      return { hour: key, pings: Number(row.pings || 0), activities: row.activities || {} };
+    });
+    const hasAnyTrafficRows = hourRows.some((row) => row.pings > 0);
+    let trafficSourceLabel = trafficUsesDerived
+      ? 'analytics/raw-events derived'
+      : (trafficHasStoredPings
+        ? 'analytics/traffic'
+        : (eventTrafficHasPings ? 'analytics/events fallback' : (derivedTrafficHasPings ? 'analytics/raw-events derived' : 'analytics/events fallback')));
+    if (!hasAnyTrafficRows && !trafficUsesDerived) {
+      const supplementalTrafficByHour = {};
+      const addFallbackTrafficSample = (at, activityKey) => {
+        const tsMs = _eventTimestampMs({ at });
+        if (!_isReasonableTrafficTimestamp(tsMs, nowMs)) return;
+        const ts = new Date(tsMs);
+        const hourKey = String(ts.getHours()).padStart(2, '0');
+        const bucket = supplementalTrafficByHour[hourKey] || { pings: 0, activities: {} };
+        bucket.pings += 1;
+        bucket.activities[activityKey] = (bucket.activities[activityKey] || 0) + 1;
+        supplementalTrafficByHour[hourKey] = bucket;
+      };
+      galleryPostsRaw.forEach((post) => addFallbackTrafficSample(post?.createdAt, 'gallery_post'));
+      _cachedStudents.forEach((student) => {
+        const qrRows = student?.attendanceData?.byDate?.[todayKey]?.qrCheckins || [];
+        qrRows.forEach((row) => addFallbackTrafficSample(row?.at, `attendance_${row?.sessionType || 'class'}`));
+      });
+      rosterResetRows.forEach((row) => addFallbackTrafficSample(row?.signedInAt, 'reset_signin'));
+      Object.values(liveRaw || {}).forEach((row) => addFallbackTrafficSample(row?.lastSeen, 'presence_ping'));
+      hourRows = Array.from({ length: 24 }, (_, h) => {
+        const key = String(h).padStart(2, '0');
+        const row = supplementalTrafficByHour[key] || {};
+        return { hour: key, pings: Number(row.pings || 0), activities: row.activities || {} };
+      });
+      if (hourRows.some((row) => row.pings > 0)) {
+        trafficSourceLabel = 'attendance/gallery/presence fallback';
+      }
+    }
+    const currentHour = new Date(nowMs).getHours();
+    hourRows = hourRows.map((row) => (
+      Number(row.hour) > currentHour
+        ? { ...row, pings: 0, activities: {} }
+        : row
+    ));
     const maxPings = Math.max(0, ...hourRows.map(r => r.pings));
     const nonZero = hourRows.filter(r => r.pings > 0);
     const busiest = hourRows.reduce((best, r) => (r.pings > best.pings ? r : best), { hour: '--', pings: -1 });
@@ -6194,33 +6991,26 @@ async function _loadAnalytics() {
       .slice(0, 5)
       .map(([k, v]) => `${k.replace(/_/g, ' ')} (${v})`)
       .join(' · ');
-
-    const eventRoot = eventsSnap.exists() ? eventsSnap.val() : {};
-    const eventRows = Object.values(eventRoot).flatMap((userEvents) => Object.values(userEvents || {}));
-    const studentEventRows = eventRows.filter((e) => String(e?.role || '').toLowerCase() === 'student');
-    const eventTypeCounts = studentEventRows.reduce((acc, e) => {
-      const k = String(e?.eventType || 'unknown');
-      acc[k] = (acc[k] || 0) + 1;
-      return acc;
-    }, {});
-    const activeLearnersToday = new Set(studentEventRows.map((e) => e?.uid).filter(Boolean)).size;
-    const learningActionTypes = [
-      'unit_open',
-      'assessment_open',
-      'unit_first_visit',
-      'resource_library_open',
-      'er_open',
-      'gallery_open',
-      'gallery_showroom_open',
-      'gallery_submission',
-      'feed_post',
-      'survey_submit',
-    ];
-    const learningActionsToday = learningActionTypes.reduce((sum, k) => sum + (eventTypeCounts[k] || 0), 0);
-    const feedPostsToday = eventTypeCounts.feed_post || 0;
-    const gallerySubmissionsToday = eventTypeCounts.gallery_submission || 0;
-    const surveySubmitsToday = eventTypeCounts.survey_submit || 0;
-    const unitLockedAttemptsToday = eventTypeCounts.unit_locked_attempt || 0;
+    const derivedEventTypeCounts = (derivedDaily?.eventTypeCounts && typeof derivedDaily.eventTypeCounts === 'object')
+      ? derivedDaily.eventTypeCounts
+      : {};
+    const activeLearnersTodayFallback = new Set(studentEventRows.map((e) => e?.uid).filter(Boolean)).size;
+    const activeLearnersUsesDerived = String(derivedDaily?.coverage?.dailyActiveLearners || '') === 'official';
+    const activeLearnersToday = activeLearnersUsesDerived
+      ? Number(derivedDaily?.dailyActiveLearners || 0)
+      : activeLearnersTodayFallback;
+    const activeLearnersSourceLabel = activeLearnersUsesDerived
+      ? 'analytics/raw-events derived'
+      : 'analytics/events fallback';
+    const learningActionsToday = Number(derivedDaily?.learningActions || 0);
+    const feedPostsToday = Number(derivedDaily?.feedPosts || 0);
+    const gallerySubmissionsToday = Number(derivedDaily?.gallerySubmissions || 0);
+    const surveySubmitsToday = Number(derivedDaily?.surveySubmits || 0);
+    const learningActionsSourceLabel = 'analytics/raw-events derived';
+    const feedPostsSourceLabel = 'analytics/raw-events derived';
+    const galleryPostsSourceLabel = 'analytics/raw-events derived';
+    const surveySourceLabel = 'analytics/raw-events derived';
+    const unitLockedAttemptsToday = Number(derivedEventTypeCounts.unit_locked_attempt || 0);
     const lockToSurveyConversion = unitLockedAttemptsToday
       ? Math.min(100, Math.round((surveySubmitsToday / unitLockedAttemptsToday) * 100))
       : null;
@@ -6228,18 +7018,56 @@ async function _loadAnalytics() {
     const inClassEventShare = studentEventRows.length
       ? Math.round((inClassEventsToday / studentEventRows.length) * 100)
       : 0;
-    const topLearningSignals = Object.entries(eventTypeCounts)
+    const topLearningSignals = Object.entries(derivedEventTypeCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([k, v]) => `${k.replace(/_/g, ' ')} (${v})`)
       .join(' · ');
+    const dismissedResetAlertCount = _getRosterResetAlertDismissedCount(todayKey);
+    const hasVisibleRosterResetAlert = rosterResetRows.length > dismissedResetAlertCount;
+    const recentRosterResetRows = rosterResetRows.slice(0, 8);
+    const rosterResetAlertHtml = hasVisibleRosterResetAlert ? `
+        <div id="lecturer-roster-reset-alert" style="background:linear-gradient(135deg,#ecfeff 0%,#f0fdf4 100%);border:1px solid #99f6e4;border-radius:18px;padding:18px 20px;margin-bottom:22px;box-shadow:0 14px 30px rgba(15,23,42,.08);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#0f766e;">Roster Reset Sign-ins</div>
+              <div style="font-size:22px;font-weight:900;color:var(--navy);margin-top:4px;">${rosterResetRows.length} student${rosterResetRows.length === 1 ? '' : 's'} signed in after receiving reset links today</div>
+              <div style="font-size:13px;color:#155e75;margin-top:6px;line-height:1.55;">
+                Running tally for <strong>${todayKey}</strong>. This alert stays visible until you close it.
+                ${dismissedResetAlertCount > 0 ? ` It reopened because the tally increased beyond ${dismissedResetAlertCount}.` : ''}
+              </div>
+            </div>
+            <button class="btn-prev" style="display:inline-flex;padding:8px 12px;background:#0f766e;border-color:#0f766e;color:white;" onclick="_dismissRosterResetAlert('${todayKey}', ${rosterResetRows.length})">Close alert</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:14px;">
+            ${recentRosterResetRows.map((row) => {
+      const at = row?.signedInAt ? new Date(row.signedInAt) : null;
+      const hh = at && !Number.isNaN(at.getTime()) ? String(at.getHours()).padStart(2, '0') : '--';
+      const mm = at && !Number.isNaN(at.getTime()) ? String(at.getMinutes()).padStart(2, '0') : '--';
+      const studentName = _esc(String(row?.name || 'Student').split(' [')[0]);
+      const studentNumber = _esc(row?.studentNumber || '—');
+      const email = _esc(row?.email || '—');
+      return `
+              <div style="background:rgba(255,255,255,.82);border:1px solid rgba(15,118,110,.14);border-radius:12px;padding:10px 12px;">
+                <div style="font-size:13px;font-weight:800;color:var(--navy);">${studentName}</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:4px;">${studentNumber} · ${email}</div>
+                <div style="font-size:11px;color:#0f766e;font-weight:700;margin-top:6px;">Signed in at ${hh}:${mm}</div>
+              </div>`;
+    }).join('')}
+          </div>
+          ${rosterResetRows.length > recentRosterResetRows.length
+        ? `<div style="font-size:12px;color:var(--muted);margin-top:10px;">Showing latest ${recentRosterResetRows.length} of ${rosterResetRows.length} sign-ins.</div>`
+        : ''}
+        </div>`
+      : '';
+    const trendDailyByDate = Object.fromEntries(
+      (trendDerivedMetrics || []).map((result) => [String(result?.daily?.dateKey || ''), result?.daily || {}])
+    );
     const trendRows = trendDateKeys.map((k) => {
-      const snap = trendSummarySnaps[allTrendKeys.indexOf(k)];
-      const summary = snap.exists() ? snap.val() : {};
-      const byType = summary.byType || {};
-      const actions = learningActionTypes.reduce((sum, key) => sum + (byType[key] || 0), 0);
-      const learners = Object.keys(summary.activeStudents || {}).length;
-      const feed = byType.feed_post || 0;
+      const summary = trendDailyByDate[k] || {};
+      const actions = Number(summary.learningActions || 0);
+      const learners = Number(summary.dailyActiveLearners || 0);
+      const feed = Number(summary.feedPosts || 0);
       return {
         dateKey: k,
         label: k.slice(5),
@@ -6249,13 +7077,11 @@ async function _loadAnalytics() {
       };
     });
     const prevTrendRows = prevTrendDateKeys.map((k) => {
-      const snap = trendSummarySnaps[allTrendKeys.indexOf(k)];
-      const summary = snap.exists() ? snap.val() : {};
-      const byType = summary.byType || {};
+      const summary = trendDailyByDate[k] || {};
       return {
-        actions: learningActionTypes.reduce((sum, key) => sum + (byType[key] || 0), 0),
-        learners: Object.keys(summary.activeStudents || {}).length,
-        feed: byType.feed_post || 0,
+        actions: Number(summary.learningActions || 0),
+        learners: Number(summary.dailyActiveLearners || 0),
+        feed: Number(summary.feedPosts || 0),
       };
     });
     const currentWeekTotals = trendRows.reduce((acc, r) => {
@@ -6532,12 +7358,16 @@ async function _loadAnalytics() {
       const heutagogyChip = Number(s?.heutagogy?.total || 0)
         ? `<span style="background:${s.heutagogy.pending ? '#fffbeb' : '#ecfdf5'};color:${s.heutagogy.pending ? '#92400e' : '#166534'};padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid ${s.heutagogy.pending ? '#fde68a' : '#a7f3d0'};">${s.heutagogy.approved}/${s.heutagogy.total} approved</span><div style="font-size:11px;color:var(--muted);margin-top:4px;">Pending: ${s.heutagogy.pending} · Evidence: ${s.heutagogy.evidenceCount}/${s.heutagogy.total}</div>`
         : '<span style="font-size:11px;color:var(--muted);">No contracts yet</span>';
+      const readingTaskSummary = s.readingTaskSubmissionCount
+        ? `✍️ ${s.readingTaskSubmissionCount} task${s.readingTaskSubmissionCount === 1 ? '' : 's'} · ${s.readingTaskReviewedCount} reviewed · ${s.readingTaskAvgWords} avg words`
+        : '✍️ No reading-task submissions yet';
       const searchBlob = [
         s.name.split(' [')[0],
         s.studentNumber || '',
         s.email || '',
         s.riskLevel || '',
         weakSkills.join(' '),
+        readingTaskSummary,
         `${s?.heutagogy?.approved || 0} approved`,
         `${s?.heutagogy?.pending || 0} pending`,
         rowNextLocked?.unitBadge || '',
@@ -6553,6 +7383,7 @@ async function _loadAnalytics() {
           ${s.highPerformer ? '<span style="font-size:10px;background:rgba(16,185,129,0.12);color:#10b981;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:700;">★ High</span>' : ''}
           <div style="font-size:11px;color:var(--muted);font-weight:normal;">Student no: ${_esc(s.studentNumber || 'N/A')}</div>
           <div style="font-size:11px;color:var(--muted);font-weight:normal;font-family:var(--font-mono);">${s.email}</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:normal;margin-top:4px;">${_esc(readingTaskSummary)}</div>
         </td>
         <td style="padding:14px 20px;border-bottom:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:10px;">
@@ -6581,6 +7412,7 @@ async function _loadAnalytics() {
 
     mount.innerHTML = `
       <div style="padding:40px;max-width:1100px;margin:0 auto;animation:fadeIn 0.5s ease;">
+        ${rosterResetAlertHtml}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:24px;">
           <h1 style="font-family:var(--font-heading);color:var(--navy);font-size:32px;margin:0;">📊 Cohort Analytics & Risk Overview</h1>
           <button id="analytics-auto-refresh-btn" onclick="_toggleAnalyticsAutoRefresh()" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:white;color:var(--navy);font-size:12px;cursor:pointer;">
@@ -6590,11 +7422,11 @@ async function _loadAnalytics() {
 
         <!-- Metric cards -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin-bottom:32px;">
-          ${_metricCard('👥', 'Active Students', _cachedStudents.length, 'var(--navy)')}
-          ${_metricCard('📈', 'Avg Progress', `${avgProg}<span style="font-size:20px">%</span>`, 'var(--accent)')}
-          ${_metricCard('⚠️', 'At-Risk Students', atRiskCount, atRiskCount > 0 ? 'var(--red)' : 'var(--green)')}
-          ${_metricCard('😤', 'High Frustration', frustCount, frustCount > 0 ? '#f59e0b' : 'var(--green)')}
-          ${_metricCard('🛡️', 'AI Flags', aiFlagEvents, aiFlagEvents > 0 ? '#991b1b' : 'var(--green)')}
+            ${_metricCard('👥', 'Active Students', _cachedStudents.length, 'var(--navy)', { metricClass: 'operational', sourceLabel: 'current cohort state' })}
+            ${_metricCard('📈', 'Avg Progress', `${avgProg}<span style="font-size:20px">%</span>`, 'var(--accent)', { metricClass: 'operational', sourceLabel: 'unit progress state' })}
+            ${_metricCard('⚠️', 'At-Risk Students', atRiskCount, atRiskCount > 0 ? 'var(--red)' : 'var(--green)', { metricClass: 'operational', sourceLabel: 'risk model' })}
+            ${_metricCard('😤', 'High Frustration', frustCount, frustCount > 0 ? '#f59e0b' : 'var(--green)', { metricClass: 'operational', sourceLabel: 'adaptive state' })}
+            ${_metricCard('🛡️', 'AI Flags', aiFlagEvents, aiFlagEvents > 0 ? '#991b1b' : 'var(--green)', { metricClass: 'operational', sourceLabel: 'integrity detections' })}
         </div>
 
         <details style="background:white;border-radius:16px;border:1px solid var(--border);margin-bottom:28px;">
@@ -6646,14 +7478,14 @@ async function _loadAnalytics() {
         <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
             <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">🧭 Learning Signals (Today)</h2>
-            <div style="font-size:12px;color:var(--muted);">Event path: <strong style="color:var(--navy);">analytics/events/${todayKey}</strong></div>
+            <div style="font-size:12px;color:var(--muted);">Active learners source: <strong style="color:var(--navy);">${activeLearnersSourceLabel}</strong></div>
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px;">
-            ${_metricCard('🧑‍🎓', 'Active Learners', activeLearnersToday, 'var(--navy)')}
-            ${_metricCard('🎯', 'Learning Actions', learningActionsToday, 'var(--accent)')}
-            ${_metricCard('🖼️', 'Gallery Posts', gallerySubmissionsToday, gallerySubmissionsToday ? '#7c3aed' : 'var(--green)')}
-            ${_metricCard('💬', 'Feed Posts', feedPostsToday, feedPostsToday ? '#2563eb' : 'var(--green)')}
-            ${_metricCard('📝', 'Survey Submits', surveySubmitsToday, surveySubmitsToday ? '#0f766e' : 'var(--muted)')}
+            ${_metricCard('🧑‍🎓', 'Active Learners', activeLearnersToday, 'var(--navy)', { metricClass: 'official', sourceLabel: activeLearnersSourceLabel })}
+            ${_metricCard('🎯', 'Learning Actions', learningActionsToday, 'var(--accent)', { metricClass: 'partial', sourceLabel: learningActionsSourceLabel })}
+            ${_metricCard('🖼️', 'Gallery Posts', gallerySubmissionsToday, gallerySubmissionsToday ? '#7c3aed' : 'var(--green)', { metricClass: 'official', sourceLabel: galleryPostsSourceLabel })}
+            ${_metricCard('💬', 'Feed Posts', feedPostsToday, feedPostsToday ? '#2563eb' : 'var(--green)', { metricClass: 'official', sourceLabel: feedPostsSourceLabel })}
+            ${_metricCard('📝', 'Survey Submits', surveySubmitsToday, surveySubmitsToday ? '#0f766e' : 'var(--muted)', { metricClass: 'official', sourceLabel: surveySourceLabel })}
           </div>
           <div style="font-size:12px;color:var(--muted);line-height:1.7;">
             In-class verified event share: <strong style="color:var(--navy);">${inClassEventShare}%</strong>
@@ -6665,7 +7497,7 @@ async function _loadAnalytics() {
         <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
             <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">📆 7-Day Learning Trends</h2>
-            <div style="font-size:12px;color:var(--muted);">From analytics/events-summary</div>
+            <div style="font-size:12px;color:var(--muted);">Official trend source: <strong style="color:var(--navy);">analytics/raw-events derived</strong></div>
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
             <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:12px;">
@@ -6720,15 +7552,26 @@ async function _loadAnalytics() {
         </div>
 
         <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-            <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">📲 Today's QR Attendance</h2>
-            <div style="font-size:12px;color:var(--muted);">
-              ${todayKey} · <strong style="color:#10b981;">${checkedInRows.length} checked in</strong> · <strong style="color:#ef4444;">${missingRows.length} missing</strong>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+              <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">📲 Attendance Register</h2>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">
+                ${_attendanceDateKeyLabel(selectedAttendanceDateKey)} · <strong style="color:#10b981;">${attendanceCheckedInCount} checked in</strong> · <strong style="color:#ef4444;">${missingRows.length} missing</strong><br>
+                Source: <strong style="color:var(--navy);">${attendanceSourceLabel}</strong>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:8px;">
+                Date
+                <input type="date" value="${_esc(selectedAttendanceDateKey)}" onchange="_setAnalyticsAttendanceDate(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;color:var(--navy);" />
+              </label>
+              <button class="btn-prev" style="display:inline-flex;padding:7px 10px;font-size:12px;" onclick="_downloadAttendanceExcel()">⬇ Excel</button>
+              <button class="btn-prev" style="display:inline-flex;padding:7px 10px;font-size:12px;" onclick="_downloadAttendanceFullExcel()">⬇ Full Report</button>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-            <details style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:12px;">
-              <summary style="font-size:12px;font-weight:700;color:#166534;margin-bottom:8px;cursor:pointer;user-select:none;">Checked in (${checkedInRows.length})</summary>
+            <details style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:12px;" ${checkedInRows.length > 10 ? '' : 'open'}>
+              <summary style="font-size:12px;font-weight:700;color:#166534;cursor:pointer;user-select:none;">Checked in (${checkedInRows.length})</summary>
               <div style="margin-top:8px;max-height:260px;overflow:auto;">
                 ${checkedInRows.length
         ? checkedInRows.map(r => {
@@ -6736,22 +7579,49 @@ async function _loadAnalytics() {
           const hh = ts ? String(ts.getHours()).padStart(2, '0') : '--';
           const mm = ts ? String(ts.getMinutes()).padStart(2, '0') : '--';
           return `<div style="font-size:12px;color:#14532d;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.7);margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;">
-                      <span>${r.name.split(' [')[0]}</span>
-                      <span style="color:#166534;white-space:nowrap;">${hh}:${mm} · ${r.latestType || 'class'}</span>
+                      <span>${r.name.split(' [')[0]} <span style="color:var(--muted);">${_esc(r.studentNumber || 'N/A')}</span></span>
+                      <span style="color:#166534;white-space:nowrap;">${hh}:${mm} · ${r.latestType || 'class'} · ${r.totalMinutes} min</span>
                     </div>`;
         }).join('')
-        : '<div style="font-size:12px;color:#166534;opacity:.8;">No check-ins yet.</div>'}
+        : `<div style="font-size:12px;color:#166534;opacity:.8;">No check-ins recorded for ${_esc(selectedAttendanceDateKey)}.</div>`}
               </div>
             </details>
-            <details style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:12px;">
-              <summary style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:8px;cursor:pointer;user-select:none;">Missing check-in (${missingRows.length})</summary>
+            <details style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:12px;" ${missingRows.length > 0 && missingRows.length <= 10 ? 'open' : ''}>
+              <summary style="font-size:12px;font-weight:700;color:#991b1b;cursor:pointer;user-select:none;">Missing check-in (${missingRows.length})</summary>
               <div style="margin-top:8px;max-height:260px;overflow:auto;">
                 ${missingRows.length
-        ? missingRows.map(r => `<div style="font-size:12px;color:#7f1d1d;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.7);margin-bottom:6px;">${r.name.split(' [')[0]}</div>`).join('')
-        : '<div style="font-size:12px;color:#991b1b;opacity:.8;">Everyone has checked in.</div>'}
+        ? missingRows.map(r => `<div style="font-size:12px;color:#7f1d1d;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.7);margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;"><span>${r.name.split(' [')[0]}</span><span style="color:var(--muted);">${_esc(r.studentNumber || 'N/A')}</span></div>`).join('')
+        : `<div style="font-size:12px;color:#991b1b;opacity:.8;">Everyone has checked in for ${_esc(selectedAttendanceDateKey)}.</div>`}
               </div>
             </details>
           </div>
+          <details style="margin-top:16px;">
+            <summary style="font-size:12px;font-weight:700;color:var(--navy);cursor:pointer;user-select:none;padding:8px 0;">Full register (${attendanceRegisterRows.length} students)</summary>
+            <div style="border:1px solid var(--border);border-radius:12px;overflow:auto;background:#fff;margin-top:8px;">
+              <div style="display:grid;grid-template-columns:minmax(180px,1.3fr) minmax(90px,.8fr) minmax(110px,.9fr) minmax(90px,.8fr) minmax(140px,1fr) minmax(150px,1fr);gap:10px;padding:10px 12px;background:var(--cream);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);">
+                <div>Student</div>
+                <div>Checked in</div>
+                <div>Latest</div>
+                <div>QR scans</div>
+                <div>Minutes</div>
+                <div>Session split</div>
+              </div>
+              ${attendanceRegisterRows.map((row) => {
+      const latest = row.latestAt ? new Date(row.latestAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+      return `<div style="display:grid;grid-template-columns:minmax(180px,1.3fr) minmax(90px,.8fr) minmax(110px,.9fr) minmax(90px,.8fr) minmax(140px,1fr) minmax(150px,1fr);gap:10px;padding:10px 12px;border-top:1px solid rgba(148,163,184,.18);font-size:12px;align-items:center;">
+                  <div>
+                    <div style="font-weight:700;color:var(--navy);">${_esc(row.name.split(' [')[0])}</div>
+                    <div style="font-size:11px;color:var(--muted);">${_esc(row.studentNumber || 'No student no.')} · ${_esc(row.email || 'No email')}</div>
+                  </div>
+                  <div><span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:700;background:${row.hasQrCheckin ? '#ecfdf5' : '#fef2f2'};color:${row.hasQrCheckin ? '#166534' : '#991b1b'};border:1px solid ${row.hasQrCheckin ? '#bbf7d0' : '#fecaca'};">${row.hasQrCheckin ? 'Yes' : 'No'}</span></div>
+                  <div style="color:var(--navy);">${_esc(latest)}${row.latestType ? ` · ${_esc(row.latestType)}` : ''}</div>
+                  <div style="color:var(--navy);">${row.qrCount}</div>
+                  <div style="color:var(--navy);">${row.totalMinutes} min</div>
+                  <div style="color:var(--muted);">Class ${row.classMinutes} · Tutorial ${row.tutorialMinutes}</div>
+                </div>`;
+    }).join('')}
+            </div>
+          </details>
         </div>
 
         <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
@@ -6789,9 +7659,83 @@ async function _loadAnalytics() {
         }).join('')}
             </div>
             <div style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.6;">
+              Source: <strong style="color:var(--navy);">${trafficSourceLabel}</strong><br>
+              Future-dated samples are ignored and hours later than the current time are hidden.<br>
               Peak hour: <strong style="color:var(--navy);">${busiest.pings > 0 ? `${busiest.hour}:00 (${busiest.pings})` : 'No data yet'}</strong>
               ${quietest ? ` · Quietest active hour: <strong style="color:var(--navy);">${quietest.hour}:00 (${quietest.pings})</strong>` : ''}
               ${topActivities ? `<br>Top activities: ${topActivities}` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">✍️ Reading Task Submission Layer</h2>
+            <div style="font-size:12px;color:var(--muted);">Source: <strong style="color:var(--navy);">analytics/reading-task-submissions</strong> · Latest capture: <strong style="color:var(--navy);">${_lecturerWhenLabel(activeReadingTaskRows[0]?.updatedAt || '')}</strong></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;">
+            ${_metricCard('🧑‍💻', 'Students Writing', readingTaskStudentsCount, 'var(--navy)', { metricClass: 'official', sourceLabel: 'distinct students with reading-task records' })}
+            ${_metricCard('✍️', 'Captured Tasks', readingTaskSubmissionCount, 'var(--accent)', { metricClass: 'official', sourceLabel: 'unit/task submissions in Firebase analytics' })}
+            ${_metricCard('✅', 'Reviewed Tasks', readingTaskReviewedCount, readingTaskReviewedCount ? '#166534' : 'var(--muted)', { metricClass: 'operational', sourceLabel: 'feedback captured on submission records' })}
+            ${_metricCard('🕒', 'Review Queue', readingTaskPendingCount, readingTaskPendingCount ? '#92400e' : 'var(--green)', { metricClass: 'partial', sourceLabel: 'captured work still awaiting review' })}
+            ${_metricCard('📏', 'Avg Writing Words', readingTaskAvgWords || '0', '#0f766e', { metricClass: 'operational', sourceLabel: 'submissions with writing text only' })}
+            ${_metricCard('🛡️', 'AI Checks', readingTaskAiFlagCount, readingTaskAiFlagCount ? '#991b1b' : 'var(--green)', { metricClass: 'operational', sourceLabel: 'high-risk reading-task AI flags' })}
+          </div>
+          <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;">
+            <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:12px;">
+              <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px;">By unit</div>
+              ${readingTaskUnitSummaries.length
+        ? `<div style="display:grid;grid-template-columns:minmax(120px,1.2fr) minmax(70px,.7fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(110px,.9fr);gap:10px;padding:8px 10px;border-radius:8px;background:white;border:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">
+                    <div>Unit</div>
+                    <div>Writers</div>
+                    <div>Tasks</div>
+                    <div>Reviewed</div>
+                    <div>Avg words</div>
+                    <div>Latest</div>
+                  </div>
+                  ${readingTaskUnitSummaries.slice(0, 8).map((row) => `<div style="display:grid;grid-template-columns:minmax(120px,1.2fr) minmax(70px,.7fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(90px,.8fr) minmax(110px,.9fr);gap:10px;padding:10px;border-radius:10px;background:white;border:1px solid rgba(148,163,184,.24);font-size:12px;color:var(--navy);margin-bottom:8px;align-items:center;">
+                    <div>
+                      <div style="font-weight:700;">${_esc(row.unitBadge)} · ${_esc(row.unitTitle)}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Queue ${row.pending} · AI ${row.aiFlags}</div>
+                    </div>
+                    <div>${row.writerCount}</div>
+                    <div>${row.submissions}</div>
+                    <div style="color:${row.reviewed ? '#166534' : 'var(--muted)'};">${row.reviewed}</div>
+                    <div>${row.avgWords || '—'}</div>
+                    <div style="font-size:11px;color:var(--muted);">${_esc(_lecturerWhenLabel(row.latestAt))}</div>
+                  </div>`).join('')}`
+        : '<div style="font-size:12px;color:var(--muted);padding:10px;background:white;border:1px solid var(--border);border-radius:10px;">No reading-task submissions captured yet.</div>'}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:12px;">
+                <div style="font-size:12px;font-weight:700;color:#9a3412;margin-bottom:8px;">Needs follow-up</div>
+                ${readingTaskNeedsFollowUpRows.length
+        ? readingTaskNeedsFollowUpRows.map((row) => {
+          const statusMeta = _lecturerReadingTaskStatusMeta(row.status);
+          return `<div style="padding:10px;border-radius:10px;background:rgba(255,255,255,.82);border:1px solid rgba(251,146,60,.25);margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+                          <div>
+                            <div style="font-size:12px;font-weight:700;color:var(--navy);">${_esc(row.studentName)}</div>
+                            <div style="font-size:11px;color:var(--muted);">${_esc(row.studentNumber || 'No student no.')} · ${_esc(row.unitBadge)} · ${_esc(row.taskId)}</div>
+                          </div>
+                          <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;background:${statusMeta.bg};color:${statusMeta.fg};border:1px solid ${statusMeta.border};">${statusMeta.label}</span>
+                        </div>
+                        <div style="font-size:11px;color:#7c2d12;margin-top:6px;line-height:1.5;">${_esc(row.reasons.join(' · '))}</div>
+                        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Words: ${row.wordCount || 0} · Updated ${_esc(_lecturerWhenLabel(row.updatedAt))}</div>
+                      </div>`;
+        }).join('')
+        : '<div style="font-size:12px;color:#9a3412;opacity:.85;">No reading-task follow-up alerts right now.</div>'}
+              </div>
+              <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px;">
+                <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:8px;">Most active writers</div>
+                ${readingTaskTopWriters.length
+        ? readingTaskTopWriters.map((student) => `<div style="padding:10px;border-radius:10px;background:rgba(255,255,255,.82);border:1px solid rgba(147,197,253,.35);margin-bottom:8px;">
+                      <div style="font-size:12px;font-weight:700;color:var(--navy);">${_esc(student.name.split(' [')[0])}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(student.studentNumber || 'No student no.')} · ${student.readingTaskSubmissionCount} task${student.readingTaskSubmissionCount === 1 ? '' : 's'} · ${student.readingTaskReviewedCount} reviewed</div>
+                      <div style="font-size:11px;color:#1e3a8a;margin-top:4px;">Avg words ${student.readingTaskAvgWords || 0} · Last update ${_esc(_lecturerWhenLabel(student.readingTaskLatestUpdatedAt))}</div>
+                    </div>`).join('')
+        : '<div style="font-size:12px;color:#1d4ed8;opacity:.85;">No student writing activity recorded yet.</div>'}
+              </div>
             </div>
           </div>
         </div>
@@ -6891,7 +7835,7 @@ async function _loadAnalytics() {
               </select>
               <select id="bulk-promote-unit-filter" style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;">
                 <option value="all">All units</option>
-                ${Object.values(UNITS).map(u => `<option value="${u.unitId}">${u.unitBadge} - ${u.unitTitle}</option>`).join('')}
+                ${Object.values(UNITS).map((u) => `<option value="${u.id}">${u.badge} - ${u.title}</option>`).join('')}
               </select>
               <button class="btn-prev" style="display:inline-flex;padding:6px 10px;font-size:12px;" onclick="_selectBulkPromoteByFilter()">Select by filter</button>
               <button class="btn-prev" style="display:inline-flex;padding:6px 10px;font-size:12px;" onclick="_selectAllBulkPromote()">Select all eligible</button>
@@ -6982,6 +7926,29 @@ window._renderStudentProfile = (index) => {
     : `<span title="${tutorialRiskTooltip}" style="background:#ecfdf5;color:#047857;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #a7f3d0;">Tutorial Attendance Risk: On track</span>`;
   const aiFlags = student.aiFlags || [];
   const aiEvents = student.aiDetections || [];
+  const readingTaskSubmissions = [...(student.readingTaskSubmissions || [])]
+    .sort((a, b) => _lecturerSafeMs(b.updatedAt) - _lecturerSafeMs(a.updatedAt));
+  const readingTaskRowsHtml = readingTaskSubmissions.length
+    ? readingTaskSubmissions.slice(0, 6).map((row) => {
+      const statusMeta = _lecturerReadingTaskStatusMeta(row.status);
+      return `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:13px;font-weight:700;color:var(--navy);">${_esc(row.unitBadge)} · ${_esc(row.unitTitle)}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">Task: <span style="font-family:var(--font-mono);">${_esc(row.taskId)}</span> · Updated ${_esc(_lecturerWhenLabel(row.updatedAt))}</div>
+            </div>
+            <span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;background:${statusMeta.bg};color:${statusMeta.fg};border:1px solid ${statusMeta.border};">${statusMeta.label}</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <span style="font-size:11px;background:#f8fafc;color:var(--navy);border:1px solid #cbd5e1;border-radius:999px;padding:3px 8px;">Words: ${row.wordCount || 0}</span>
+            <span style="font-size:11px;background:${row.hasFeedback ? '#ecfdf5' : '#fffbeb'};color:${row.hasFeedback ? '#166534' : '#92400e'};border:1px solid ${row.hasFeedback ? '#a7f3d0' : '#fde68a'};border-radius:999px;padding:3px 8px;">${row.hasFeedback ? 'Feedback added' : 'No feedback yet'}</span>
+            ${row.aiFlagged ? `<span style="font-size:11px;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;border-radius:999px;padding:3px 8px;">AI score ${row.aiScore || 0}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('')
+    : '<div style="font-size:12px;color:var(--muted);">No reading-task submissions recorded for this student yet.</div>';
   const lockDiagnostics = _lockDiagnosticsForStudent(student);
   const lockedUnits = lockDiagnostics.filter((d) => d.locked);
   const nextLocked = lockedUnits[0] || null;
@@ -7137,6 +8104,7 @@ window._renderStudentProfile = (index) => {
             <span style="background:${student.riskColor}20;color:${student.riskColor};padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${student.riskColor}40;">Risk Level: ${student.riskLevel}</span>
             ${tutorialRiskBadge}
             <span style="background:${aiFlags.length ? '#fee2e2' : '#ecfdf5'};color:${aiFlags.length ? '#991b1b' : '#047857'};padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${aiFlags.length ? '#fecaca' : '#a7f3d0'};">AI Flags: ${aiFlags.length}</span>
+            <span style="background:#eff6ff;color:#1d4ed8;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #bfdbfe;">Reading Tasks: ${student.readingTaskSubmissionCount || 0}</span>
             <span style="background:#eef2ff;color:#3730a3;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #c7d2fe;">Report Grade: ${compiled.reportCard.grade}</span>
           </div>
         </div>
@@ -7182,6 +8150,22 @@ window._renderStudentProfile = (index) => {
             <div><strong>Weak skills:</strong> ${compiled.reportCard.weakSkills}</div>
           </div>
         </div>
+      </div>
+
+      <div style="background:white;border-radius:12px;border:1px solid var(--border);padding:18px;margin-bottom:24px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">✍️ Reading Task Signals</h2>
+          <div style="font-size:12px;color:var(--muted);">Latest update: <strong style="color:var(--navy);">${_esc(_lecturerWhenLabel(student.readingTaskLatestUpdatedAt))}</strong></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+          <span style="background:#eff6ff;color:#1d4ed8;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #bfdbfe;">Captured: ${student.readingTaskSubmissionCount || 0}</span>
+          <span style="background:${student.readingTaskReviewedCount ? '#ecfdf5' : '#f8fafc'};color:${student.readingTaskReviewedCount ? '#166534' : '#475569'};padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${student.readingTaskReviewedCount ? '#a7f3d0' : '#cbd5e1'};">Reviewed: ${student.readingTaskReviewedCount || 0}</span>
+          <span style="background:${student.readingTaskPendingCount ? '#fffbeb' : '#f8fafc'};color:${student.readingTaskPendingCount ? '#92400e' : '#475569'};padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${student.readingTaskPendingCount ? '#fde68a' : '#cbd5e1'};">Pending review: ${student.readingTaskPendingCount || 0}</span>
+          <span style="background:#ecfeff;color:#0f766e;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid #99f6e4;">Avg words: ${student.readingTaskAvgWords || 0}</span>
+          <span style="background:${student.readingTaskLowWordCount ? '#fff7ed' : '#f8fafc'};color:${student.readingTaskLowWordCount ? '#9a3412' : '#475569'};padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${student.readingTaskLowWordCount ? '#fdba74' : '#cbd5e1'};">Low-word tasks: ${student.readingTaskLowWordCount || 0}</span>
+          <span style="background:${student.readingTaskFlagCount ? '#fee2e2' : '#f8fafc'};color:${student.readingTaskFlagCount ? '#991b1b' : '#475569'};padding:6px 10px;border-radius:8px;font-size:12px;font-weight:700;border:1px solid ${student.readingTaskFlagCount ? '#fecaca' : '#cbd5e1'};">AI flags: ${student.readingTaskFlagCount || 0}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">${readingTaskRowsHtml}</div>
       </div>
 
       <div style="background:white;border-radius:12px;border:1px solid var(--border);padding:18px;margin-bottom:24px;">
@@ -7548,6 +8532,182 @@ function _csvCell(value) {
   return `"${raw.replace(/"/g, '""')}"`;
 }
 
+window._downloadAttendanceRegisterCsv = () => {
+  const rows = Array.isArray(_cachedAttendanceRegisterRows) ? _cachedAttendanceRegisterRows : [];
+  const dateKey = String(_cachedAttendanceRegisterDateKey || _attendanceAnalyticsSelectedDate || new Date().toISOString().slice(0, 10)).trim();
+  if (!rows.length) {
+    _showLecturerToast('Load an attendance register first, then export CSV.', 'warn', 2600);
+    return;
+  }
+
+  const header = [
+    'date',
+    'student_name',
+    'student_number',
+    'email',
+    'present',
+    'checked_in',
+    'latest_checkin_at',
+    'latest_session_type',
+    'qr_scans',
+    'total_minutes',
+    'class_minutes',
+    'tutorial_minutes',
+    'source',
+  ];
+  const csvRows = rows.map((row) => [
+    _csvCell(dateKey),
+    _csvCell(row.name || ''),
+    _csvCell(row.studentNumber || ''),
+    _csvCell(row.email || ''),
+    _csvCell(row.present ? 'yes' : 'no'),
+    _csvCell(row.hasQrCheckin ? 'yes' : 'no'),
+    _csvCell(row.latestAt || ''),
+    _csvCell(row.latestType || ''),
+    _csvCell(row.qrCount || 0),
+    _csvCell(row.totalMinutes || 0),
+    _csvCell(row.classMinutes || 0),
+    _csvCell(row.tutorialMinutes || 0),
+    _csvCell(_cachedAttendanceRegisterSourceLabel || ''),
+  ].join(','));
+
+  const csvText = [header.join(','), ...csvRows].join('\n');
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `attendance-register-${dateKey || new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ── Excel attendance export (single date) ──
+window._downloadAttendanceExcel = () => {
+  const rows = Array.isArray(_cachedAttendanceRegisterRows) ? _cachedAttendanceRegisterRows : [];
+  const dateKey = String(_cachedAttendanceRegisterDateKey || _attendanceAnalyticsSelectedDate || new Date().toISOString().slice(0, 10)).trim();
+  if (!rows.length) {
+    _showLecturerToast('Load an attendance register first, then export.', 'warn', 2600);
+    return;
+  }
+
+  const headers = ['Student Name', 'Student Number', 'Email', 'Present', 'QR Checked In', 'Latest Check-in', 'Session Type', 'QR Scans', 'Total Minutes', 'Class Minutes', 'Tutorial Minutes'];
+  const dataRows = rows.map((r) => [
+    r.name || '',
+    r.studentNumber || '',
+    r.email || '',
+    r.present ? 'Yes' : 'No',
+    r.hasQrCheckin ? 'Yes' : 'No',
+    r.latestAt || '',
+    r.latestType || '',
+    r.qrCount || 0,
+    r.totalMinutes || 0,
+    r.classMinutes || 0,
+    r.tutorialMinutes || 0,
+  ]);
+
+  downloadXlsx(
+    [{ name: `Attendance ${dateKey}`, headers, rows: dataRows }],
+    `attendance-${dateKey}.xlsx`
+  );
+};
+
+// ── Excel full attendance report (all dates, all students) ──
+window._downloadAttendanceFullExcel = () => {
+  const students = Array.isArray(_cachedStudents) ? _cachedStudents : [];
+  if (!students.length) {
+    _showLecturerToast('No student data loaded. Open the dashboard first.', 'warn', 2600);
+    return;
+  }
+
+  // Collect all unique attendance dates across all students
+  const allDates = new Set();
+  for (const s of students) {
+    const byDate = s.attendanceData?.byDate || {};
+    for (const dk of Object.keys(byDate)) allDates.add(dk);
+  }
+  const sortedDates = [...allDates].sort();
+
+  if (!sortedDates.length) {
+    _showLecturerToast('No attendance dates found.', 'warn', 2600);
+    return;
+  }
+
+  // Sheet 1: Summary — one row per student, columns for each date (Present/Absent)
+  const summaryHeaders = ['Student Name', 'Student Number', 'Email', 'Tutorial Group', ...sortedDates, 'Days Present', 'Days Absent', 'Attendance %'];
+  const summaryRows = students.map((s) => {
+    const byDate = s.attendanceData?.byDate || {};
+    let present = 0;
+    const dateCells = sortedDates.map((dk) => {
+      const rec = byDate[dk];
+      const qrCheckins = rec?.qrCheckins || [];
+      const checked = Array.isArray(qrCheckins) && qrCheckins.length > 0;
+      if (checked) present++;
+      return checked ? 'P' : 'A';
+    });
+    const absent = sortedDates.length - present;
+    const pct = sortedDates.length > 0 ? Math.round((present / sortedDates.length) * 100) : 0;
+    return [
+      s.name || '',
+      s.studentNumber || '',
+      s.email || '',
+      s.tutorialGroup || '',
+      ...dateCells,
+      present,
+      absent,
+      pct,
+    ];
+  });
+
+  // Sheet 2: Detail — one row per student per date
+  const detailHeaders = ['Date', 'Student Name', 'Student Number', 'Email', 'Tutorial Group', 'QR Checked In', 'Latest Check-in', 'Session Type', 'QR Scans', 'Total Minutes', 'Class Minutes', 'Tutorial Minutes'];
+  const detailRows = [];
+  for (const dk of sortedDates) {
+    for (const s of students) {
+      const rec = s.attendanceData?.byDate?.[dk] || null;
+      const qrCheckins = rec?.qrCheckins || [];
+      const hasQr = Array.isArray(qrCheckins) && qrCheckins.length > 0;
+      const latestQr = hasQr ? qrCheckins[qrCheckins.length - 1] : null;
+      detailRows.push([
+        dk,
+        s.name || '',
+        s.studentNumber || '',
+        s.email || '',
+        s.tutorialGroup || '',
+        hasQr ? 'Yes' : 'No',
+        latestQr?.at || '',
+        latestQr?.sessionType || '',
+        qrCheckins.length,
+        Math.max(0, Math.round((rec?.totalSeconds || 0) / 60)),
+        Math.max(0, Math.round((rec?.classSeconds || 0) / 60)),
+        Math.max(0, Math.round((rec?.tutorialSeconds || 0) / 60)),
+      ]);
+    }
+  }
+
+  // Sheet 3: Stats — per-date summary
+  const statsHeaders = ['Date', 'Total Students', 'Present', 'Absent', 'Attendance %'];
+  const statsRows = sortedDates.map((dk) => {
+    let present = 0;
+    for (const s of students) {
+      const rec = s.attendanceData?.byDate?.[dk];
+      const qr = rec?.qrCheckins || [];
+      if (Array.isArray(qr) && qr.length > 0) present++;
+    }
+    const absent = students.length - present;
+    const pct = students.length > 0 ? Math.round((present / students.length) * 100) : 0;
+    return [dk, students.length, present, absent, pct];
+  });
+
+  downloadXlsx(
+    [
+      { name: 'Summary', headers: summaryHeaders, rows: summaryRows },
+      { name: 'Detail', headers: detailHeaders, rows: detailRows },
+      { name: 'Daily Stats', headers: statsHeaders, rows: statsRows },
+    ],
+    `attendance-full-report-${new Date().toISOString().slice(0, 10)}.xlsx`
+  );
+};
+
 window._downloadOverrideActionsCsv = (scope = 'recent') => {
   const useAll = String(scope || '').toLowerCase() === 'all';
   const rows = useAll
@@ -7891,11 +9051,62 @@ window._submitUnlockOverride = async (studentUid, unitId, mode = 'unlock') => {
 };
 
 // ── Shared helpers ────────────────────────────
-function _metricCard(icon, label, value, color) {
+function _lecturerSafeMs(value) {
+  const ms = new Date(value || 0).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function _lecturerWhenLabel(value) {
+  const ms = _lecturerSafeMs(value);
+  if (!ms) return 'Unknown';
+  const diffMs = Date.now() - ms;
+  const mins = Math.max(0, Math.round(diffMs / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ms).toLocaleString();
+}
+
+function _lecturerReadingTaskStatusMeta(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'reviewed') {
+    return { label: 'Reviewed', bg: '#ecfdf5', fg: '#166534', border: '#a7f3d0' };
+  }
+  if (normalized === 'in_progress') {
+    return { label: 'In progress', bg: '#fffbeb', fg: '#92400e', border: '#fde68a' };
+  }
+  if (normalized === 'empty') {
+    return { label: 'Empty', bg: '#f8fafc', fg: '#475569', border: '#cbd5e1' };
+  }
+  return { label: normalized ? normalized.replace(/_/g, ' ') : 'Captured', bg: '#eff6ff', fg: '#1d4ed8', border: '#bfdbfe' };
+}
+
+function _metricCard(icon, label, value, color, options = {}) {
+  const metricClass = String(options?.metricClass || '').trim().toLowerCase();
+  const sourceLabel = String(options?.sourceLabel || '').trim();
+  const badgePalette = {
+    official: { bg: '#dcfce7', fg: '#166534', border: '#86efac' },
+    partial: { bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' },
+    fallback: { bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
+    operational: { bg: '#dbeafe', fg: '#1d4ed8', border: '#93c5fd' },
+  };
+  const badgeTone = badgePalette[metricClass] || badgePalette.operational;
+  const badgeHtml = metricClass
+    ? `<span style="display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;background:${badgeTone.bg};color:${badgeTone.fg};border:1px solid ${badgeTone.border};">${metricClass}</span>`
+    : '';
+  const sourceHtml = sourceLabel
+    ? `<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.45;">${sourceLabel}</div>`
+    : '';
   return `<div style="background:white;padding:22px;border-radius:14px;box-shadow:0 4px 15px rgba(0,0,0,0.04);border:1px solid var(--border);position:relative;overflow:hidden;">
     <div style="position:absolute;top:-8px;right:-8px;font-size:60px;opacity:0.05;">${icon}</div>
-    <div style="font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:1px;margin-bottom:8px;font-weight:700;">${label}</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+      <div style="font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:1px;font-weight:700;">${label}</div>
+      ${badgeHtml}
+    </div>
     <div style="font-size:34px;font-weight:800;color:${color};line-height:1;">${value}</div>
+    ${sourceHtml}
   </div>`;
 }
 

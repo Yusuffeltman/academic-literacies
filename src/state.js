@@ -41,6 +41,7 @@ export const STATE = {
   aiUsage: { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
   adaptive: defaultAdaptive(),
   escalations: [],
+  chat: { offlineQueue: [], activeRoomId: null, unreadTotal: 0, cachedRooms: {} },
 };
 
 function _captureStatePayload() {
@@ -55,6 +56,7 @@ function _captureStatePayload() {
     aiUsage: STATE.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
     adaptive: STATE.adaptive,
     escalations: STATE.escalations,
+    chat: { offlineQueue: STATE.chat?.offlineQueue || [] },
   };
 }
 
@@ -100,6 +102,12 @@ function _applyState(data) {
   STATE.aiUsage = data.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 };
   STATE.adaptive = _mergeAdaptive(data.adaptive);
   STATE.escalations = data.escalations || [];
+  STATE.chat = {
+    offlineQueue: data.chat?.offlineQueue || [],
+    activeRoomId: null,
+    unreadTotal: 0,
+    cachedRooms: {},
+  };
 }
 
 function _shouldUseFirebase(userOverride = null) {
@@ -169,6 +177,7 @@ function _mergeStatePayload(remoteData, localData) {
     aiUsage: local.aiUsage || remote.aiUsage || { promptTokens: 0, candidateTokens: 0, totalTokens: 0, requests: 0 },
     adaptive: _mergeAdaptive(local.adaptive || remote.adaptive),
     escalations: local.escalations || remote.escalations || [],
+    chat: { offlineQueue: local.chat?.offlineQueue || remote.chat?.offlineQueue || [] },
   };
 }
 
@@ -180,7 +189,6 @@ export async function saveState() {
 
   try {
     await set(ref(db, `users/${STATE.user.uid}/state`), payload);
-    console.log('✅ State saved successfully to Firebase');
     return true;
   } catch (err) {
     console.error('❌ Failed to save state to Firebase, kept local copy:', err);

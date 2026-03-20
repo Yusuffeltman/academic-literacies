@@ -4,21 +4,23 @@
     ".write": false,
 
     "analytics": {
-      "events": {
+      "raw-events": {
         "$date": {
+          ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
           "$uid": {
-            ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('tutorial-groups/assignmentsByTutor/' + auth.uid + '/studentUids/' + $uid).exists())",
             "$eventId": {
-              ".write": "auth != null && auth.uid === $uid"
+              ".write": "auth != null"
             }
           }
         }
       },
-      "traffic": {
+      "events": {
         "$date": {
-          "$hour": {
-            ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
-            ".write": "auth != null"
+          ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+          "$uid": {
+            "$eventId": {
+              ".write": "auth != null && auth.uid === $uid"
+            }
           }
         }
       },
@@ -28,10 +30,98 @@
           ".write": "auth != null"
         }
       },
+      "traffic": {
+        "$date": {
+          ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+          "$hour": {
+            ".write": "auth != null"
+          }
+        }
+      },
+      "derived": {
+        "$type": {
+          "$date": {
+            ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+            ".write": "auth != null"
+          }
+        }
+      },
+      "quarantine-events": {
+        "$date": {
+          ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+          "$id": {
+            ".write": "auth != null"
+          }
+        }
+      },
       "student-support-modes": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
         "$studentUid": {
-          ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
           ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')"
+        }
+      },
+      "processed-auth-users": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+        "$key": {
+          ".write": "auth != null"
+        }
+      },
+      "deleted-student-accounts": {
+        ".read": "auth != null",
+        "$key": {
+          ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+        }
+      },
+      "profile-recovery-attempts": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+        "$dayKey": {
+          "$logKey": {
+            ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+          }
+        }
+      },
+      "promotion-requests": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+        "$dayKey": {
+          "$uid": {
+            "$requestId": {
+              ".write": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+            }
+          }
+        }
+      },
+      "roster-reset-signins": {
+        "$date": {
+          ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      },
+      "unlock-overrides": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+        "$dayKey": {
+          "$uid": {
+            "$logKey": {
+              ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+            }
+          }
+        }
+      },
+      "reading-task-submissions": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+        ".write": "auth != null"
+      },
+      "heutagogy-moderation": {
+        "$uid": {
+          ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+          "$unitId": {
+            "$cycleId": {
+              "$logKey": {
+                ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+              }
+            }
+          }
         }
       }
     },
@@ -65,8 +155,9 @@
 
     "presence": {
       "live": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
         "$uid": {
-          ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
+          ".read": "auth != null && auth.uid === $uid",
           ".write": "auth != null && auth.uid === $uid"
         }
       }
@@ -74,8 +165,9 @@
 
     "tutorial-groups": {
       "assignmentsByTutor": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
         "$tutorUid": {
-          ".read": "auth != null && (auth.uid === $tutorUid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+          ".read": "auth != null && auth.uid === $tutorUid",
           ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
         }
       }
@@ -83,7 +175,7 @@
 
     "rosters": {
       "classList": {
-        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
+        ".read": "auth != null",
         ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
       }
     },
@@ -98,22 +190,78 @@
     "resources": {
       ".read": "auth != null",
       "$id": {
-        ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
-      },
-      "$other": {
         ".write": "auth != null"
       }
     },
 
     "users": {
+      ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('tutorial-groups/assignmentsByTutor/' + auth.uid + '/studentUids/' + $uid).exists())",
+        ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
         "profile": {
           ".write": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
         },
         "state": {
-          ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('tutorial-groups/assignmentsByTutor/' + auth.uid + '/studentUids/' + $uid).exists())",
-          ".write": "auth != null && auth.uid === $uid"
+          ".write": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+        }
+      }
+    },
+
+    "otp": {
+      ".read": false,
+      ".write": false
+    },
+
+    "chat": {
+      "rooms": {
+        "$roomId": {
+          ".read": "auth != null && root.child('chat/members/' + $roomId + '/' + auth.uid).exists()",
+          ".write": "auth != null && (root.child('chat/members/' + $roomId + '/' + auth.uid).exists() || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')"
+        }
+      },
+      "members": {
+        "$roomId": {
+          ".read": "auth != null && root.child('chat/members/' + $roomId + '/' + auth.uid).exists()",
+          "$uid": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')"
+          }
+        }
+      },
+      "user-rooms": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$roomId": {
+            ".write": "auth != null && (auth.uid === $uid || root.child('chat/members/' + $roomId + '/' + auth.uid).exists())"
+          }
+        }
+      },
+      "messages": {
+        "$roomId": {
+          ".read": "auth != null && root.child('chat/members/' + $roomId + '/' + auth.uid).exists()",
+          "$messageId": {
+            ".write": "auth != null && root.child('chat/members/' + $roomId + '/' + auth.uid).exists()",
+            ".validate": "newData.hasChildren(['sender', 'text', 'timestamp']) && newData.child('sender').val() === auth.uid"
+          }
+        }
+      },
+      "live-status": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && (root.child('users/' + auth.uid + '/profile/role').val() === 'tutor' || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+        }
+      },
+      "scheduled": {
+        ".read": "auth != null",
+        "$scheduleId": {
+          ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'tutor' || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+        }
+      },
+      "typing": {
+        "$roomId": {
+          ".read": "auth != null && root.child('chat/members/' + $roomId + '/' + auth.uid).exists()",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('chat/members/' + $roomId + '/' + auth.uid).exists()"
+          }
         }
       }
     }

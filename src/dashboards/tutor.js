@@ -10,6 +10,8 @@ import { STATE } from '../state.js';
 import { db } from '../firebase.js';
 import { ref, get, set, remove } from 'firebase/database';
 import { TUTOR_GROUP_ASSIGNMENTS } from '../../content/tutorial-groups/assignments.js';
+import { generateQrDataUrl } from '../qr.js';
+import { renderGoLiveToggle } from '../components/chat-panel.js';
 
 function _esc(v = '') {
   return String(v)
@@ -64,7 +66,7 @@ async function _publishTutorTutorialToken(state) {
   });
 
   const appUrl = `${window.location.origin}${window.location.pathname}?session=tutorial&attend=${token}`;
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(appUrl)}`;
+  const qrSrc = generateQrDataUrl(appUrl, 260);
 
   const img = document.getElementById('tutor-att-qr-img');
   const code = document.getElementById('tutor-att-qr-code');
@@ -113,6 +115,7 @@ export function renderTutorDashboard(container) {
   window._dashLoadSession = _loadSession;
   window._openTutorGroupInsights = _openTutorGroupInsights;
   _renderTutorGroupSummary();
+  renderGoLiveToggle('tutor-go-live-mount');
 }
 
 function _buildSidebar() {
@@ -151,6 +154,7 @@ function _buildSidebar() {
         </div>`).join('')}
 
       <div class="dash-sidebar-footer">
+        <div id="tutor-go-live-mount"></div>
         <div class="dash-quick-tools">
           <div class="dash-qt-label">Quick Tools</div>
           <button class="dash-qt-btn" onclick="_fullPomodoro()">🍅 Group Timer</button>

@@ -22,9 +22,14 @@ import { renderGovernanceFramework } from './components/governance-framework.js'
 import { ER_TIERS } from '../content/readings.js';
 import { _aiChat } from './ai.js';
 import { SESSIONS } from '../content/sessions/sessions.js';
+import { writeLearningEvent } from './analytics.js';
 import { saveStudentProfile, STUDENT_PROFILE_FIELD_LABELS, getIncompleteStudentFields } from './profile.js';
 import { showToast } from './components/toaster.js';
 import { syncActivitiesToState } from './components/activities.js';
+import { getAppSurface, initAppSurfaceRuntime, registerAndroidBackHandler, setAppSurfaceRoute } from './platform.js';
+import { startPresenceHeartbeat, stopPresenceHeartbeat } from './presence.js';
+import { initChatPanel, destroyChatPanel, handleChatBack, closeChatPanel, toggleChatPanel } from './components/chat-panel.js';
+import { stopChatListeners } from './chat.js';
 
 // AI utility exposed globally for legacy inline handlers
 window._aiChat = _aiChat;
@@ -33,8 +38,140 @@ window._aiChat = _aiChat;
 window.STATE = STATE;
 window.saveState = saveState;
 
+function _isAndroidStudentApp() {
+  return Boolean(getAppSurface().isAndroidApp);
+}
+
+function _currentAndroidStudentTab() {
+  return String(window._studentAndroidTab || 'home').trim() || 'home';
+}
+
+function _isAndroidImmersiveMode() {
+  return Boolean(window._androidImmersiveMode);
+}
+
+function _setAndroidImmersiveMode(enabled, rerender = true) {
+  window._androidImmersiveMode = Boolean(enabled);
+  document.body.classList.toggle('android-immersive-mode', window._androidImmersiveMode);
+  if (!rerender) return;
+  if (document.querySelector('.android-course-shell')) {
+    renderShell();
+    return;
+  }
+  renderStudentDashboard();
+}
+
+function _setAndroidStudentTab(tab = 'home', rerender = true) {
+  window._studentAndroidTab = String(tab || 'home').trim() || 'home';
+  window._androidStudentReturnTab = window._studentAndroidTab;
+  setAppSurfaceRoute(`student-${window._studentAndroidTab}`);
+  if (rerender) {
+    renderStudentDashboard();
+  }
+}
+
+function _returnToAndroidStudentShell(tab = '') {
+  if (!_isAndroidStudentApp()) {
+    renderStudentDashboard();
+    return true;
+  }
+  _setAndroidStudentTab(tab || window._androidStudentReturnTab || 'home');
+  return true;
+}
+
+function _closeAndroidUnitRail() {
+  document.getElementById('android-unit-rail')?.classList.remove('open');
+  document.getElementById('android-unit-rail-scrim')?.classList.remove('open');
+}
+
+function _closeAndroidStudentDrawer() {
+  document.getElementById('android-student-drawer')?.classList.remove('open');
+  document.getElementById('android-student-drawer-scrim')?.classList.remove('open');
+}
+
+function _closeAndroidCourseActionsDrawer() {
+  document.getElementById('android-course-actions-drawer')?.classList.remove('open');
+  document.getElementById('android-course-actions-scrim')?.classList.remove('open');
+}
+
+function _registerAndroidBackContract() {
+  registerAndroidBackHandler(() => {
+    if (!_isAndroidStudentApp()) return false;
+
+    // Chat panel takes priority
+    if (handleChatBack()) return true;
+
+    const rail = document.getElementById('android-unit-rail');
+    if (rail?.classList.contains('open')) {
+      _closeAndroidUnitRail();
+      return true;
+    }
+
+    const studentDrawer = document.getElementById('android-student-drawer');
+    if (studentDrawer?.classList.contains('open')) {
+      _closeAndroidStudentDrawer();
+      return true;
+    }
+
+    const courseActionsDrawer = document.getElementById('android-course-actions-drawer');
+    if (courseActionsDrawer?.classList.contains('open')) {
+      _closeAndroidCourseActionsDrawer();
+      return true;
+    }
+
+    if (document.getElementById('attendance-qr-modal')?.style.display === 'flex') {
+      window.closeAttendanceQrScanner?.();
+      return true;
+    }
+
+    if (document.querySelector('.android-course-shell')) {
+      return _returnToAndroidStudentShell(window._androidStudentReturnTab || 'modules');
+    }
+
+    const currentTab = _currentAndroidStudentTab();
+    if (currentTab !== 'home') {
+      _setAndroidStudentTab('home');
+      return true;
+    }
+
+    if (_isAndroidImmersiveMode()) {
+      _setAndroidImmersiveMode(false);
+      return true;
+    }
+
+    return false;
+  });
+}
+
+function _analyticsProfile() {
+  return STATE.user?._studentProfileContext?.profile || {
+    uid: STATE.user?.uid || '',
+    role: 'student',
+    authEmail: STATE.user?.email || '',
+    username: STATE.user?.email || '',
+    displayName: STATE.user?.displayName || '',
+  };
+}
+
+window.trackLearningEvent = async function (eventType, meta = {}) {
+  try {
+    if (!STATE.user) return;
+    await writeLearningEvent(eventType, {
+      user: STATE.user || {},
+      profile: _analyticsProfile(),
+      unitId: meta?.unitId || (typeof STATE.activeUnit === 'number' && UNITS[STATE.activeUnit]?.id) || '',
+      source: meta?.source || 'student-navigation',
+      meta,
+    });
+  } catch (err) {
+    console.error('Learning event analytics write failed:', err);
+  }
+};
+
 export function initApp(user) {
   STATE.user = user;
+  initAppSurfaceRuntime();
+  _registerAndroidBackContract();
   const role = user.displayName?.match(/\[(.*?)\]/)?.[1] ?? 'student';
   const requestedStudentView = _consumeRequestedStudentView();
 
@@ -54,10 +191,11 @@ export function initApp(user) {
     }, 2 * 60 * 1000);
   }
 
-  if (role === 'lecturer') {
+  if (role === 'lecturer' || role === 'moderator') {
     renderDashboardShell(user, role);
     const container = document.getElementById('dash-mount');
     renderLecturerDashboard(container);
+    initChatPanel();
     return;
   }
 
@@ -65,11 +203,17 @@ export function initApp(user) {
     renderDashboardShell(user, role);
     const container = document.getElementById('dash-mount');
     renderTutorDashboard(container);
+    initChatPanel();
     return;
   }
 
   // Default: student view
   _wireStudentView();
+  startPresenceHeartbeat();
+  initChatPanel();
+  if (_isAndroidStudentApp() && !window._studentAndroidTab) {
+    _setAndroidStudentTab('home', false);
+  }
   if (user?._studentProfileContext?.needsCompletion) {
     renderStudentProfileRegistration(user._studentProfileContext);
     return;
@@ -82,22 +226,49 @@ export function initApp(user) {
 }
 
 function _wireStudentView() {
-  window.appSignOut = signOut;
+  window.appSignOut = () => { stopPresenceHeartbeat(); destroyChatPanel(); signOut(); };
+  window.openChatPanel = toggleChatPanel;
   window.renderStudentDashboard = renderStudentDashboard;
   window.goToMicroModule = renderMicroModule;
-  window.goToCourse = () => {
+  window.setAndroidStudentTab = (tab) => _setAndroidStudentTab(tab);
+  window.setAndroidImmersiveMode = (enabled) => _setAndroidImmersiveMode(enabled);
+  window.toggleAndroidImmersiveMode = () => _setAndroidImmersiveMode(!_isAndroidImmersiveMode());
+  window.returnToStudentDashboardTab = (tab) => _returnToAndroidStudentShell(tab);
+  window.closeAndroidStudentDrawer = _closeAndroidStudentDrawer;
+  window.closeAndroidCourseActionsDrawer = _closeAndroidCourseActionsDrawer;
+  window.toggleAndroidStudentDrawer = () => {
+    _closeAndroidCourseActionsDrawer();
+    document.getElementById('android-student-drawer')?.classList.toggle('open');
+    document.getElementById('android-student-drawer-scrim')?.classList.toggle('open');
+  };
+  window.toggleAndroidCourseActionsDrawer = () => {
+    _closeAndroidUnitRail();
+    document.getElementById('android-course-actions-drawer')?.classList.toggle('open');
+    document.getElementById('android-course-actions-scrim')?.classList.toggle('open');
+  };
+  window.openAndroidCourseUnit = (index) => {
+    window._androidStudentReturnTab = 'modules';
     renderShell();
     initAITutor();
     initAITools();
-    navigateTo(0);
+    navigateTo(index);
+  };
+  window.goToCourse = () => {
+    window._androidStudentReturnTab = 'modules';
+    renderShell();
+    initAITutor();
+    initAITools();
+    navigateTo(typeof STATE.activeUnit === 'number' ? STATE.activeUnit : 0);
   };
   window.goToContactNotebook = () => {
+    window._androidStudentReturnTab = 'notebook';
     renderShell();
     initAITutor();
     initAITools();
     navigateTo('contact-notebook');
   };
   window.goToTutorialSection = () => {
+    window._androidStudentReturnTab = 'notebook';
     renderShell();
     initAITutor();
     initAITools();
@@ -107,39 +278,47 @@ function _wireStudentView() {
     const session = tutorials.find((s) => s.unit === activeUnitId) || tutorials[0];
     const area = document.getElementById('content-area');
     if (session && area) {
+      setAppSurfaceRoute(`student-tutorial-${session.id || 'session'}`);
       renderTutorialNotebook({ sessionId: session.id, unitId: session.unit });
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
       document.getElementById('nav-tutorial')?.classList.add('active');
       document.getElementById('tb-badge').textContent = 'Tutorial';
       document.getElementById('tb-title').textContent = session.title || 'Tutorial Notebook';
-      document.getElementById('btn-prev').style.display = 'none';
-      document.getElementById('btn-next').style.display = 'none';
+      document.getElementById('btn-prev')?.style && (document.getElementById('btn-prev').style.display = 'none');
+      document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     }
   };
   window.goToGallery = () => {
+    window._androidStudentReturnTab = 'notebook';
     renderShell();
     initAITutor();
     initAITools();
+    setAppSurfaceRoute('student-gallery');
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.getElementById('tb-badge').textContent = 'Gallery';
     document.getElementById('tb-title').textContent = 'Gallery Walk';
-    document.getElementById('btn-prev').style.display = 'none';
-    document.getElementById('btn-next').style.display = 'none';
+    document.getElementById('btn-prev')?.style && (document.getElementById('btn-prev').style.display = 'none');
+    document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     renderGalleryWalk();
+    window.trackLearningEvent?.('gallery_open', {
+      source: 'student-gallery-open',
+    });
   };
   window.goToGalleryPost = (postId) => {
     window._galleryFocusPostId = postId;
     window.goToGallery();
   };
   window.goToGovernanceFramework = () => {
+    window._androidStudentReturnTab = 'profile';
     renderShell();
     initAITutor();
     initAITools();
+    setAppSurfaceRoute('student-governance');
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.getElementById('tb-badge').textContent = 'Governance';
     document.getElementById('tb-title').textContent = 'Differentiated Rewards Framework';
-    document.getElementById('btn-prev').style.display = 'none';
-    document.getElementById('btn-next').style.display = 'none';
+    document.getElementById('btn-prev')?.style && (document.getElementById('btn-prev').style.display = 'none');
+    document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     renderGovernanceFramework();
   };
 
@@ -198,6 +377,7 @@ function renderStudentProfileRegistration(context = {}) {
   if (!app) return;
 
   document.body.style.cssText = 'display:block;background:linear-gradient(135deg,#f5efe6 0%,#edf6ff 42%,#f4f9f3 100%);min-height:100vh;overflow:auto;padding:0;';
+  const isAndroidApp = _isAndroidStudentApp();
   const profile = context.profile || {};
   const onRecord = context.onRecord || {};
   const missingFields = new Set(context.missingFields || []);
@@ -208,16 +388,16 @@ function renderStudentProfileRegistration(context = {}) {
 
   app.style.display = 'block';
   app.innerHTML = `
-    <div style="min-height:100vh;padding:34px 18px;background:
+    <div style="min-height:100vh;padding:${isAndroidApp ? '18px 14px 96px' : '34px 18px'};background:
       radial-gradient(circle at top right, rgba(255,183,3,.14), transparent 24%),
       radial-gradient(circle at bottom left, rgba(33,158,188,.12), transparent 26%);">
       <div style="max-width:1180px;margin:0 auto;">
-        <div style="display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:stretch;">
-          <div style="background:linear-gradient(145deg,#10213a 0%,#15385b 48%,#1f5f7a 100%);color:white;border-radius:30px;padding:34px 34px 30px 34px;box-shadow:0 24px 48px rgba(15,23,42,.2);position:relative;overflow:hidden;">
+        <div style="display:grid;grid-template-columns:${isAndroidApp ? '1fr' : '1.1fr .9fr'};gap:18px;align-items:stretch;">
+          <div style="background:linear-gradient(145deg,#10213a 0%,#15385b 48%,#1f5f7a 100%);color:white;border-radius:30px;padding:${isAndroidApp ? '24px 22px 22px 22px' : '34px 34px 30px 34px'};box-shadow:0 24px 48px rgba(15,23,42,.2);position:relative;overflow:hidden;">
             <div style="position:absolute;inset:auto -40px -40px auto;width:220px;height:220px;border-radius:999px;background:radial-gradient(circle,rgba(255,183,3,.2),rgba(255,183,3,0));"></div>
             <div style="position:relative;z-index:1;">
               <div style="font-family:'DM Mono',monospace;font-size:12px;letter-spacing:2px;color:#ffb703;margin-bottom:14px;">PROFILE CHECK-IN</div>
-              <h1 style="font-family:'Playfair Display',serif;font-size:42px;line-height:1.05;margin:0 0 14px 0;">One last step before you continue.</h1>
+              <h1 style="font-family:'Playfair Display',serif;font-size:${isAndroidApp ? '32px' : '42px'};line-height:1.05;margin:0 0 14px 0;">One last step before you continue.</h1>
               <p style="margin:0;color:rgba(255,255,255,.8);font-size:16px;line-height:1.8;max-width:520px;">We matched your account to the official class roster. Review what we have, confirm the essentials, and then carry on with your course. Your existing work stays attached to this account.</p>
               <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:26px;">
                 <div style="padding:16px 18px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);">
@@ -232,7 +412,7 @@ function renderStudentProfileRegistration(context = {}) {
             </div>
           </div>
           <div style="display:grid;gap:18px;">
-            <section style="background:rgba(255,255,255,.88);backdrop-filter:blur(10px);border:1px solid rgba(15,23,42,.08);border-radius:28px;padding:28px;box-shadow:0 16px 36px rgba(15,23,42,.08);">
+            <section style="background:rgba(255,255,255,.88);backdrop-filter:blur(10px);border:1px solid rgba(15,23,42,.08);border-radius:28px;padding:${isAndroidApp ? '22px' : '28px'};box-shadow:0 16px 36px rgba(15,23,42,.08);">
               <h2 style="font-size:15px;color:#10213a;margin:0 0 16px 0;letter-spacing:.06em;text-transform:uppercase;font-family:'DM Mono',monospace;">What We Have On Record</h2>
               <div style="display:grid;gap:10px;">
                 ${[
@@ -251,7 +431,7 @@ function renderStudentProfileRegistration(context = {}) {
                 `).join('')}
               </div>
             </section>
-            <section style="background:rgba(255,255,255,.94);border:1px solid rgba(15,23,42,.08);border-radius:28px;padding:28px;box-shadow:0 18px 38px rgba(15,23,42,.08);">
+            <section style="background:rgba(255,255,255,.94);border:1px solid rgba(15,23,42,.08);border-radius:28px;padding:${isAndroidApp ? '22px' : '28px'};box-shadow:0 18px 38px rgba(15,23,42,.08);">
               <h2 style="font-size:28px;color:#10213a;margin:0 0 8px 0;font-family:'Playfair Display',serif;">Confirm your profile</h2>
               <p style="font-size:14px;color:#5b6b84;line-height:1.7;margin:0 0 18px 0;">Incomplete fields are highlighted in red. Once saved, you go straight into the course.</p>
               <div style="margin:0 0 18px 0;padding:14px 16px;border:1px solid #fde68a;border-radius:16px;background:linear-gradient(180deg,#fffaf0,#fffbeb);color:#92400e;font-size:12px;line-height:1.7;box-shadow:0 8px 18px rgba(251,191,36,.08);">
@@ -260,7 +440,7 @@ function renderStudentProfileRegistration(context = {}) {
               <div style="display:grid;gap:14px;">
                 ${_profileInput('student-profile-initials', STUDENT_PROFILE_FIELD_LABELS.initials, profile.initials || '', 'e.g. TM', fieldStyle('initials'))}
                 ${_profileInput('student-profile-surname', STUDENT_PROFILE_FIELD_LABELS.surname, profile.surname || profile.lastName || '', 'Your surname', fieldStyle('surname'))}
-                ${_profileInput('student-profile-username', STUDENT_PROFILE_FIELD_LABELS.username, profile.username || profile.authEmail || STATE.user?.email || '', 'studentnumber@student.uj.za', fieldStyle('username'), 'email')}
+                ${_profileInput('student-profile-username', STUDENT_PROFILE_FIELD_LABELS.username, profile.username || profile.authEmail || STATE.user?.email || '', '22000000@student.uj.ac.za', fieldStyle('username'), 'email')}
                 ${_profileInput('student-profile-email', STUDENT_PROFILE_FIELD_LABELS.email, profile.personalEmail || profile.email || '', 'you@example.com', fieldStyle('email'), 'email')}
                 ${_profileInput('student-profile-student-id', STUDENT_PROFILE_FIELD_LABELS.studentId, profile.studentId || profile.studentNumber || '', 'Student number', fieldStyle('studentId'))}
               </div>
@@ -368,7 +548,11 @@ window.switchToLecturerView = switchToLecturerView;
 function renderDashboardShell(user, role) {
   const name = user.displayName?.split(' [')[0] ?? user.email;
   const actualRole = user.displayName?.match(/\[(.*?)\]/)?.[1]?.toLowerCase() ?? 'student';
-  const label = role === 'lecturer' ? '🏫 Lecturer Dashboard' : '👥 Tutor Dashboard';
+  const label = role === 'moderator'
+    ? '🛡 Moderator Dashboard'
+    : role === 'lecturer'
+      ? '🏫 Lecturer Dashboard'
+      : '👥 Tutor Dashboard';
   const isLecturerViewingAsTutor = role === 'tutor' && actualRole === 'lecturer';
 
   document.getElementById('app').innerHTML = `
@@ -393,17 +577,182 @@ function renderDashboardShell(user, role) {
     </div>`;
 
   window.appSignOut = signOut;
+  setAppSurfaceRoute(`${role}-dashboard`);
 }
 
 // ── Shell ─────────────────────────────────────
-function renderShell() {
-  // Restore body overflow lock for the course shell layout
-  document.body.style.overflowY = 'hidden';
-  document.body.style.height = '100vh';
+function _renderAndroidCourseShell(user, name, role) {
+  const activeIndex = typeof STATE.activeUnit === 'number' ? STATE.activeUnit : 0;
+  const immersive = _isAndroidImmersiveMode();
 
+  document.body.style.overflowY = 'hidden';
+  document.body.style.height = '100dvh';
+  document.getElementById('app').innerHTML = `
+    <div class="android-course-shell shell ${immersive ? 'android-course-shell--immersive' : ''}">
+      <div class="android-course-rail-scrim" id="android-unit-rail-scrim" onclick="window.closeAndroidUnitRail()"></div>
+      <aside class="android-course-rail" id="android-unit-rail">
+        <div class="android-course-rail-header">
+          <div>
+            <div class="android-course-rail-kicker">Learning Path</div>
+            <div class="android-course-rail-title">Course Modules</div>
+          </div>
+          <button class="android-icon-btn" onclick="window.closeAndroidUnitRail()" aria-label="Close module list">✕</button>
+        </div>
+        <div class="android-course-rail-list nav-list">
+          ${UNITS.map((u, i) => {
+    const isAssessment = u.isAssessment === true;
+    const visited = STATE.progress[u.id]?.visited;
+    const complete = STATE.progress[u.id]?.readingComplete;
+    let isLocked = false;
+    let lockedReason = '';
+    if (i > 0) {
+      const prevUnit = UNITS[i - 1];
+      const prevComplete = STATE.progress[prevUnit.id]?.readingComplete || STATE.progress[prevUnit.id]?.assessmentSubmitted;
+      const isHighAchiever = (STATE.erProgress?.extraMarks || 0) >= 15;
+      if (!prevComplete && !isHighAchiever) {
+        isLocked = true;
+        lockedReason = `Complete ${prevUnit.badge} first.`;
+      }
+    }
+
+    return `
+            <div class="nav-item ${i === activeIndex ? 'active' : ''} ${isLocked ? 'locked' : ''}" id="nav-${i}" ${isLocked ? `onclick="alert('🔒 Locked: ${lockedReason}')"` : `onclick="navigateTo(${i});window.closeAndroidUnitRail();"`}>
+              <div class="nav-num ${visited ? 'visited' : ''}">${isLocked ? '🔒' : (isAssessment ? '📋' : (i + 1))}</div>
+              <div class="nav-info">
+                <div class="nav-badge">${u.badge}</div>
+                <div class="nav-lbl">${u.title}</div>
+              </div>
+              ${(complete || STATE.progress[u.id]?.assessmentSubmitted) ? '<div class="nav-tick">✓</div>' : ''}
+            </div>`;
+  }).join('')}
+          <div class="nav-divider"></div>
+          <div class="nav-item" id="nav-er" onclick="navigateTo('er');window.closeAndroidUnitRail();">
+            <div class="nav-num">📖</div>
+            <div class="nav-info">
+              <div class="nav-badge">Bonus</div>
+              <div class="nav-lbl">Extensive Reading</div>
+            </div>
+          </div>
+          <div class="nav-item" id="nav-resources" onclick="navigateTo('resources');window.closeAndroidUnitRail();">
+            <div class="nav-num">📚</div>
+            <div class="nav-info">
+              <div class="nav-badge">Library</div>
+              <div class="nav-lbl">Resource Library</div>
+            </div>
+          </div>
+          <div class="nav-item" id="nav-contact-notebook" onclick="navigateTo('contact-notebook');window.closeAndroidUnitRail();">
+            <div class="nav-num">🗒️</div>
+            <div class="nav-info">
+              <div class="nav-badge">Notebook</div>
+              <div class="nav-lbl">Contact Sessions</div>
+            </div>
+          </div>
+          <div class="nav-item" id="nav-tutorial" onclick="window.goToTutorialSection();window.closeAndroidUnitRail();">
+            <div class="nav-num">📝</div>
+            <div class="nav-info">
+              <div class="nav-badge">Tutorial</div>
+              <div class="nav-lbl">Tutorial Notebook</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <div class="android-quick-drawer-scrim" id="android-course-actions-scrim" onclick="window.closeAndroidCourseActionsDrawer()"></div>
+      <aside class="android-quick-drawer android-quick-drawer--right" id="android-course-actions-drawer">
+        <div class="android-quick-drawer-header">
+          <div>
+            <div class="android-course-rail-kicker">Workspace</div>
+            <div class="android-course-rail-title">Study controls</div>
+          </div>
+          <button class="android-icon-btn" onclick="window.closeAndroidCourseActionsDrawer()" aria-label="Close study controls">✕</button>
+        </div>
+        <div class="android-quick-drawer-body">
+          <button class="android-quick-drawer-item" onclick="window.returnToStudentDashboardTab('home');window.closeAndroidCourseActionsDrawer();">🏠 Home</button>
+          <button class="android-quick-drawer-item" onclick="window.returnToStudentDashboardTab('modules');window.closeAndroidCourseActionsDrawer();">📚 Modules</button>
+          <button class="android-quick-drawer-item" onclick="window.returnToStudentDashboardTab('attendance');window.closeAndroidCourseActionsDrawer();">📲 Attendance</button>
+          <button class="android-quick-drawer-item" onclick="window.returnToStudentDashboardTab('notebook');window.closeAndroidCourseActionsDrawer();">🗒️ Notebook</button>
+          <button class="android-quick-drawer-item" onclick="window.returnToStudentDashboardTab('profile');window.closeAndroidCourseActionsDrawer();">👤 Profile</button>
+          <button class="android-quick-drawer-item" onclick="window.toggleAndroidImmersiveMode();window.closeAndroidCourseActionsDrawer();">${immersive ? '🗗 Exit focus mode' : '⛶ Focus mode'}</button>
+          <button class="android-quick-drawer-item" onclick="appSignOut()">⎋ Sign out</button>
+        </div>
+      </aside>
+
+      <main class="main android-course-main">
+        ${immersive ? `
+          <div class="android-focus-strip android-focus-strip--course">
+            <button class="android-focus-chip" onclick="window.toggleAndroidUnitRail()">☰ Modules</button>
+            <button class="android-focus-chip" onclick="window.toggleAndroidCourseActionsDrawer()">⋯ Menu</button>
+          </div>
+        ` : ''}
+        <div class="android-course-topbar topbar">
+          <button class="android-icon-btn" onclick="window.returnToStudentDashboardTab(window._androidStudentReturnTab || 'modules')" aria-label="Back to student home">←</button>
+          <div class="android-course-title-wrap">
+            <span class="unit-badge" id="tb-badge">Unit 1</span>
+            <span class="unit-title-bar" id="tb-title">Loading…</span>
+          </div>
+          <div class="android-course-topbar-actions">
+            <button class="android-chip-btn" onclick="window.toggleAndroidUnitRail()">All Modules</button>
+            <button class="android-chip-btn android-chip-btn--quiet" onclick="window.toggleAndroidImmersiveMode()">${immersive ? 'Exit focus' : 'Focus mode'}</button>
+            <button class="android-chip-btn android-chip-btn--quiet" onclick="appSignOut()">Sign Out</button>
+          </div>
+        </div>
+        <div class="android-course-meta">
+          <div class="android-course-meta-card">
+            <span class="android-course-meta-label">Student</span>
+            <strong>${name}</strong>
+            <span>${role}</span>
+          </div>
+          <div class="android-course-meta-card">
+            <span class="android-course-meta-label">Progress</span>
+            <strong>${Math.round((Object.values(STATE.progress).filter((p) => p?.visited).length / UNITS.length) * 100)}%</strong>
+            <span>${Object.values(STATE.progress).filter((p) => p?.visited).length} of ${UNITS.length} units visited</span>
+          </div>
+        </div>
+        <div class="content-window android-content-window" id="content-window">
+          <div class="content-area android-content-area" id="content-area"></div>
+          <button id="btn-back-to-top" class="btn-back-to-top" onclick="document.getElementById('content-window').scrollTo({top: 0, behavior: 'smooth'})" title="Back to Top">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </div>
+        <nav class="android-bottom-nav">
+          <button class="android-bottom-nav-item" onclick="window.returnToStudentDashboardTab('home')"><span>🏠</span><span>Home</span></button>
+          <button class="android-bottom-nav-item active" onclick="window.returnToStudentDashboardTab('modules')"><span>📚</span><span>Modules</span></button>
+          <button class="android-bottom-nav-item" onclick="window.returnToStudentDashboardTab('attendance')"><span>📲</span><span>Attendance</span></button>
+          <button class="android-bottom-nav-item" onclick="window.returnToStudentDashboardTab('notebook')"><span>🗒️</span><span>Notebook</span></button>
+          <button class="android-bottom-nav-item" onclick="window.returnToStudentDashboardTab('profile')"><span>👤</span><span>Profile</span></button>
+        </nav>
+      </main>
+    </div>`;
+
+  window.toggleAndroidUnitRail = () => {
+    _closeAndroidCourseActionsDrawer();
+    document.getElementById('android-unit-rail')?.classList.toggle('open');
+    document.getElementById('android-unit-rail-scrim')?.classList.toggle('open');
+  };
+  window.closeAndroidUnitRail = _closeAndroidUnitRail;
+  setAppSurfaceRoute('student-modules');
+}
+
+function renderShell() {
   const user = STATE.user;
   const name = user.displayName?.split(' [')[0] ?? user.email;
   const role = user.displayName?.match(/\[(.*?)\]/)?.[1] ?? 'student';
+
+  if (_isAndroidStudentApp()) {
+    _renderAndroidCourseShell(user, name, role);
+    window.navigateTo = navigateTo;
+    window.appSignOut = signOut;
+    document.getElementById('content-window')?.addEventListener('scroll', (e) => {
+      const btn = document.getElementById('btn-back-to-top');
+      if (!btn) return;
+      if (e.target.scrollTop > 300) btn.classList.add('show');
+      else btn.classList.remove('show');
+    });
+    return;
+  }
+
+  // Restore body overflow lock for the course shell layout
+  document.body.style.overflowY = 'hidden';
+  document.body.style.height = '100vh';
 
   document.getElementById('app').innerHTML = `
     <div class="shell">
@@ -606,33 +955,42 @@ export function navigateTo(index) {
   else document.getElementById(`nav-${index}`)?.classList.add('active');
 
   if (isER) {
+    setAppSurfaceRoute('student-er');
     renderER();
     document.getElementById('tb-badge').textContent = 'Bonus';
     document.getElementById('tb-title').textContent = 'Extensive Reading';
-    document.getElementById('btn-prev').style.display = 'none';
-    document.getElementById('btn-next').style.display = 'none';
+    document.getElementById('btn-prev')?.style && (document.getElementById('btn-prev').style.display = 'none');
+    document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     updateAITutorContext(null);
     updateAIToolsContext(null);
+    window.trackLearningEvent?.('er_open', {
+      source: 'student-er-open',
+    });
     return;
   }
 
   if (isResources) {
+    setAppSurfaceRoute('student-resources');
     renderResourceLibrary();
     document.getElementById('tb-badge').textContent = 'Library';
     document.getElementById('tb-title').textContent = 'Resource Library';
-    document.getElementById('btn-prev').style.display = 'none';
-    document.getElementById('btn-next').style.display = 'none';
+    document.getElementById('btn-prev')?.style && (document.getElementById('btn-prev').style.display = 'none');
+    document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     updateAITutorContext(null);
     updateAIToolsContext(null);
+    window.trackLearningEvent?.('resource_library_open', {
+      source: 'student-resource-library-open',
+    });
     return;
   }
 
   if (isContactNotebook) {
+    setAppSurfaceRoute('student-contact-notebook');
     renderContactNotebook();
     document.getElementById('tb-badge').textContent = 'Notebook';
     document.getElementById('tb-title').textContent = 'Contact Session Notebook';
-    document.getElementById('btn-prev').style.display = 'none';
-    document.getElementById('btn-next').style.display = 'none';
+    document.getElementById('btn-prev')?.style && (document.getElementById('btn-prev').style.display = 'none');
+    document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     updateAITutorContext(null);
     updateAIToolsContext(null);
     return;
@@ -640,6 +998,7 @@ export function navigateTo(index) {
 
   STATE.activeUnit = index;
   const unit = UNITS[index];
+  setAppSurfaceRoute(`student-unit-${unit.id}`);
 
   // Inject HTML with animation
   const area = document.getElementById('content-area');
@@ -652,8 +1011,8 @@ export function navigateTo(index) {
   document.getElementById('content-window').scrollTop = 0;
 
   // Topbar
-  document.getElementById('btn-prev').style.display = index === 0 ? 'none' : '';
-  document.getElementById('btn-next').style.display = index === UNITS.length - 1 ? 'none' : '';
+  if (document.getElementById('btn-prev')) document.getElementById('btn-prev').style.display = index === 0 ? 'none' : '';
+  if (document.getElementById('btn-next')) document.getElementById('btn-next').style.display = index === UNITS.length - 1 ? 'none' : '';
 
   // Boot video players
   document.querySelectorAll('.ivp-container[data-video-key]').forEach(el => {
@@ -682,6 +1041,13 @@ export function navigateTo(index) {
   STATE.progress[unit.id].visited = true;
   updateProgressBar();
   saveState();
+  window.trackLearningEvent?.(unit.isAssessment ? 'assessment_open' : 'unit_open', {
+    unitId: unit.id,
+    unitTitle: unit.title,
+    badge: unit.badge,
+    isAssessment: Boolean(unit.isAssessment),
+    source: unit.isAssessment ? 'student-assessment-open' : 'student-unit-open',
+  });
 }
 
 // ── Progress Bar ──────────────────────────────
@@ -689,8 +1055,8 @@ function updateProgressBar() {
   const completed = Object.values(STATE.progress).filter(p => p.readingComplete).length;
   const visited = Object.values(STATE.progress).filter(p => p.visited).length;
   const pct = Math.round((visited / UNITS.length) * 100);
-  document.getElementById('prog-fill').style.width = pct + '%';
-  document.getElementById('prog-pct').textContent = pct + '%';
+  if (document.getElementById('prog-fill')) document.getElementById('prog-fill').style.width = pct + '%';
+  if (document.getElementById('prog-pct')) document.getElementById('prog-pct').textContent = pct + '%';
 
   // Refresh nav ticks
   UNITS.forEach((u, i) => {
