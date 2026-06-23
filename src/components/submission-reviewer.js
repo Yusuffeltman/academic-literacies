@@ -5037,6 +5037,54 @@ window._bulkReleaseSelected = async function () {
   await _refreshReviewer();
 };
 
+const _RETURN_REASON_PRESETS = [
+  { id: 'mark_too_high',       label: 'Mark too high',          detail: 'The awarded mark is higher than the evidence in the submission supports. Please review the criteria and adjust accordingly.' },
+  { id: 'mark_too_low',        label: 'Mark too low',           detail: 'The awarded mark appears lower than warranted. Please re-read the submission against the rubric and reconsider.' },
+  { id: 'weak_justification',  label: 'Weak justification',     detail: 'The marking rationale does not adequately explain how the mark was derived. Please expand your criterion comments.' },
+  { id: 'criterion_misapplied',label: 'Criterion misapplied',   detail: 'One or more criteria have been applied incorrectly. Please re-read the rubric descriptors and re-mark the affected criteria.' },
+  { id: 'integrity_concern',   label: 'Integrity concern',      detail: 'There are indicators of possible academic integrity issues that require further investigation before this submission can be finalised.' },
+  { id: 'incomplete_marking',  label: 'Incomplete marking',     detail: 'Not all criteria have been marked. Please complete all rubric rows before resubmitting for moderation.' },
+];
+
+function _returnReasonModalHTML(overlayId, confirmFn, count) {
+  const chips = _RETURN_REASON_PRESETS.map((p) => `
+    <button type="button" class="return-reason-chip"
+      data-detail="${_esc(p.detail)}"
+      onclick="window._returnReasonSelectChip(this)"
+      style="text-align:left;padding:7px 12px;border:1.5px solid var(--border);border-radius:8px;background:white;font-size:12px;cursor:pointer;color:var(--navy);transition:border-color .15s,background .15s;"
+    >${_esc(p.label)}</button>`).join('');
+  return `
+    <div style="background:white;border-radius:18px;padding:28px;width:100%;max-width:500px;box-shadow:0 20px 60px rgba(15,23,42,.22);">
+      <div style="font-size:18px;font-weight:900;color:var(--navy);margin-bottom:4px;">Return ${count} Script${count === 1 ? '' : 's'} to Tutor</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Select a reason — this will be recorded for all selected submissions.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">${chips}</div>
+      <textarea id="${overlayId}-reason" rows="3"
+        placeholder="Optional: add specific details or instructions for the tutor…"
+        style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('${overlayId}')?.remove()">Cancel</button>
+        <button class="btn-next" style="display:inline-flex;background:#991b1b;border-color:#991b1b;" onclick="window.${confirmFn}()">Return Selected</button>
+      </div>
+    </div>`;
+}
+
+window._returnReasonSelectChip = function (btn) {
+  const overlay = btn.closest('[id$="-overlay"]');
+  if (!overlay) return;
+  overlay.querySelectorAll('.return-reason-chip').forEach((c) => {
+    c.style.borderColor = 'var(--border)';
+    c.style.background = 'white';
+    c.style.color = 'var(--navy)';
+    c.style.fontWeight = 'normal';
+  });
+  btn.style.borderColor = '#991b1b';
+  btn.style.background = '#fff1f2';
+  btn.style.color = '#991b1b';
+  btn.style.fontWeight = '700';
+  const textarea = overlay.querySelector('textarea');
+  if (textarea && !textarea.value.trim()) textarea.value = btn.dataset.detail || '';
+};
+
 window._bulkReturnToTutor = function () {
   const targets = Array.from(_bulkSelectedSubmissions.values());
   if (!targets.length) return;
@@ -5045,23 +5093,13 @@ window._bulkReturnToTutor = function () {
   const overlay = document.createElement('div');
   overlay.id = 'bulk-return-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:18px;padding:28px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(15,23,42,.22);">
-      <div style="font-size:18px;font-weight:900;color:var(--navy);margin-bottom:8px;">Return ${targets.length} Script${targets.length === 1 ? '' : 's'} to Tutor</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">This reason will be recorded for all selected submissions.</div>
-      <textarea id="bulk-return-reason" rows="4" placeholder="State what needs to be addressed before the script can be finalised…"
-        style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font-size:13px;resize:vertical;"></textarea>
-      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
-        <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('bulk-return-overlay')?.remove()">Cancel</button>
-        <button class="btn-next" style="display:inline-flex;background:#991b1b;border-color:#991b1b;" onclick="window._bulkReturnToTutorConfirm()">Return Selected</button>
-      </div>
-    </div>`;
+  overlay.innerHTML = _returnReasonModalHTML('bulk-return-overlay', '_bulkReturnToTutorConfirm', targets.length);
   document.body.appendChild(overlay);
 };
 
 window._bulkReturnToTutorConfirm = async function () {
-  const reason = String(document.getElementById('bulk-return-reason')?.value || '').trim();
-  if (!reason) { alert('Please enter a reason before returning.'); return; }
+  const reason = String(document.getElementById('bulk-return-overlay-reason')?.value || '').trim();
+  if (!reason) { alert('Please select a reason before returning.'); return; }
   document.getElementById('bulk-return-overlay')?.remove();
   const targets = Array.from(_bulkSelectedSubmissions.values());
   _bulkModerationRunning = true;
@@ -5087,6 +5125,56 @@ window._toggleTriageMode = function () {
   _triageExpandedRows.clear();
   if (_bulkSelectionMode) { _bulkSelectionMode = false; _bulkSelectedSubmissions.clear(); }
   _refreshReviewer();
+  if (_triageMode) window._triageOfferAutoApproveGreens();
+};
+
+window._triageOfferAutoApproveGreens = async function () {
+  await new Promise((r) => setTimeout(r, 350));
+  const greens = _triageTierCache.green || [];
+  if (!greens.length) return;
+  const existing = document.getElementById('triage-autoapprove-bar');
+  if (existing) return;
+  const bar = document.createElement('div');
+  bar.id = 'triage-autoapprove-bar';
+  bar.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:8000;background:#052e16;color:white;border-radius:14px;padding:14px 22px;display:flex;align-items:center;gap:16px;box-shadow:0 8px 32px rgba(5,46,22,.35);font-size:13px;min-width:340px;max-width:92vw;';
+  bar.innerHTML = `
+    <div style="flex:1;">
+      <span style="font-weight:800;">${greens.length} submission${greens.length === 1 ? '' : 's'}</span> in the Green tier — AI and tutor agree, no flags.
+    </div>
+    <button type="button" onclick="window._triageAutoApproveGreens()" style="flex-shrink:0;padding:8px 18px;border-radius:10px;border:none;background:#16a34a;color:white;font-weight:800;font-size:13px;cursor:pointer;">
+      Approve All ${greens.length}
+    </button>
+    <button type="button" onclick="document.getElementById('triage-autoapprove-bar')?.remove()" style="flex-shrink:0;padding:8px 12px;border-radius:10px;border:none;background:rgba(255,255,255,.12);color:white;font-size:13px;cursor:pointer;">
+      Review manually
+    </button>`;
+  document.body.appendChild(bar);
+};
+
+window._triageAutoApproveGreens = async function () {
+  document.getElementById('triage-autoapprove-bar')?.remove();
+  const targets = _triageTierCache.green || [];
+  if (!targets.length) return;
+  _triageRunning = true;
+  await _refreshReviewer();
+  let done = 0; let failed = 0;
+  for (const student of targets) {
+    const sub = student.latest;
+    const record = _gradingRecords?.[student.uid]?.[sub.id] || {};
+    const base = record.moderation || record.tutorReview || record.aiDraft || {};
+    const result = await saveModerationDecision(sub.assessmentId, student.uid, sub.id, {
+      action: 'release',
+      finalReview: base,
+      moderation: base,
+    });
+    if (result?.ok) done++; else failed++;
+  }
+  _triageRunning = false;
+  await _refreshReviewer();
+  const msg = document.createElement('div');
+  msg.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:8000;background:#166534;color:white;border-radius:12px;padding:12px 22px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(22,101,52,.3);pointer-events:none;';
+  msg.textContent = failed ? `Approved ${done}, ${failed} failed — check red tier.` : `${done} green submission${done === 1 ? '' : 's'} finalised. Yellow and Red still need your attention.`;
+  document.body.appendChild(msg);
+  setTimeout(() => msg.remove(), 4000);
 };
 
 window._triageToggleRow = function (submissionId) {

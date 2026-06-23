@@ -7351,6 +7351,54 @@ window._gbBulkRelease = async () => {
   _gbSetStatus(failed ? `Released ${done}, ${failed} failed.` : `${done} script${done === 1 ? '' : 's'} released to students.`, failed ? '#92400e' : '#166534');
 };
 
+const _GB_RETURN_PRESETS = [
+  { id: 'mark_too_high',        label: 'Mark too high',         detail: 'The awarded mark is higher than the evidence in the submission supports. Please review the criteria and adjust accordingly.' },
+  { id: 'mark_too_low',         label: 'Mark too low',          detail: 'The awarded mark appears lower than warranted. Please re-read the submission against the rubric and reconsider.' },
+  { id: 'weak_justification',   label: 'Weak justification',    detail: 'The marking rationale does not adequately explain how the mark was derived. Please expand your criterion comments.' },
+  { id: 'criterion_misapplied', label: 'Criterion misapplied',  detail: 'One or more criteria have been applied incorrectly. Please re-read the rubric descriptors and re-mark the affected criteria.' },
+  { id: 'integrity_concern',    label: 'Integrity concern',     detail: 'There are indicators of possible academic integrity issues that require further investigation before this submission can be finalised.' },
+  { id: 'incomplete_marking',   label: 'Incomplete marking',    detail: 'Not all criteria have been marked. Please complete all rubric rows before resubmitting for moderation.' },
+];
+
+function _gbReturnModalHTML(count) {
+  const chips = _GB_RETURN_PRESETS.map((p) => `
+    <button type="button" class="gb-return-chip"
+      data-detail="${_esc(p.detail)}"
+      onclick="window._gbReturnSelectChip(this)"
+      style="text-align:left;padding:7px 12px;border:1.5px solid var(--border);border-radius:8px;background:white;font-size:12px;cursor:pointer;color:var(--navy);transition:border-color .15s,background .15s;"
+    >${_esc(p.label)}</button>`).join('');
+  return `
+    <div style="background:white;border-radius:18px;padding:28px;width:100%;max-width:500px;box-shadow:0 20px 60px rgba(15,23,42,.22);">
+      <div style="font-size:18px;font-weight:900;color:var(--navy);margin-bottom:4px;">Return ${count} Script${count === 1 ? '' : 's'} to Tutor</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">Select a reason — this will be recorded for all selected submissions.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">${chips}</div>
+      <textarea id="gb-return-overlay-reason" rows="3"
+        placeholder="Optional: add specific details or instructions for the tutor…"
+        style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('gb-return-overlay')?.remove()">Cancel</button>
+        <button class="btn-next" style="display:inline-flex;background:#991b1b;border-color:#991b1b;" onclick="window._gbBulkReturnToTutorConfirm()">Return Selected</button>
+      </div>
+    </div>`;
+}
+
+window._gbReturnSelectChip = (btn) => {
+  const overlay = btn.closest('#gb-return-overlay');
+  if (!overlay) return;
+  overlay.querySelectorAll('.gb-return-chip').forEach((c) => {
+    c.style.borderColor = 'var(--border)';
+    c.style.background = 'white';
+    c.style.color = 'var(--navy)';
+    c.style.fontWeight = 'normal';
+  });
+  btn.style.borderColor = '#991b1b';
+  btn.style.background = '#fff1f2';
+  btn.style.color = '#991b1b';
+  btn.style.fontWeight = '700';
+  const textarea = overlay.querySelector('textarea');
+  if (textarea && !textarea.value.trim()) textarea.value = btn.dataset.detail || '';
+};
+
 window._gbBulkReturnToTutor = () => {
   const targets = Array.from(_gbBulkSelected.values());
   if (!targets.length) return;
@@ -7359,23 +7407,13 @@ window._gbBulkReturnToTutor = () => {
   const overlay = document.createElement('div');
   overlay.id = 'gb-return-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;';
-  overlay.innerHTML = `
-    <div style="background:white;border-radius:18px;padding:28px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(15,23,42,.22);">
-      <div style="font-size:18px;font-weight:900;color:var(--navy);margin-bottom:8px;">Return ${targets.length} Script${targets.length === 1 ? '' : 's'} to Tutor</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">This reason will be recorded for all selected submissions.</div>
-      <textarea id="gb-return-reason" rows="4" placeholder="State what needs to be addressed before the script can be finalised…"
-        style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
-      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
-        <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('gb-return-overlay')?.remove()">Cancel</button>
-        <button class="btn-next" style="display:inline-flex;background:#991b1b;border-color:#991b1b;" onclick="window._gbBulkReturnToTutorConfirm()">Return Selected</button>
-      </div>
-    </div>`;
+  overlay.innerHTML = _gbReturnModalHTML(targets.length);
   document.body.appendChild(overlay);
 };
 
 window._gbBulkReturnToTutorConfirm = async () => {
-  const reason = String(document.getElementById('gb-return-reason')?.value || '').trim();
-  if (!reason) { alert('Please enter a reason before returning.'); return; }
+  const reason = String(document.getElementById('gb-return-overlay-reason')?.value || '').trim();
+  if (!reason) { alert('Please select a reason before returning.'); return; }
   document.getElementById('gb-return-overlay')?.remove();
   const targets = Array.from(_gbBulkSelected.values());
   _gbBulkRunning = true;
