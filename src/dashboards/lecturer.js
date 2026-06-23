@@ -6,6 +6,14 @@ import {
   normalizeStudentUsername,
   STUDENT_PROFILE_FIELD_LABELS,
 } from '../profile.js';
+import { renderSubmissionReviewer } from '../components/submission-reviewer.js';
+import {
+  postFinalisedSubmissionFeedback,
+  returnSubmissionToTutor,
+  saveModerationDecision,
+} from '../submissions.js';
+import { renderAnalyticsReports } from '../components/analytics-reports.js';
+import { renderStudentDeepDive } from '../components/student-deep-dive.js';
 
 // Add Compare Students button to roster manager UI
 window._addCompareStudentsButton = function () {
@@ -432,10 +440,12 @@ window.compareStudentLists = function () {
 // ─────────────────────────────────────────────
 import { SESSIONS, SESSION_META } from '../../content/sessions/sessions.js';
 import { UNITS } from '../../content/units/index.js';
+import * as assessmentConfigs from '../../content/assessments/index.js';
 import { renderSessionPlan } from '../components/session-plan.js';
-import { auth, db } from '../firebase.js';
+import { auth, db, functions } from '../firebase.js';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { ref, get, set, remove } from 'firebase/database';
+import { httpsCallable } from 'firebase/functions';
+import { ref, get, set, update, remove } from 'firebase/database';
 import { SEED_RESOURCES } from '../../content/resources.js';
 import { addResource, vettResource, removeResource } from '../resources.js';
 import { TUTOR_GROUP_ASSIGNMENTS } from '../../content/tutorial-groups/assignments.js';
@@ -445,12 +455,52 @@ import { rebuildDerivedMetricsForDate } from '../analytics.js';
 import { generateQrDataUrl } from '../qr.js';
 import { downloadXlsx } from '../xlsx.js';
 import { renderGoLiveToggle } from '../components/chat-panel.js';
+import { autoCloseDashboardSidebar, initDashboardFocusChrome } from './dashboard-focus.js';
+import {
+  addMemberToCollaborationGroup,
+  archiveCollaborationScope,
+  createManagedCollaborationGroup,
+  deleteCollaborationGroup,
+  getArchivedCollaborationScope,
+  getCollaborationScope,
+  moveCollaborationMember,
+  normalizeCollaborationGroupName,
+  removeCollaborationMember,
+  renameCollaborationGroup,
+  startFreshCollaborationCycle,
+  transferCollaborationGroupLeader,
+} from '../collaboration-groups.js';
+
+const _LECTURER_COLLAB_SCOPE_CATALOG = [
+  {
+    id: 'assessment-a1',
+    label: 'Assessment 1 Collaboration Space',
+    description: 'Media Intelligence Brief group formation, artefacts, and collaboration chat.',
+    compact: true,
+    compactLabel: 'Assessment 1 groups',
+  },
+  {
+    id: 'assessment-a2',
+    label: 'Assessment 2 Collaboration Space',
+    description: 'Research Archaeology Report group formation, artefacts, and collaboration chat.',
+  },
+];
+
+function _summarizeCollaborationScopeGroups(groups = {}) {
+  const entries = Object.values(groups || {});
+  return {
+    groups: entries.length,
+    members: entries.reduce((sum, group) => sum + Object.keys(group?.members || {}).length, 0),
+    artefacts: entries.reduce((sum, group) => sum + Object.keys(group?.artefacts || {}).length, 0),
+  };
+}
 
 const PROMOTION_WHATSAPP_WEBHOOK_URL = String(import.meta.env.VITE_WHATSAPP_PROMOTION_WEBHOOK_URL || '').trim();
 
 let _activeSession = 'c1';
 let _analyticsAutoRefreshEnabled = false;
 let _analyticsAutoRefreshTimer = null;
+window._lecturerExpandedCollabScopes = window._lecturerExpandedCollabScopes || {};
 const _ROSTER_RESET_ALERT_DISMISS_PREFIX = 'lecturer-roster-reset-alert-dismissed:';
 
 function _normEmail(v = '') {
@@ -568,16 +618,14 @@ function _isNonUjDuplicateCandidate(row = {}) {
 
 async function _hardDeleteUserAccountRecord(uid, audit = {}) {
   if (!uid) throw new Error('Missing UID for account delete.');
-  const payload = _cleanFirebaseValue({
+  const deleteUserAccount = httpsCallable(functions, 'deleteUserAccountRecord');
+  await deleteUserAccount({
     uid,
-    deletedAt: new Date().toISOString(),
-    deletedByUid: STATE.user?.uid || null,
-    deletedByName: STATE.user?.displayName || STATE.user?.email || null,
-    ...audit,
+    audit: _cleanFirebaseValue({
+      deletedByName: STATE.user?.displayName || STATE.user?.email || null,
+      ...audit,
+    }),
   });
-  await set(ref(db, `analytics/deleted-student-accounts/${uid}`), payload);
-  await remove(ref(db, `users/${uid}`));
-  await remove(ref(db, `tutorial-groups/assignmentsByTutor/${uid}`)).catch(() => { });
 }
 
 function _cleanFirebaseValue(value) {
@@ -1140,6 +1188,8 @@ export function renderLecturerDashboard(container) {
   container.innerHTML = `
     <div class="dash-wrapper">
       ${_buildSidebar('contact')}
+      <div class="dash-sidebar-scrim" onclick="window._closeDashSidebar?.()"></div>
+      ${_buildMobileDashboardBar()}
       <div class="dash-content" id="dash-content">
         <div id="analytics-mount"></div>
         ${_buildWelcome('lecturer')}
@@ -1157,11 +1207,34 @@ export function renderLecturerDashboard(container) {
       _loadSession(sid);
       document.querySelectorAll('.dash-nav-item').forEach(e => e.classList.remove('active'));
       el.classList.add('active');
+      autoCloseDashboardSidebar();
     });
   });
 
   window._dashLoadSession = _loadSession;
   renderGoLiveToggle('lecturer-go-live-mount');
+  initDashboardFocusChrome();
+  _loadWelcomeStats();
+}
+
+function _buildMobileDashboardBar() {
+  return `
+    <div class="dash-mobile-bar">
+      <button class="dash-mobile-menu-btn" onclick="window._toggleDashSidebar?.()">Menu</button>
+      <button class="dash-focus-toggle" onclick="window._toggleDashFocusMode?.()">
+        <span data-dash-focus-label>Focus view</span>
+      </button>
+    </div>`;
+}
+
+function _buildSidebarActions() {
+  return `
+    <div class="dash-sidebar-actions">
+      <button class="dash-sidebar-focus-btn" onclick="window._toggleDashFocusMode?.()">
+        <span data-dash-focus-label>Focus view</span>
+      </button>
+      <button class="dash-sidebar-close-btn" onclick="window._closeDashSidebar?.()" aria-label="Close sidebar">Close</button>
+    </div>`;
 }
 
 function _buildSidebar(type) {
@@ -1184,6 +1257,7 @@ function _buildSidebar(type) {
         <div class="dash-role-badge lecturer-badge">🏫 Lecturer</div>
         <div class="dash-sidebar-title">Session Planner</div>
         <div class="dash-sidebar-sub">${isContact ? '90-min contact · Flipped' : '45-min tutorial · Targeted'}</div>
+        ${_buildSidebarActions()}
       </div>
 
       <div class="dash-session-type-bar">
@@ -1209,12 +1283,14 @@ function _buildSidebar(type) {
         <div id="lecturer-go-live-mount"></div>
         <div class="dash-quick-tools">
           <div class="dash-qt-label">Quick Tools</div>
-          <button class="dash-qt-btn" onclick="_openAttendanceQrTool('class')">📲 Class QR Check-in</button>
+          <button class="dash-qt-btn" onclick="_openAttendanceQrTool('class')">📲 Contact QR Check-in</button>
           <button class="dash-qt-btn" onclick="_openAttendanceQrTool('tutorial')">📲 Tutorial QR Check-in</button>
           <button class="dash-qt-btn" onclick="_fullPomodoro()">🍅 Class Pomodoro</button>
           <button class="dash-qt-btn" onclick="_randomiser()">🎲 Random Selector</button>
           <button class="dash-qt-btn" onclick="_printSession()">🖨️ Print Plan</button>
           <button class="dash-qt-btn" onclick="_syncTutorGroupAssignments()">🔐 Sync Tutor Groups</button>
+          <button class="dash-qt-btn" onclick="window._openSubmissionReviewer()" style="background:#059669;color:white;border-color:#059669;">📤 Student Submissions</button>
+          <button class="dash-qt-btn" onclick="window._openSubmissionReviewer('moderation')" style="background:#991b1b;color:white;border-color:#991b1b;">🧭 Moderation Queue</button>
         </div>
       </div>
     </aside>`;
@@ -1239,6 +1315,8 @@ function _switchSessionType(type) {
   if (type === 'analytics') {
     wrapper.querySelector('aside').outerHTML = _buildAnalyticsSidebar();
     wrapper.querySelector('.dash-content').innerHTML = '<div id="analytics-mount" style="height:100%;overflow-y:auto;"><div style="padding:40px;color:var(--muted);text-align:center;margin-top:40px;">⏳ Loading cohort data...</div></div>';
+    initDashboardFocusChrome();
+    autoCloseDashboardSidebar();
     _loadAnalytics();
     if (_analyticsAutoRefreshEnabled) _startAnalyticsAutoRefresh();
     return;
@@ -1255,10 +1333,40 @@ function _switchSessionType(type) {
       _loadSession(sid);
       document.querySelectorAll('.dash-nav-item').forEach(e => e.classList.remove('active'));
       el.classList.add('active');
+      autoCloseDashboardSidebar();
     });
   });
+  initDashboardFocusChrome();
+  autoCloseDashboardSidebar();
 }
 window._switchSessionType = _switchSessionType;
+
+window._openSubmissionReviewer = function (initialFilter = 'all', withReturnContext = false) {
+  const content = document.getElementById('dash-content');
+  if (!content) return;
+  const backBar = withReturnContext
+    ? `<div id="gradebook-back-bar" style="flex-shrink:0;padding:8px 16px;background:white;border-bottom:2px solid var(--border);display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(15,23,42,.06);">
+        <button class="btn-prev" style="display:inline-flex;font-size:12px;padding:5px 14px;" onclick="window._returnToGradebook()">← Back to Gradebook</button>
+        <span style="font-size:12px;color:var(--muted);">Viewing submission — click Back to return to your place in the gradebook.</span>
+       </div>`
+    : '';
+  content.innerHTML = `<div style="height:100%;display:flex;flex-direction:column;">${backBar}<div id="submission-reviewer-mount" style="flex:1;overflow-y:auto;"></div></div>`;
+  const mount = document.getElementById('submission-reviewer-mount');
+  renderSubmissionReviewer(mount);
+  window._setStaffQueueFilter?.(initialFilter);
+  document.querySelectorAll('.dash-nav-item').forEach((e) => e.classList.remove('active'));
+  autoCloseDashboardSidebar();
+};
+
+window._openAnalyticsReports = function () {
+  const content = document.getElementById('dash-content');
+  if (!content) return;
+  content.innerHTML = '<div id="analytics-reports-mount" style="height:100%;overflow-y:auto;"></div>';
+  const mount = document.getElementById('analytics-reports-mount');
+  renderAnalyticsReports(mount);
+  document.querySelectorAll('.dash-nav-item').forEach((e) => e.classList.remove('active'));
+  autoCloseDashboardSidebar();
+};
 
 function _loadSession(sid) {
   _activeSession = sid;
@@ -1275,41 +1383,176 @@ function _loadSession(sid) {
   content.scrollTop = 0;
 }
 
-function _buildWelcome(role) {
-  const isContact = role === 'lecturer';
+function _buildWelcome() {
+  const now = new Date();
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const todayName = dayNames[now.getDay()];
+  const dateStr = `${now.getDate()} ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+
+  // Week calendar data
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    weekDays.push(d);
+  }
+
+  // Session schedule
+  const schedule = {
+    Monday:    [{ time: '10:30–11:20', type: 'tutorial', groups: 'Y' }, { time: '2:40–3:30', type: 'tutorial', groups: 'M, N' }],
+    Tuesday:   [{ time: '8:00–8:50', type: 'tutorial', groups: 'O, P, Q' }, { time: '12:10–1:00', type: 'tutorial', groups: 'R' }, { time: '1:00–1:50', type: 'tutorial', groups: 'S, T' }, { time: '1:50–3:30', type: 'contact', groups: 'All', venue: 'D LAB BASEMENT K01' }],
+    Thursday:  [{ time: '11:20–12:10', type: 'tutorial', groups: 'K, L' }, { time: '12:10–1:00', type: 'tutorial', groups: 'W, X' }, { time: '1:50–2:40', type: 'tutorial', groups: 'U, V' }],
+    Friday:    [{ time: '1:50–3:30', type: 'contact', groups: 'All', venue: 'E LES 100' }],
+  };
+  const todaySessions = schedule[todayName] || [];
+
   return `
-    <div class="dash-welcome">
-      <div class="dash-welcome-icon">${isContact ? '🏫' : '👥'}</div>
-      <h1 class="dash-welcome-title">${isContact ? 'Contact Session Planner' : 'Tutorial Session Planner'}</h1>
-      <p class="dash-welcome-sub">
-        ${isContact
-      ? 'Select a session from the left to view the full 90-minute plan, including activity blocks, Pomodoro timers, process writing stages, and facilitator scripts.'
-      : 'Select a session from the left to view the full 45-minute tutorial plan with targeted support activities, diagnostic tools, and artefact workshops.'}
-      </p>
-      <div class="dash-welcome-cards">
-        <div class="dash-wc">
-          <div class="dash-wc-icon">🔄</div>
-          <div class="dash-wc-title">Flipped Classroom</div>
-          <p>Content is delivered in the module. Sessions build on pre-work — never re-teach what students should have done.</p>
+    <div class="dash-welcome" style="max-width:1100px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:24px;">
+        <div>
+          <h1 class="dash-welcome-title" style="margin:0 0 4px 0;">${todayName}</h1>
+          <p style="margin:0;color:var(--muted);font-size:15px;">${dateStr}</p>
         </div>
-        <div class="dash-wc">
-          <div class="dash-wc-icon">🍅</div>
-          <div class="dash-wc-title">Live Pomodoro Timer</div>
-          <p>Every session includes a live Pomodoro timer you project to the class. Set it and let the rhythm drive focus.</p>
-        </div>
-        <div class="dash-wc">
-          <div class="dash-wc-icon">✍️</div>
-          <div class="dash-wc-title">Process Writing</div>
-          <p>Each session ties writing activities to the 5-stage process: pre-write → draft → peer feedback → revision → reflect.</p>
-        </div>
-        <div class="dash-wc">
-          <div class="dash-wc-icon">🎫</div>
-          <div class="dash-wc-title">Exit Tickets</div>
-          <p>Every session ends with a specific exit ticket. Collect and read before the next session to target gaps.</p>
+        <div style="display:flex;gap:8px;">
+          <button class="dash-qt-btn" onclick="_openAttendanceQrTool('class')" style="font-size:12px;">📲 Class QR</button>
+          <button class="dash-qt-btn" onclick="_openAttendanceQrTool('tutorial')" style="font-size:12px;">📲 Tutorial QR</button>
+          <button class="dash-qt-btn" onclick="_fullPomodoro()" style="font-size:12px;">🍅 Pomodoro</button>
         </div>
       </div>
-      <p style="text-align:center;color:var(--muted);font-size:14px;margin-top:24px;">← Select a session from the sidebar to begin</p>
+
+      <!-- Week calendar strip -->
+      <div style="display:flex;gap:4px;margin-bottom:24px;overflow-x:auto;">
+        ${weekDays.map(d => {
+          const isToday = d.toDateString() === now.toDateString();
+          const dayLabel = dayNames[d.getDay()].slice(0, 3);
+          const dateNum = d.getDate();
+          const hasSessions = !!schedule[dayNames[d.getDay()]];
+          return `<div style="flex:1;min-width:80px;padding:12px 8px;border-radius:12px;text-align:center;border:1px solid ${isToday ? 'var(--accent)' : 'var(--border)'};background:${isToday ? 'var(--accent)' : 'white'};color:${isToday ? 'white' : 'var(--navy)'};">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;${isToday ? 'color:rgba(255,255,255,.8)' : 'color:var(--muted)'}">${dayLabel}</div>
+            <div style="font-size:22px;font-weight:800;margin:4px 0;">${dateNum}</div>
+            ${hasSessions ? `<div style="width:6px;height:6px;border-radius:50%;background:${isToday ? 'white' : 'var(--accent)'};margin:0 auto;"></div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Today's sessions + live status -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;">Today's Sessions</div>
+          ${todaySessions.length === 0
+            ? '<div style="font-size:13px;color:var(--muted);">No sessions scheduled today.</div>'
+            : todaySessions.map(s => `
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:${s.type === 'contact' ? '#eff6ff' : '#f0fdf4'};margin-bottom:6px;">
+                <span style="font-size:18px;">${s.type === 'contact' ? '🏫' : '👥'}</span>
+                <div style="flex:1;">
+                  <div style="font-size:13px;font-weight:700;color:var(--navy);">${s.type === 'contact' ? 'Contact Session' : 'Tutorial'} · Group${s.groups.includes(',') || s.groups === 'All' ? 's' : ''} ${_esc(s.groups)}</div>
+                  <div style="font-size:12px;color:var(--muted);">${_esc(s.time)}${s.venue ? ` · ${_esc(s.venue)}` : ''}</div>
+                </div>
+              </div>`).join('')}
+        </div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;">Live Sessions</div>
+          <div id="welcome-live-status" style="font-size:13px;color:var(--muted);">Checking...</div>
+        </div>
+      </div>
+
+      <!-- Quick stats — loaded async -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px;">
+        <div id="welcome-stat-students" style="background:white;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Enrolled</div>
+          <div style="font-size:28px;font-weight:900;color:var(--navy);margin-top:4px;">—</div>
+        </div>
+        <div id="welcome-stat-attendance" style="background:white;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Checked In Today</div>
+          <div style="font-size:28px;font-weight:900;color:var(--navy);margin-top:4px;">—</div>
+        </div>
+        <div id="welcome-stat-tutors" style="background:white;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Active Tutors</div>
+          <div style="font-size:28px;font-weight:900;color:var(--navy);margin-top:4px;">—</div>
+        </div>
+        <div id="welcome-stat-atrisk" style="background:white;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">At-Risk</div>
+          <div style="font-size:28px;font-weight:900;color:#b91c1c;margin-top:4px;">—</div>
+        </div>
+      </div>
+
+      <!-- Full week schedule -->
+      <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 4px 12px rgba(15,23,42,.04);">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:14px;">Week Schedule</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+          ${Object.entries(schedule).map(([day, sessions]) => `
+            <div style="border:1px solid var(--border);border-radius:12px;padding:14px;${day === todayName ? 'background:#f0f9ff;border-color:var(--accent);' : ''}">
+              <div style="font-size:12px;font-weight:800;color:${day === todayName ? 'var(--accent)' : 'var(--navy)'};margin-bottom:8px;">${day}${day === todayName ? ' (today)' : ''}</div>
+              ${sessions.map(s => `
+                <div style="font-size:12px;color:var(--muted);line-height:1.6;">
+                  <span style="font-weight:600;color:var(--navy);">${_esc(s.time)}</span>
+                  ${s.type === 'contact' ? '🏫' : '👥'} ${_esc(s.groups)}
+                </div>`).join('')}
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <p style="text-align:center;color:var(--muted);font-size:13px;margin-top:20px;">← Select a session from the sidebar to open the session planner</p>
     </div>`;
+}
+
+async function _loadWelcomeStats() {
+  try {
+    const [usersSnap, sessionsSnap] = await Promise.all([
+      get(ref(db, 'users')),
+      get(ref(db, 'sessions/live')),
+    ]);
+
+    const users = usersSnap.val() || {};
+    let studentCount = 0;
+    let tutorCount = 0;
+    let atRiskCount = 0;
+    for (const [, u] of Object.entries(users)) {
+      const role = String(u?.profile?.role || '').toLowerCase();
+      if (role === 'student') {
+        studentCount++;
+        const esc = u?.state?.adaptive?.escalations;
+        if (esc && Object.keys(esc).length > 0) atRiskCount++;
+      }
+      if (role === 'tutor' && !u?.profile?.disabled) tutorCount++;
+    }
+
+    const el1 = document.getElementById('welcome-stat-students');
+    if (el1) el1.querySelector('div:last-child').textContent = String(studentCount);
+    const el3 = document.getElementById('welcome-stat-tutors');
+    if (el3) el3.querySelector('div:last-child').textContent = String(tutorCount);
+    const el4 = document.getElementById('welcome-stat-atrisk');
+    if (el4) el4.querySelector('div:last-child').textContent = String(atRiskCount);
+
+    // Today's attendance
+    const today = new Date().toISOString().slice(0, 10);
+    const attSnap = await get(ref(db, `attendance/checkins/${today}`));
+    const checkins = attSnap.val() || {};
+    const checkedInCount = Object.keys(checkins).length;
+    const el2 = document.getElementById('welcome-stat-attendance');
+    if (el2) el2.querySelector('div:last-child').textContent = String(checkedInCount);
+
+    // Live session status
+    const liveData = sessionsSnap.val() || {};
+    const classLive = liveData.class?.active === true;
+    const tutLive = liveData.tutorial?.active === true;
+    const statusEl = document.getElementById('welcome-live-status');
+    if (statusEl) {
+      if (!classLive && !tutLive) {
+        statusEl.innerHTML = '<div style="color:var(--muted);">No sessions are live. Go to <strong>Analytics → Live Sessions</strong> to start one.</div>';
+      } else {
+        statusEl.innerHTML = `
+          ${classLive ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div style="width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.5);"></div><span style="font-weight:700;color:#166534;">Contact Class is LIVE</span></div>' : ''}
+          ${tutLive ? '<div style="display:flex;align-items:center;gap:8px;"><div style="width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.5);"></div><span style="font-weight:700;color:#166534;">Tutorial is LIVE</span></div>' : ''}`;
+      }
+    }
+  } catch (err) {
+    console.warn('Welcome stats load failed:', err);
+  }
 }
 
 // ── Quick tools ───────────────────────────────
@@ -5762,7 +6005,7 @@ window._openAttendanceQrTool = async (sessionType = 'class') => {
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.72);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
   overlay.innerHTML = `
     <div style="background:white;border-radius:16px;max-width:560px;width:100%;padding:24px;border:1px solid var(--border);box-shadow:0 20px 50px rgba(0,0,0,.25);">
-      <h2 style="margin:0 0 6px 0;color:var(--navy);font-family:var(--font-sans);">${state.sessionType === 'tutorial' ? 'Tutorial' : 'Class'} QR Check-in</h2>
+      <h2 style="margin:0 0 6px 0;color:var(--navy);font-family:var(--font-sans);">${state.sessionType === 'tutorial' ? 'Tutorial' : 'Contact'} QR Check-in</h2>
       <p style="margin:0 0 16px 0;color:var(--muted);font-size:13px;line-height:1.5;">Ask students to scan this QR code (or enter the token manually). The token rotates every 60 seconds.</p>
       <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
         <div style="width:260px;height:260px;border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;background:#f8fafc;overflow:hidden;">
@@ -5814,6 +6057,7 @@ function _buildAnalyticsSidebar() {
         <div class="dash-role-badge lecturer-badge">🏫 Lecturer</div>
         <div class="dash-sidebar-title">Data Analytics</div>
         <div class="dash-sidebar-sub">Student Performance</div>
+        ${_buildSidebarActions()}
       </div>
 
       <div class="dash-session-type-bar">
@@ -5844,13 +6088,49 @@ function _buildAnalyticsSidebar() {
           <div class="dash-nav-id">📋</div>
           <div class="dash-nav-label">Class Roster</div>
         </div>
-        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadTutorGroupManager()">
-          <div class="dash-nav-id">👥</div>
-          <div class="dash-nav-label">Tutor Groups</div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadAttendanceImportManager()">
+          <div class="dash-nav-id">🗓️</div>
+          <div class="dash-nav-label">Attendance</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadLiveSessions()">
+          <div class="dash-nav-id">📹</div>
+          <div class="dash-nav-label">Live Sessions</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadTutorStaff()">
+          <div class="dash-nav-id">🎓</div>
+          <div class="dash-nav-label">Tutor Staff</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadSimpleGroupAssignment()">
+          <div class="dash-nav-id">🗂️</div>
+          <div class="dash-nav-label">Group Assignment</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadTutorialStats()">
+          <div class="dash-nav-id">📊</div>
+          <div class="dash-nav-label">Tutorial Stats</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadStudentNotebooks()">
+          <div class="dash-nav-id">📝</div>
+          <div class="dash-nav-label">Student Notebooks</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadGradebookManager()">
+          <div class="dash-nav-id">📚</div>
+          <div class="dash-nav-label">Gradebook</div>
         </div>
         <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadUserManagement()">
           <div class="dash-nav-id">🛠️</div>
           <div class="dash-nav-label">User Management</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); window._openAnalyticsReports()">
+          <div class="dash-nav-id" style="background:#059669;color:white;">📊</div>
+          <div class="dash-nav-label">Weekly/Monthly Reports</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); window._openSubmissionReviewer()">
+          <div class="dash-nav-id" style="background:#2563eb;color:white;">📤</div>
+          <div class="dash-nav-label">Student Submissions</div>
+        </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); window._openSubmissionReviewer('moderation')">
+          <div class="dash-nav-id" style="background:#991b1b;color:white;">🧭</div>
+          <div class="dash-nav-label">Moderation Queue</div>
         </div>
       </div>
 
@@ -5870,11 +6150,26 @@ let _cachedAllPromotionRequests = [];
 let _cachedAttendanceRegisterRows = [];
 let _cachedAttendanceRegisterDateKey = '';
 let _cachedAttendanceRegisterSourceLabel = '';
+let _attendanceImportDateKey = new Date().toISOString().slice(0, 10);
+let _attendanceImportSessionType = 'class';
+let _attendanceImportPreviewRows = [];
+let _attendanceImportSourceLabel = '';
+let _attendanceImportLastFileName = '';
+let _gradebookRows = [];
+let _gradebookAssessments = [];
+let _gradebookSelectedAssessmentId = '';
+let _gradebookEditMode = false;
+let _gradebookMarkEdits = {};
+let _gbBulkSelected = new Map();
+let _gbBulkRunning = false;
+let _gradebookReturnContext = null;
 const _bulkPromoteSelectedUids = new Set();
 let _bulkPromoteLastClickedIndex = null;
 const _shiftRangeLastIndexByGroup = {};
 let _rosterSearchQuery = '';
 let _rosterFilterMode = 'all';
+let _studentNotebookSearchQuery = '';
+let _studentNotebookFilterMode = 'with-work';
 let _attendanceAnalyticsSelectedDate = new Date().toISOString().slice(0, 10);
 const _studentSupportModeByUid = {};
 const _studentSupportSaveStateByUid = {};
@@ -5947,6 +6242,1321 @@ function _showLecturerToast(message, type = 'success', durationMs = 4200) {
     toast.remove();
   }, holdMs);
 }
+
+function _attendanceImportDigits(value = '') {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+function _attendanceImportText(value = '') {
+  return String(value || '').trim();
+}
+
+function _attendanceImportDateFromValue(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const yyyy = parsed.getFullYear();
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+  const dd = String(parsed.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function _attendanceImportSessionLabel(sessionType = 'class') {
+  return sessionType === 'tutorial' ? 'Tutorial' : 'Contact';
+}
+
+function _attendanceImportBool(value, fallback = true) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['yes', 'y', 'present', 'attended', 'checked in', 'checked-in', '1', 'true', 'p'].includes(normalized)) return true;
+  if (['no', 'n', 'absent', 'missed', '0', 'false', 'a'].includes(normalized)) return false;
+  return fallback;
+}
+
+function _attendanceImportNumber(value) {
+  const numeric = Number(String(value ?? '').replace(/[^0-9.-]+/g, ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function _attendanceImportHeaderIndex(headers = [], patterns = []) {
+  for (let idx = 0; idx < headers.length; idx++) {
+    const header = String(headers[idx] || '').trim().toLowerCase();
+    if (!header) continue;
+    if (patterns.some((pattern) => pattern.test(header))) return idx;
+  }
+  return -1;
+}
+
+async function _loadAttendanceImportStudents() {
+  if (Array.isArray(_cachedStudents) && _cachedStudents.length) {
+    return _cachedStudents.map((student) => ({
+      uid: student.uid,
+      name: String(student.name || '').trim(),
+      email: _normEmail(student.email || ''),
+      studentNumber: String(student.studentNumber || '').trim(),
+      tutorialGroup: String(student.tutorialGroup || '').trim().toUpperCase(),
+      attendanceData: student.attendanceData || { byDate: {} },
+    }));
+  }
+
+  const usersSnap = await get(ref(db, 'users'));
+  if (!usersSnap.exists()) return [];
+
+  return Object.entries(usersSnap.val() || {})
+    .filter(([, user]) => _roleFromProfile(user) === 'student' && !user?.profile?.disabled)
+    .map(([uid, user]) => {
+      const profile = user?.profile || {};
+      const state = user?.state || {};
+      return {
+        uid,
+        name: String(profile.displayName || profile.name || user?.email || `Student_${uid.slice(0, 6)}`).trim(),
+        email: _normEmail(profile.authEmail || profile.username || profile.email || ''),
+        studentNumber: String(profile.studentNumber || profile.studentNo || profile.studentId || '').trim(),
+        tutorialGroup: String(profile.tutorialGroup || '').trim().toUpperCase(),
+        attendanceData: state.attendance || { byDate: {} },
+      };
+    });
+}
+
+function _parseAttendanceImportRows(rows = []) {
+  const nonEmptyRows = (rows || []).filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? '').trim()));
+  if (!nonEmptyRows.length) return { rows: [], detectedDateKey: '', inferredSessionType: '' };
+
+  const headers = nonEmptyRows[0].map((cell) => String(cell || '').trim());
+  const bodyRows = nonEmptyRows.slice(1);
+  const map = {
+    studentNumber: _attendanceImportHeaderIndex(headers, [/student\s*(number|no|id)/, /^id$/, /^number$/]),
+    email: _attendanceImportHeaderIndex(headers, [/email/]),
+    name: _attendanceImportHeaderIndex(headers, [/student\s*name/, /full\s*name/, /^name$/]),
+    firstName: _attendanceImportHeaderIndex(headers, [/first\s*name/, /^first$/]),
+    lastName: _attendanceImportHeaderIndex(headers, [/last\s*name/, /^surname$/, /^last$/]),
+    present: _attendanceImportHeaderIndex(headers, [/^present$/, /attendance/, /attended/, /status/, /check[\s-]*in/, /mark/]),
+    date: _attendanceImportHeaderIndex(headers, [/^date$/, /session\s*date/, /attendance\s*date/]),
+    totalMinutes: _attendanceImportHeaderIndex(headers, [/total\s*minutes/, /^minutes$/, /^mins$/, /duration/, /^time$/]),
+    classMinutes: _attendanceImportHeaderIndex(headers, [/contact\s*minutes/, /class\s*minutes/]),
+    tutorialMinutes: _attendanceImportHeaderIndex(headers, [/tutorial\s*minutes/]),
+  };
+
+  let detectedDateKey = '';
+  const parsedRows = bodyRows.map((cols, index) => {
+    const cell = (idx) => idx >= 0 ? _attendanceImportText(cols[idx]) : '';
+    const firstName = cell(map.firstName);
+    const lastName = cell(map.lastName);
+    const studentNumber = cell(map.studentNumber);
+    const email = _normEmail(cell(map.email));
+    const name = cell(map.name) || String([firstName, lastName].filter(Boolean).join(' ')).trim();
+    const presentValue = cell(map.present);
+    const rowDateKey = _attendanceImportDateFromValue(cell(map.date));
+    if (!detectedDateKey && rowDateKey) detectedDateKey = rowDateKey;
+    return {
+      rowNumber: index + 2,
+      studentNumber,
+      email,
+      name,
+      present: _attendanceImportBool(presentValue, true),
+      statusRaw: presentValue,
+      totalMinutes: _attendanceImportNumber(cell(map.totalMinutes)),
+      classMinutes: _attendanceImportNumber(cell(map.classMinutes)),
+      tutorialMinutes: _attendanceImportNumber(cell(map.tutorialMinutes)),
+      rowDateKey,
+    };
+  }).filter((row) => row.studentNumber || row.email || row.name);
+
+  const headerText = headers.join(' ').toLowerCase();
+  const inferredSessionType = /tutorial/.test(headerText) ? 'tutorial' : (/contact|class/.test(headerText) ? 'class' : '');
+  return { rows: parsedRows, detectedDateKey, inferredSessionType };
+}
+
+function _buildAttendanceImportPreviewRows(rows = [], students = []) {
+  const studentByNumber = new Map();
+  const studentByEmail = new Map();
+  const studentByName = new Map();
+
+  students.forEach((student) => {
+    const idKey = _attendanceImportDigits(student.studentNumber);
+    const emailKey = _normEmail(student.email);
+    const nameKey = String(student.name || '').trim().toLowerCase();
+    if (idKey && !studentByNumber.has(idKey)) studentByNumber.set(idKey, student);
+    if (emailKey && !studentByEmail.has(emailKey)) studentByEmail.set(emailKey, student);
+    if (nameKey && !studentByName.has(nameKey)) studentByName.set(nameKey, student);
+  });
+
+  return rows.map((row) => {
+    const idKey = _attendanceImportDigits(row.studentNumber);
+    const emailKey = _normEmail(row.email);
+    const nameKey = String(row.name || '').trim().toLowerCase();
+
+    let student = null;
+    let matchedBy = '';
+    if (idKey && studentByNumber.has(idKey)) {
+      student = studentByNumber.get(idKey);
+      matchedBy = 'student number';
+    } else if (emailKey && studentByEmail.has(emailKey)) {
+      student = studentByEmail.get(emailKey);
+      matchedBy = 'email';
+    } else if (nameKey && studentByName.has(nameKey)) {
+      student = studentByName.get(nameKey);
+      matchedBy = 'name';
+    }
+
+    return {
+      ...row,
+      matched: Boolean(student),
+      matchedBy,
+      student,
+    };
+  });
+}
+
+window._setAttendanceImportDate = (value = '') => {
+  const normalized = _attendanceImportDateFromValue(value);
+  _attendanceImportDateKey = normalized || new Date().toISOString().slice(0, 10);
+  window._loadAttendanceImportManager?.();
+};
+
+window._setAttendanceImportSessionType = (value = '') => {
+  _attendanceImportSessionType = value === 'tutorial' ? 'tutorial' : 'class';
+  window._loadAttendanceImportManager?.();
+};
+
+window._handleAttendanceImportFile = async (event) => {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+
+  try {
+    const XLSX = await import('xlsx');
+    const students = await _loadAttendanceImportStudents();
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheetName = workbook.SheetNames?.[0];
+    const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+    if (!sheet) {
+      _showLecturerToast('The workbook does not contain a readable sheet.', 'warn', 3200);
+      return;
+    }
+
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+    const parsed = _parseAttendanceImportRows(rawRows);
+    if (!parsed.rows.length) {
+      _showLecturerToast('No attendance rows were found in that workbook.', 'warn', 3200);
+      return;
+    }
+
+    _attendanceImportLastFileName = file.name;
+    _attendanceImportSourceLabel = file.name;
+    if (parsed.detectedDateKey) _attendanceImportDateKey = parsed.detectedDateKey;
+    if (parsed.inferredSessionType) _attendanceImportSessionType = parsed.inferredSessionType;
+    _attendanceImportPreviewRows = _buildAttendanceImportPreviewRows(parsed.rows, students);
+    _showLecturerToast(`Loaded ${parsed.rows.length} attendance row${parsed.rows.length === 1 ? '' : 's'} from ${file.name}.`, 'success', 3000);
+  } catch (err) {
+    console.error('Attendance import failed:', err);
+    _showLecturerToast(`Attendance import failed: ${err.message || err}`, 'warn', 3800);
+  } finally {
+    if (event?.target) event.target.value = '';
+    window._loadAttendanceImportManager?.();
+  }
+};
+
+window._applyAttendanceImport = async () => {
+  const matchedPresentRows = (_attendanceImportPreviewRows || []).filter((row) => row.matched && row.present);
+  if (!matchedPresentRows.length) {
+    _showLecturerToast('Load an attendance register with at least one matched present student first.', 'warn', 3200);
+    return;
+  }
+
+  const dateKey = _attendanceImportDateKey || new Date().toISOString().slice(0, 10);
+  const sessionType = _attendanceImportSessionType === 'tutorial' ? 'tutorial' : 'class';
+  const sessionLabel = _attendanceImportSessionLabel(sessionType);
+  const sessionId = `register_import_${dateKey}_${sessionType}`;
+  const importedAt = new Date().toISOString();
+
+  try {
+    let applied = 0;
+    for (const [index, row] of matchedPresentRows.entries()) {
+      const student = row.student;
+      if (!student?.uid) continue;
+
+      const existing = student.attendanceData?.byDate?.[dateKey] || {};
+      const existingCheckins = Array.isArray(existing.qrCheckins) ? existing.qrCheckins.slice() : [];
+      const checkinAt = `${dateKey}T12:00:00.000Z`;
+      const importSource = _attendanceImportSourceLabel || _attendanceImportLastFileName || 'attendance register';
+      const checkin = {
+        at: checkinAt,
+        sessionType,
+        sessionLabel,
+        sessionId,
+        source: 'register-import',
+        importSource,
+        importedAt,
+      };
+      const duplicateIndex = existingCheckins.findIndex((entry) =>
+        entry?.source === 'register-import'
+        && String(entry?.sessionType || '') === sessionType
+        && String(entry?.importSource || '') === importSource
+      );
+      if (duplicateIndex >= 0) existingCheckins[duplicateIndex] = { ...existingCheckins[duplicateIndex], ...checkin };
+      else existingCheckins.push(checkin);
+
+      const totalMinutes = Math.max(row.totalMinutes || 0, row.classMinutes || 0, row.tutorialMinutes || 0);
+      const nextRecord = {
+        present: true,
+        firstSeen: existing.firstSeen || checkinAt,
+        lastSeen: importedAt,
+        totalSeconds: Math.max(Number(existing.totalSeconds || 0), totalMinutes > 0 ? totalMinutes * 60 : Number(existing.totalSeconds || 0)),
+        classSeconds: sessionType === 'class'
+          ? Math.max(Number(existing.classSeconds || 0), (row.classMinutes || row.totalMinutes || 0) * 60)
+          : Number(existing.classSeconds || 0),
+        tutorialSeconds: sessionType === 'tutorial'
+          ? Math.max(Number(existing.tutorialSeconds || 0), (row.tutorialMinutes || row.totalMinutes || 0) * 60)
+          : Number(existing.tutorialSeconds || 0),
+        lastSessionType: sessionType,
+        qrCheckins: existingCheckins,
+      };
+
+      const stamp = `import_${Date.now()}_${index}`;
+      const remotePayload = {
+        ...checkin,
+        dateKey,
+        uid: student.uid,
+      };
+      await Promise.all([
+        set(ref(db, `users/${student.uid}/state/attendance/byDate/${dateKey}`), nextRecord),
+        set(ref(db, `attendance/checkins/${dateKey}/${student.uid}/${stamp}`), remotePayload),
+        set(ref(db, `attendance/session-checkins/${sessionId}/${student.uid}`), remotePayload),
+      ]);
+
+      student.attendanceData = student.attendanceData || { byDate: {} };
+      student.attendanceData.byDate = student.attendanceData.byDate || {};
+      student.attendanceData.byDate[dateKey] = nextRecord;
+      applied += 1;
+    }
+
+    _showLecturerToast(`Attendance imported for ${applied} student${applied === 1 ? '' : 's'}.`, 'success', 3200);
+    _cachedStudents = [];
+    await window._loadAttendanceImportManager?.();
+  } catch (err) {
+    console.error('Attendance import apply failed:', err);
+    _showLecturerToast(`Attendance import failed: ${err.message || err}`, 'warn', 3800);
+  }
+};
+
+window._loadAttendanceImportManager = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+
+  const previewRows = Array.isArray(_attendanceImportPreviewRows) ? _attendanceImportPreviewRows : [];
+  const matchedRows = previewRows.filter((row) => row.matched);
+  const matchedPresentRows = matchedRows.filter((row) => row.present);
+  const unmatchedRows = previewRows.filter((row) => !row.matched);
+  const skippedRows = matchedRows.filter((row) => !row.present);
+
+  mount.innerHTML = `
+    <div style="display:grid;gap:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+        <div>
+          <h1 style="margin:0;color:var(--navy);font-family:var(--font-heading);font-size:30px;">Attendance Import</h1>
+          <p style="margin:8px 0 0 0;color:var(--muted);line-height:1.6;max-width:760px;">Upload an Excel attendance register and write it into the same student attendance records used by the QR check-in flow and lecturer analytics.</p>
+        </div>
+        <button class="btn-prev" style="display:inline-flex;" onclick="_loadAnalytics()">Back to Cohort Overview</button>
+      </div>
+
+      <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+          <div>
+            <div style="font-size:12px;font-weight:900;color:var(--navy);text-transform:uppercase;letter-spacing:.08em;">Register Source</div>
+            <div style="font-size:14px;color:var(--muted);margin-top:6px;">${_esc(_attendanceImportLastFileName || 'No workbook loaded yet')}</div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:8px;">
+              Date
+              <input type="date" value="${_esc(_attendanceImportDateKey)}" onchange="_setAttendanceImportDate(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;color:var(--navy);" />
+            </label>
+            <label style="font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:8px;">
+              Session
+              <select onchange="_setAttendanceImportSessionType(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;color:var(--navy);">
+                <option value="class" ${_attendanceImportSessionType === 'class' ? 'selected' : ''}>Contact</option>
+                <option value="tutorial" ${_attendanceImportSessionType === 'tutorial' ? 'selected' : ''}>Tutorial</option>
+              </select>
+            </label>
+            <label class="btn-prev" style="display:inline-flex;cursor:pointer;">
+              ⬆ Upload XLS/XLSX
+              <input type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;" onchange="_handleAttendanceImportFile(event)" />
+            </label>
+            <button class="btn-next" style="display:inline-flex;" onclick="_applyAttendanceImport()">Apply Import</button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+          <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:14px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Rows Loaded</div>
+            <div style="font-size:24px;font-weight:900;color:var(--navy);margin-top:6px;">${previewRows.length}</div>
+          </div>
+          <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:14px;">
+            <div style="font-size:11px;color:#166534;text-transform:uppercase;letter-spacing:.08em;">Matched Present</div>
+            <div style="font-size:24px;font-weight:900;color:#166534;margin-top:6px;">${matchedPresentRows.length}</div>
+          </div>
+          <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:14px;">
+            <div style="font-size:11px;color:#9a3412;text-transform:uppercase;letter-spacing:.08em;">Matched Absent/Skipped</div>
+            <div style="font-size:24px;font-weight:900;color:#9a3412;margin-top:6px;">${skippedRows.length}</div>
+          </div>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px;">
+            <div style="font-size:11px;color:#991b1b;text-transform:uppercase;letter-spacing:.08em;">Unmatched</div>
+            <div style="font-size:24px;font-weight:900;color:#991b1b;margin-top:6px;">${unmatchedRows.length}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+          <div>
+            <h2 style="margin:0;color:var(--navy);font-size:18px;">Preview</h2>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px;">${_attendanceDateKeyLabel(_attendanceImportDateKey)} · ${_attendanceImportSessionLabel(_attendanceImportSessionType)} session</div>
+          </div>
+        </div>
+        ${previewRows.length ? `
+          <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#f8fafc;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">
+                  <th style="padding:12px 14px;text-align:left;">Row</th>
+                  <th style="padding:12px 14px;text-align:left;">Register Entry</th>
+                  <th style="padding:12px 14px;text-align:left;">Matched Student</th>
+                  <th style="padding:12px 14px;text-align:left;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${previewRows.map((row) => `
+                  <tr>
+                    <td style="padding:12px 14px;border-top:1px solid var(--border);color:var(--muted);">${row.rowNumber}</td>
+                    <td style="padding:12px 14px;border-top:1px solid var(--border);">
+                      <div style="font-weight:800;color:var(--navy);">${_esc(row.name || 'Unnamed row')}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(row.studentNumber || 'No student number')} · ${_esc(row.email || 'No email')}</div>
+                    </td>
+                    <td style="padding:12px 14px;border-top:1px solid var(--border);">
+                      ${row.matched ? `
+                        <div style="font-weight:800;color:var(--navy);">${_esc(row.student?.name || 'Matched')}</div>
+                        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(row.student?.studentNumber || 'No student number')} · ${_esc(row.student?.email || 'No email')} · matched by ${_esc(row.matchedBy || 'unknown')}</div>
+                      ` : '<span style="color:#991b1b;font-weight:800;">No matching student</span>'}
+                    </td>
+                    <td style="padding:12px 14px;border-top:1px solid var(--border);">
+                      <span style="display:inline-flex;align-items:center;padding:4px 9px;border-radius:999px;font-weight:800;${row.matched ? (row.present ? 'background:#dcfce7;color:#166534;' : 'background:#ffedd5;color:#9a3412;') : 'background:#fee2e2;color:#991b1b;'}">
+                        ${row.matched ? (row.present ? 'Ready to import' : 'Skipped as absent') : 'Unmatched'}
+                      </span>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : '<div style="font-size:13px;color:var(--muted);line-height:1.7;">Upload an attendance register in .xls or .xlsx format. Match using student number first, then email, then exact student name.</div>'}
+      </div>
+    </div>
+  `;
+};
+
+function _gradebookAssessmentList() {
+  const source = window._atConfigs && typeof window._atConfigs === 'object'
+    ? Object.values(window._atConfigs)
+    : Object.values(assessmentConfigs);
+  return source
+    .filter((cfg) => cfg && typeof cfg === 'object' && cfg.id)
+    .map((cfg) => ({
+      id: String(cfg.id || '').trim(),
+      badge: String(cfg.badge || cfg.id || '').trim(),
+      title: String(cfg.title || cfg.badge || cfg.id || '').trim(),
+      marks: Number(cfg.marks || 100) || 100,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function _gradebookMs(value = '') {
+  const parsed = new Date(value || '').getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function _gradebookResolvedMark(record = {}, submission = {}) {
+  const moderationMark = Number(record?.moderation?.mark);
+  if (Number.isFinite(moderationMark)) return { mark: moderationMark, source: 'Moderation' };
+
+  const tutorMark = Number(record?.tutorReview?.mark);
+  if (Number.isFinite(tutorMark)) return { mark: tutorMark, source: 'Tutor Review' };
+
+  const releasedMark = Number(submission?.feedback?.mark);
+  if (Number.isFinite(releasedMark)) return { mark: releasedMark, source: 'Released Feedback' };
+
+  const aiMark = Number(record?.aiDraft?.overallMark);
+  if (Number.isFinite(aiMark)) return { mark: aiMark, source: 'AI Draft' };
+
+  return { mark: null, source: '' };
+}
+
+function _gradebookStatusLabel(record = {}, submission = {}) {
+  const raw = String(record?.status || submission?.status || '').trim().toLowerCase();
+  if (!raw && !submission?.submittedAt) return 'Not submitted';
+  if (raw === 'finalised') return 'Finalised';
+  if (raw === 'moderated') return 'Moderated';
+  if (raw === 'moderation_required') return 'Moderation required';
+  if (raw === 'tutor_reviewed') return 'Tutor reviewed';
+  if (raw === 'ai_ready') return 'AI ready';
+  if (raw === 'reviewed') return 'Reviewed';
+  if (raw === 'submitted') return 'Submitted';
+  if (raw === 'cleared') return 'Cleared';
+  return raw ? raw.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()) : 'Submitted';
+}
+
+function _gradebookLatestSubmission(rawBySubmission = {}) {
+  return Object.entries(rawBySubmission || {})
+    .map(([submissionId, submission]) => ({ ...(submission || {}), _submissionId: submissionId }))
+    .filter((submission) => submission && submission.submittedAt && submission.status !== 'cleared')
+    .sort((a, b) => _gradebookMs(b.submittedAt || b.updatedAt) - _gradebookMs(a.submittedAt || a.updatedAt))[0] || null;
+}
+
+function _gradebookSelectedRecord(rawBySubmission = {}, preferredSubmissionId = '') {
+  const records = Object.entries(rawBySubmission || {})
+    .map(([submissionId, record]) => ({ ...(record || {}), _submissionId: submissionId }))
+    .filter((record) => record && typeof record === 'object');
+  if (!records.length) return null;
+
+  if (preferredSubmissionId) {
+    const direct = records.find((record) => record._submissionId === preferredSubmissionId);
+    if (direct) return direct;
+  }
+
+  const scored = records.filter((record) => _gradebookResolvedMark(record, {}).mark != null);
+  const pool = scored.length ? scored : records;
+  return pool.sort((a, b) => {
+    const aMs = _gradebookMs(a.finalisedAt || a.moderatedAt || a.tutorReviewedAt || a.aiGeneratedAt || a.updatedAt);
+    const bMs = _gradebookMs(b.finalisedAt || b.moderatedAt || b.tutorReviewedAt || b.aiGeneratedAt || b.updatedAt);
+    return bMs - aMs;
+  })[0] || null;
+}
+
+async function _loadGradebookStudents() {
+  const [usersSnap, rosterSnap] = await Promise.all([
+    get(ref(db, 'users')),
+    get(ref(db, 'rosters/classList')).catch(() => ({ exists: () => false })),
+  ]);
+  if (!usersSnap.exists()) return [];
+
+  const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+  const rosterNumberByEmail = new Map();
+  rosterRows.forEach((row) => {
+    const email = _normEmail(row?.email || '');
+    const studentNumber = String(row?.studentNumber || row?.studentNo || row?.studentId || '').trim();
+    if (email && studentNumber) rosterNumberByEmail.set(email, studentNumber);
+  });
+
+  return Object.entries(usersSnap.val() || {})
+    .filter(([, user]) => _roleFromProfile(user) === 'student' && !user?.profile?.disabled)
+    .map(([uid, user]) => {
+      const profile = user?.profile || {};
+      const state = user?.state || {};
+      const email = _normEmail(profile.authEmail || profile.username || profile.email || '');
+      return {
+        uid,
+        name: String(profile.displayName || profile.name || email || `Student_${uid.slice(0, 6)}`).trim(),
+        studentNumber: String(
+          profile.studentNumber
+          || profile.studentNo
+          || profile.studentId
+          || rosterNumberByEmail.get(email)
+          || ''
+        ).trim(),
+        email,
+        tutorialGroup: String(profile.tutorialGroup || '').trim().toUpperCase(),
+        state,
+      };
+    })
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+}
+
+function _gradebookSheetName(label = '') {
+  const safe = String(label || 'Sheet').replace(/[\\/?*\[\]:]/g, ' ').trim() || 'Sheet';
+  return safe.slice(0, 31);
+}
+
+function _gradebookApplyColumnWidths(sheet, widths = []) {
+  sheet['!cols'] = widths.map((wch) => ({ wch }));
+  sheet['!autofilter'] = { ref: sheet['!ref'] };
+}
+
+function _gradebookSummaryRows() {
+  const assessments = _gradebookAssessments || [];
+  return (_gradebookRows || []).map((row) => {
+    const marks = assessments.map((assessment) => {
+      const cell = row.assessments[assessment.id];
+      return cell?.resolved?.mark;
+    }).filter((mark) => Number.isFinite(Number(mark)));
+    const average = marks.length
+      ? Math.round((marks.reduce((sum, mark) => sum + Number(mark), 0) / marks.length) * 10) / 10
+      : null;
+    return [
+      row.name,
+      row.studentNumber,
+      row.email,
+      row.tutorialGroup,
+      ...assessments.map((assessment) => {
+        const cell = row.assessments[assessment.id];
+        return cell?.resolved?.mark != null ? Number(cell.resolved.mark) : '';
+      }),
+      average != null ? average : '',
+    ];
+  });
+}
+
+function _gradebookAssessmentRows(assessmentId) {
+  return (_gradebookRows || []).map((row) => {
+    const cell = row.assessments?.[assessmentId] || {};
+    return [
+      row.name,
+      row.studentNumber,
+      row.email,
+      row.tutorialGroup,
+      cell?.resolved?.mark != null ? Number(cell.resolved.mark) : '',
+      cell?.resolved?.source || '',
+      cell?.statusLabel || 'Not submitted',
+      cell?.releasedToStudent ? 'Yes' : 'No',
+      cell?.submissionCount || 0,
+      cell?.latestSubmissionAt || '',
+      cell?.latestSubmissionId || '',
+    ];
+  });
+}
+
+async function _downloadWorkbookAsXlsm(filename, sheets = []) {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.utils.book_new();
+  sheets.forEach((sheetDef) => {
+    const ws = XLSX.utils.aoa_to_sheet(sheetDef.rows || []);
+    _gradebookApplyColumnWidths(ws, sheetDef.widths || []);
+    XLSX.utils.book_append_sheet(workbook, ws, _gradebookSheetName(sheetDef.name));
+  });
+  XLSX.writeFile(workbook, filename, { bookType: 'xlsm', compression: true });
+}
+
+window._downloadGradebookXlsm = async () => {
+  if (!Array.isArray(_gradebookRows) || !_gradebookRows.length || !Array.isArray(_gradebookAssessments) || !_gradebookAssessments.length) {
+    _showLecturerToast('Load the gradebook first, then export it.', 'warn', 2800);
+    return;
+  }
+  const summaryHeaders = [
+    'Student Name',
+    'Student Number',
+    'Email',
+    'Tutorial Group',
+    ..._gradebookAssessments.map((assessment) => `${assessment.badge} Mark`),
+    'Average Mark',
+  ];
+  const sheets = [
+    {
+      name: 'Gradebook',
+      rows: [summaryHeaders, ..._gradebookSummaryRows()],
+      widths: [28, 16, 28, 14, ..._gradebookAssessments.map(() => 16), 14],
+    },
+    ..._gradebookAssessments.map((assessment) => ({
+      name: assessment.badge || assessment.id,
+      rows: [[
+        'Student Name',
+        'Student Number',
+        'Email',
+        'Tutorial Group',
+        'Mark',
+        'Mark Source',
+        'Review Status',
+        'Released To Student',
+        'Submission Versions',
+        'Latest Submission At',
+        'Latest Submission ID',
+      ], ..._gradebookAssessmentRows(assessment.id)],
+      widths: [28, 16, 28, 14, 12, 16, 18, 16, 18, 22, 18],
+    })),
+  ];
+  await _downloadWorkbookAsXlsm(`gradebook-${new Date().toISOString().slice(0, 10)}.xlsm`, sheets);
+};
+
+window._setGradebookAssessment = (assessmentId = '') => {
+  _gradebookSelectedAssessmentId = String(assessmentId || '').trim();
+  window._loadGradebookManager?.();
+};
+
+window._downloadSelectedAssessmentXlsm = async () => {
+  const assessment = (_gradebookAssessments || []).find((item) => item.id === _gradebookSelectedAssessmentId)
+    || (_gradebookAssessments || [])[0];
+  if (!assessment) {
+    _showLecturerToast('No assessment gradebook is available yet.', 'warn', 2800);
+    return;
+  }
+  await _downloadWorkbookAsXlsm(`assessment-${assessment.id}-marks-${new Date().toISOString().slice(0, 10)}.xlsm`, [{
+    name: assessment.badge || assessment.id,
+    rows: [[
+      'Student Name',
+      'Student Number',
+      'Email',
+      'Tutorial Group',
+      'Mark',
+      'Mark Source',
+      'Review Status',
+      'Released To Student',
+      'Submission Versions',
+      'Latest Submission At',
+      'Latest Submission ID',
+    ], ..._gradebookAssessmentRows(assessment.id)],
+    widths: [28, 16, 28, 14, 12, 16, 18, 16, 18, 22, 18],
+  }]);
+};
+
+window._loadGradebookManager = async () => {
+  let mount = document.getElementById('analytics-mount');
+  if (!mount) {
+    const content = document.getElementById('dash-content');
+    if (!content) return;
+    content.innerHTML = '<div id="analytics-mount" style="height:100%;overflow-y:auto;"></div>';
+    mount = document.getElementById('analytics-mount');
+    if (!mount) return;
+  }
+  mount.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">⏳ Loading gradebook…</div>';
+
+  try {
+    const assessments = _gradebookAssessmentList();
+    const students = await _loadGradebookStudents();
+    const fetches = assessments.flatMap((assessment) => [
+      get(ref(db, `submissions/${assessment.id}`)).catch(() => ({ exists: () => false })),
+      get(ref(db, `grading-records/${assessment.id}`)).catch(() => ({ exists: () => false })),
+    ]);
+    const fetchResults = await Promise.all(fetches);
+
+    const submissionsByAssessment = {};
+    const recordsByAssessment = {};
+    assessments.forEach((assessment, idx) => {
+      const submissionsSnap = fetchResults[idx * 2];
+      const recordsSnap = fetchResults[(idx * 2) + 1];
+      submissionsByAssessment[assessment.id] = submissionsSnap?.exists?.() ? (submissionsSnap.val() || {}) : {};
+      recordsByAssessment[assessment.id] = recordsSnap?.exists?.() ? (recordsSnap.val() || {}) : {};
+    });
+
+    _gradebookAssessments = assessments;
+    if (!_gradebookSelectedAssessmentId || !assessments.some((assessment) => assessment.id === _gradebookSelectedAssessmentId)) {
+      _gradebookSelectedAssessmentId = assessments[0]?.id || '';
+    }
+
+    _gradebookRows = students.map((student) => {
+      const assessmentCells = {};
+      assessments.forEach((assessment) => {
+        const studentSubmissions = submissionsByAssessment[assessment.id]?.[student.uid] || {};
+        const studentRecords = recordsByAssessment[assessment.id]?.[student.uid] || {};
+        const latestSubmission = _gradebookLatestSubmission(studentSubmissions);
+        const selectedRecord = _gradebookSelectedRecord(studentRecords, latestSubmission?._submissionId || '');
+        const resolved = _gradebookResolvedMark(selectedRecord || {}, latestSubmission || {});
+        assessmentCells[assessment.id] = {
+          assessmentId: assessment.id,
+          latestSubmissionId: latestSubmission?._submissionId || selectedRecord?._submissionId || '',
+          latestSubmissionAt: latestSubmission?.submittedAt || latestSubmission?.updatedAt || '',
+          submissionCount: Object.values(studentSubmissions || {}).filter((submission) => submission && submission.submittedAt && submission.status !== 'cleared').length,
+          statusLabel: _gradebookStatusLabel(selectedRecord || {}, latestSubmission || {}),
+          releasedToStudent: Boolean(latestSubmission?.feedback?.comment || latestSubmission?.feedback?.mark != null || selectedRecord?.status === 'finalised'),
+          resolved,
+          record: selectedRecord,
+          submission: latestSubmission,
+          submissionFileUrl: (Array.isArray(latestSubmission?.files) ? latestSubmission.files : [])[0]?.url || '',
+        };
+      });
+      return {
+        uid: student.uid,
+        name: student.name,
+        studentNumber: student.studentNumber || '',
+        email: student.email || '',
+        tutorialGroup: student.tutorialGroup || '',
+        assessments: assessmentCells,
+      };
+    });
+
+    const selectedAssessment = assessments.find((assessment) => assessment.id === _gradebookSelectedAssessmentId) || null;
+    const completedMarks = _gradebookRows.reduce((sum, row) => sum + assessments.filter((assessment) => row.assessments[assessment.id]?.resolved?.mark != null).length, 0);
+    const finalisedMarks = _gradebookRows.reduce((sum, row) => sum + assessments.filter((assessment) => row.assessments[assessment.id]?.statusLabel === 'Finalised').length, 0);
+
+    mount.innerHTML = `
+      <div style="display:grid;gap:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+          <div>
+            <h1 style="margin:0;color:var(--navy);font-family:var(--font-heading);font-size:30px;">Gradebook</h1>
+            <p style="margin:8px 0 0 0;color:var(--muted);line-height:1.6;max-width:820px;">Review assessment marks across the cohort, then download the full gradebook or a single-assessment marks workbook as <code>.xlsm</code>.</p>
+          </div>
+          <button class="btn-prev" style="display:inline-flex;" onclick="_loadAnalytics()">Back to Cohort Overview</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+          <div style="background:white;border:1px solid var(--border);border-radius:14px;padding:16px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Students</div>
+            <div style="font-size:26px;font-weight:900;color:var(--navy);margin-top:6px;">${_gradebookRows.length}</div>
+          </div>
+          <div style="background:white;border:1px solid var(--border);border-radius:14px;padding:16px;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Assessments</div>
+            <div style="font-size:26px;font-weight:900;color:var(--navy);margin-top:6px;">${assessments.length}</div>
+          </div>
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:16px;">
+            <div style="font-size:11px;color:#1d4ed8;text-transform:uppercase;letter-spacing:.08em;">Marks Captured</div>
+            <div style="font-size:26px;font-weight:900;color:#1d4ed8;margin-top:6px;">${completedMarks}</div>
+          </div>
+          <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:14px;padding:16px;">
+            <div style="font-size:11px;color:#047857;text-transform:uppercase;letter-spacing:.08em;">Finalised Marks</div>
+            <div style="font-size:26px;font-weight:900;color:#047857;margin-top:6px;">${finalisedMarks}</div>
+          </div>
+        </div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+            <div>
+              <h2 style="margin:0;color:var(--navy);font-size:18px;">Exports</h2>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">Full gradebook plus separate assessment marks workbooks.</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <button class="btn-next" style="display:inline-flex;" onclick="_downloadGradebookXlsm()">⬇ Download Gradebook XLSM</button>
+              <select onchange="_setGradebookAssessment(this.value)" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;color:var(--navy);min-width:220px;">
+                ${assessments.map((assessment) => `<option value="${_esc(assessment.id)}" ${assessment.id === _gradebookSelectedAssessmentId ? 'selected' : ''}>${_esc(assessment.badge)} · ${_esc(assessment.title)}</option>`).join('')}
+              </select>
+              <button class="btn-prev" style="display:inline-flex;" onclick="_downloadSelectedAssessmentXlsm()">⬇ Download Assessment XLSM</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+              <h2 style="margin:0;color:var(--navy);font-size:18px;">Cohort Gradebook</h2>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;">Rows are students. Columns are assessments. Marks prefer moderation, then tutor review, then released feedback, then AI draft.</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              ${_gradebookEditMode
+                ? `<button class="btn-next" style="display:inline-flex;background:#059669;border-color:#059669;" onclick="_gradebookSaveMarkChanges()">Save Mark Changes</button>
+                   <button class="btn-prev" style="display:inline-flex;" onclick="_gradebookToggleEditMode()">Cancel</button>`
+                : `<button class="btn-prev" style="display:inline-flex;" onclick="_gradebookToggleEditMode()">Edit Marks</button>`
+              }
+            </div>
+          </div>
+          <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#f8fafc;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">
+                  <th style="padding:12px 14px;text-align:left;min-width:220px;">Student</th>
+                  <th style="padding:12px 14px;text-align:left;min-width:120px;">Student Number</th>
+                  ${assessments.map((assessment) => `<th style="padding:12px 14px;text-align:left;min-width:200px;">${_esc(assessment.badge)}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${_gradebookRows.map((row) => `
+                  <tr>
+                    <td style="padding:12px 14px;border-top:1px solid var(--border);">
+                      <div style="font-weight:800;color:var(--navy);">${_esc(row.name)}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(row.email || 'No email')} ${row.tutorialGroup ? `· Group ${_esc(row.tutorialGroup)}` : ''}</div>
+                    </td>
+                    <td style="padding:12px 14px;border-top:1px solid var(--border);color:var(--navy);font-weight:700;">${_esc(row.studentNumber || '—')}</td>
+                    ${assessments.map((assessment) => {
+                      const cell = row.assessments[assessment.id];
+                      const mark = cell?.resolved?.mark;
+                      const status = cell?.statusLabel || 'Not submitted';
+                      const source = cell?.resolved?.source || '';
+                      const bg = mark == null ? '#f8fafc' : (Number(mark) < 50 ? '#fef2f2' : '#ecfdf5');
+                      const color = mark == null ? 'var(--muted)' : (Number(mark) < 50 ? '#991b1b' : '#166534');
+                      const editKey = `${_esc(row.uid)}__${_esc(assessment.id)}`;
+                      const hasSubmission = Boolean(cell?.latestSubmissionId);
+                      const fileUrl = cell?.submissionFileUrl || '';
+                      return `<td style="padding:10px 14px;border-top:1px solid var(--border);background:${bg};">
+                        ${_gradebookEditMode && hasSubmission
+                          ? `<input type="number" min="0" max="100"
+                               data-edit-key="${editKey}"
+                               data-uid="${_esc(row.uid)}"
+                               data-assessment="${_esc(assessment.id)}"
+                               value="${mark != null ? mark : ''}"
+                               placeholder="—"
+                               oninput="window._gradebookRecordEdit(this)"
+                               style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:900;color:${color};background:white;" /><span style="font-size:11px;color:var(--muted);margin-left:3px;">%</span>`
+                          : `<div style="font-weight:900;color:${color};">${mark != null ? `${_esc(String(mark))}%` : '—'}</div>`
+                        }
+                        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(status)}${source ? ` · ${_esc(source)}` : ''}</div>
+                        ${hasSubmission ? `<div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;">
+                          <button type="button" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);border-radius:5px;background:white;color:var(--navy);cursor:pointer;white-space:nowrap;"
+                            onclick="window._gradebookOpenMarkingPlatform(${_esc(JSON.stringify(assessment.id))},${_esc(JSON.stringify(row.uid))},${_esc(JSON.stringify(cell?.latestSubmissionId || ''))})">Marking Platform</button>
+                          ${fileUrl ? `<button type="button" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);border-radius:5px;background:white;color:var(--navy);cursor:pointer;white-space:nowrap;"
+                            onclick="window.open(${_esc(JSON.stringify(fileUrl))},&apos;_blank&apos;)">Open Document</button>` : ''}
+                        </div>` : ''}
+                      </td>`;
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        ${selectedAssessment ? (() => {
+          const gbSubmittedRows = _gradebookRows.filter((row) => Boolean(row.assessments[selectedAssessment.id]?.latestSubmissionId));
+          const gbAllSelected = gbSubmittedRows.length > 0 && gbSubmittedRows.every((row) => _gbBulkSelected.has(row.uid + '__' + selectedAssessment.id));
+          return `
+          <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+              <div>
+                <h2 style="margin:0;color:var(--navy);font-size:18px;">${_esc(selectedAssessment.badge)} Marks</h2>
+                <div style="font-size:12px;color:var(--muted);margin-top:6px;">${_esc(selectedAssessment.title)}</div>
+              </div>
+            </div>
+
+            ${_gbBulkSelected.size > 0 ? `
+            <div style="margin-bottom:12px;padding:12px 16px;border:2px solid var(--navy);border-radius:12px;background:#f8fafc;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="font-size:13px;font-weight:800;color:var(--navy);">${_gbBulkSelected.size} student${_gbBulkSelected.size === 1 ? '' : 's'} selected</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button type="button" class="btn-next" style="display:inline-flex;font-size:12px;padding:6px 12px;background:#059669;border-color:#059669;${_gbBulkRunning ? 'opacity:.55;cursor:not-allowed;' : ''}"
+                    ${_gbBulkRunning ? 'disabled' : 'onclick="window._gbBulkFinalise()"'}>Finalise Selected</button>
+                  <button type="button" class="btn-next" style="display:inline-flex;font-size:12px;padding:6px 12px;${_gbBulkRunning ? 'opacity:.55;cursor:not-allowed;' : ''}"
+                    ${_gbBulkRunning ? 'disabled' : 'onclick="window._gbBulkRelease()"'}>Release Selected</button>
+                  <button type="button" class="btn-prev" style="display:inline-flex;font-size:12px;padding:6px 12px;border-color:#fca5a5;color:#991b1b;${_gbBulkRunning ? 'opacity:.55;cursor:not-allowed;' : ''}"
+                    ${_gbBulkRunning ? 'disabled' : 'onclick="window._gbBulkReturnToTutor()"'}>Return to Tutor</button>
+                  <button type="button" class="btn-prev" style="display:inline-flex;font-size:12px;padding:6px 12px;" onclick="window._gbBulkClearSelection()">Clear</button>
+                </div>
+              </div>
+              <div id="gb-bulk-status" style="font-size:12px;color:var(--muted);margin-top:8px;min-height:16px;"></div>
+            </div>` : ''}
+
+            <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;">
+              <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead>
+                  <tr style="background:#f8fafc;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">
+                    <th style="padding:12px 14px;text-align:left;width:36px;">
+                      <input type="checkbox" title="Select all with submissions" ${gbAllSelected ? 'checked' : ''}
+                        onchange="window._gbBulkSelectAll(this.checked, ${_esc(JSON.stringify(selectedAssessment.id))})" />
+                    </th>
+                    <th style="padding:12px 14px;text-align:left;">Student</th>
+                    <th style="padding:12px 14px;text-align:left;">Student Number</th>
+                    <th style="padding:12px 14px;text-align:left;">Mark</th>
+                    <th style="padding:12px 14px;text-align:left;">Source</th>
+                    <th style="padding:12px 14px;text-align:left;">Status</th>
+                    <th style="padding:12px 14px;text-align:left;">Released</th>
+                    <th style="padding:12px 14px;text-align:left;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${_gradebookRows.map((row) => {
+                    const cell = row.assessments[selectedAssessment.id];
+                    const mark = cell?.resolved?.mark;
+                    const markColor = mark != null && Number(mark) < 50 ? '#991b1b' : '#166534';
+                    const hasSubmission = Boolean(cell?.latestSubmissionId);
+                    const fileUrl = cell?.submissionFileUrl || '';
+                    const selKey = row.uid + '__' + selectedAssessment.id;
+                    const isSelected = _gbBulkSelected.has(selKey);
+                    return `<tr style="background:${isSelected ? '#eff6ff' : 'inherit'};">
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);">
+                        ${hasSubmission ? `<input type="checkbox" ${isSelected ? 'checked' : ''}
+                          onchange="window._gbBulkToggle(${_esc(JSON.stringify(row.uid))},${_esc(JSON.stringify(selectedAssessment.id))},${_esc(JSON.stringify(cell?.latestSubmissionId || ''))},this.checked)" />` : ''}
+                      </td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);">
+                        <div style="font-weight:800;color:var(--navy);">${_esc(row.name)}</div>
+                        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(row.email || 'No email')}</div>
+                      </td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);">${_esc(row.studentNumber || '—')}</td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);font-weight:900;color:${markColor};">${mark != null ? `${_esc(String(mark))}%` : '—'}</td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);">${_esc(cell?.resolved?.source || '—')}</td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);">${_esc(cell?.statusLabel || 'Not submitted')}</td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);">${cell?.releasedToStudent ? 'Yes' : 'No'}</td>
+                      <td style="padding:10px 14px;border-top:1px solid var(--border);">
+                        ${hasSubmission ? `<div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <button type="button" class="btn-prev" style="font-size:10px;padding:3px 9px;display:inline-flex;"
+                            onclick="window._gradebookOpenMarkingPlatform(${_esc(JSON.stringify(selectedAssessment.id))},${_esc(JSON.stringify(row.uid))},${_esc(JSON.stringify(cell?.latestSubmissionId || ''))})">Marking Platform</button>
+                          ${fileUrl ? `<button type="button" class="btn-prev" style="font-size:10px;padding:3px 9px;display:inline-flex;"
+                            onclick="window.open(${_esc(JSON.stringify(fileUrl))},&apos;_blank&apos;)">Open Document</button>` : ''}
+                        </div>` : '<span style="color:var(--muted);font-size:11px;">No submission</span>'}
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>`;
+        })() : ''}
+      </div>
+    `;
+  } catch (err) {
+    console.error('Gradebook load failed:', err);
+    mount.innerHTML = `<div style="padding:40px;text-align:center;color:#b91c1c;">Failed to load gradebook: ${_esc(err?.message || err || 'Unknown error')}</div>`;
+  }
+};
+
+window._gradebookToggleEditMode = () => {
+  _gradebookEditMode = !_gradebookEditMode;
+  _gradebookMarkEdits = {};
+  window._loadGradebookManager?.();
+};
+
+window._gradebookRecordEdit = (input) => {
+  const key = input.dataset.editKey;
+  const uid = input.dataset.uid;
+  const assessmentId = input.dataset.assessment;
+  const val = input.value.trim();
+  if (!key || !uid || !assessmentId) return;
+  if (val === '') {
+    delete _gradebookMarkEdits[key];
+  } else {
+    const num = Number(val);
+    if (Number.isFinite(num) && num >= 0 && num <= 100) {
+      _gradebookMarkEdits[key] = { uid, assessmentId, mark: num };
+    }
+  }
+};
+
+window._gradebookSaveMarkChanges = async () => {
+  const edits = Object.values(_gradebookMarkEdits);
+  if (!edits.length) {
+    _showLecturerToast('No mark changes to save.', 'warn', 2400);
+    return;
+  }
+  if (!confirm(`Save ${edits.length} mark change${edits.length === 1 ? '' : 's'}? This will write a moderation-level mark override for each selected student.`)) return;
+
+  _showLecturerProcessing?.('Saving mark changes…');
+  let saved = 0;
+  let failed = 0;
+  const now = new Date().toISOString();
+  const user = STATE?.user;
+  const moderatorName = user?.displayName || user?.email || 'Lecturer';
+  const moderatorUid = user?.uid || '';
+
+  for (const edit of edits) {
+    const row = _gradebookRows.find((r) => r.uid === edit.uid);
+    const cell = row?.assessments?.[edit.assessmentId];
+    const submissionId = cell?.latestSubmissionId;
+    if (!row || !submissionId) { failed++; continue; }
+    try {
+      await update(ref(db, `grading-records/${edit.assessmentId}/${edit.uid}/${submissionId}`), {
+        'moderation/mark': edit.mark,
+        'moderation/moderatorUid': moderatorUid,
+        'moderation/moderatorName': moderatorName,
+        'moderation/moderatedAt': now,
+        'moderation/source': 'gradebook-edit',
+        moderatedAt: now,
+        moderatedByUid: moderatorUid,
+        moderatedByName: moderatorName,
+        updatedAt: now,
+      });
+      saved++;
+    } catch (err) {
+      console.error('Gradebook mark save failed for', edit.uid, err);
+      failed++;
+    }
+  }
+
+  _gradebookEditMode = false;
+  _gradebookMarkEdits = {};
+  await window._loadGradebookManager?.();
+  if (failed) {
+    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved; ${failed} failed.`, 'warn', 3500);
+  } else {
+    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved.`, 'success', 2800);
+  }
+};
+
+window._gradebookOpenMarkingPlatform = (assessmentId, studentUid, submissionId) => {
+  if (!assessmentId || !studentUid || !submissionId) {
+    _showLecturerToast('Cannot open marking platform — submission data is missing.', 'warn', 2800);
+    return;
+  }
+  const analyticsMount = document.getElementById('analytics-mount');
+  _gradebookReturnContext = {
+    assessmentId: _gradebookSelectedAssessmentId,
+    scrollTop: analyticsMount ? analyticsMount.scrollTop : 0,
+  };
+  window._openSubmissionReviewer?.('moderation', true);
+  window.setTimeout(() => {
+    window._openMarkingWorkspace?.(assessmentId, studentUid, submissionId, 0, false);
+  }, 400);
+};
+
+window._returnToGradebook = () => {
+  const ctx = _gradebookReturnContext;
+  _gradebookReturnContext = null;
+  if (ctx?.assessmentId) _gradebookSelectedAssessmentId = ctx.assessmentId;
+  window._loadGradebookManager?.();
+  if (ctx?.scrollTop) {
+    window.setTimeout(() => {
+      const analyticsMount = document.getElementById('analytics-mount');
+      if (analyticsMount) analyticsMount.scrollTop = ctx.scrollTop;
+    }, 300);
+  }
+};
+
+window._gbBulkToggle = (uid, assessmentId, submissionId, checked) => {
+  const key = `${uid}__${assessmentId}`;
+  if (checked) _gbBulkSelected.set(key, { uid, assessmentId, submissionId });
+  else _gbBulkSelected.delete(key);
+  window._loadGradebookManager?.();
+};
+
+window._gbBulkSelectAll = (checked, assessmentId) => {
+  _gradebookRows.forEach((row) => {
+    const cell = row.assessments[assessmentId];
+    if (!cell?.latestSubmissionId) return;
+    const key = `${row.uid}__${assessmentId}`;
+    if (checked) _gbBulkSelected.set(key, { uid: row.uid, assessmentId, submissionId: cell.latestSubmissionId });
+    else _gbBulkSelected.delete(key);
+  });
+  window._loadGradebookManager?.();
+};
+
+window._gbBulkClearSelection = () => {
+  _gbBulkSelected.clear();
+  window._loadGradebookManager?.();
+};
+
+function _gbSetStatus(text, color = 'var(--muted)') {
+  const el = document.getElementById('gb-bulk-status');
+  if (el) { el.textContent = text; el.style.color = color; }
+}
+
+window._gbBulkFinalise = async () => {
+  const targets = Array.from(_gbBulkSelected.values());
+  if (!targets.length) return;
+  if (!confirm(`Finalise ${targets.length} submission${targets.length === 1 ? '' : 's'}? This approves the current tutor mark and sets each script ready to release.`)) return;
+  _gbBulkRunning = true;
+  await window._loadGradebookManager?.();
+  let done = 0; let failed = 0;
+  for (const { uid, assessmentId, submissionId } of targets) {
+    _gbSetStatus(`Finalising ${done + failed + 1}/${targets.length}…`);
+    const recordSnap = await get(ref(db, `grading-records/${assessmentId}/${uid}/${submissionId}`)).catch(() => null);
+    const record = recordSnap?.val() || {};
+    const review = record.moderation || record.tutorReview || record.aiDraft || {};
+    const result = await saveModerationDecision(assessmentId, uid, submissionId, { action: 'release', finalReview: review, moderation: review });
+    if (result?.ok) done++; else failed++;
+  }
+  _gbBulkRunning = false;
+  _gbBulkSelected.clear();
+  await window._loadGradebookManager?.();
+  _gbSetStatus(failed ? `Finalised ${done}, ${failed} failed.` : `${done} script${done === 1 ? '' : 's'} finalised.`, failed ? '#92400e' : '#166534');
+};
+
+window._gbBulkRelease = async () => {
+  const targets = Array.from(_gbBulkSelected.values());
+  if (!targets.length) return;
+  if (!confirm(`Release ${targets.length} script${targets.length === 1 ? '' : 's'} to students? Only finalised scripts will post successfully.`)) return;
+  _gbBulkRunning = true;
+  await window._loadGradebookManager?.();
+  let done = 0; let failed = 0;
+  for (const { uid, assessmentId, submissionId } of targets) {
+    _gbSetStatus(`Releasing ${done + failed + 1}/${targets.length}…`);
+    const result = await postFinalisedSubmissionFeedback(assessmentId, uid, submissionId);
+    if (result?.ok) done++; else failed++;
+  }
+  _gbBulkRunning = false;
+  _gbBulkSelected.clear();
+  await window._loadGradebookManager?.();
+  _gbSetStatus(failed ? `Released ${done}, ${failed} failed.` : `${done} script${done === 1 ? '' : 's'} released to students.`, failed ? '#92400e' : '#166534');
+};
+
+window._gbBulkReturnToTutor = () => {
+  const targets = Array.from(_gbBulkSelected.values());
+  if (!targets.length) return;
+  const existing = document.getElementById('gb-return-overlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'gb-return-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:18px;padding:28px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(15,23,42,.22);">
+      <div style="font-size:18px;font-weight:900;color:var(--navy);margin-bottom:8px;">Return ${targets.length} Script${targets.length === 1 ? '' : 's'} to Tutor</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">This reason will be recorded for all selected submissions.</div>
+      <textarea id="gb-return-reason" rows="4" placeholder="State what needs to be addressed before the script can be finalised…"
+        style="width:100%;padding:10px;border:1px solid var(--border);border-radius:10px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn-prev" style="display:inline-flex;" onclick="document.getElementById('gb-return-overlay')?.remove()">Cancel</button>
+        <button class="btn-next" style="display:inline-flex;background:#991b1b;border-color:#991b1b;" onclick="window._gbBulkReturnToTutorConfirm()">Return Selected</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+};
+
+window._gbBulkReturnToTutorConfirm = async () => {
+  const reason = String(document.getElementById('gb-return-reason')?.value || '').trim();
+  if (!reason) { alert('Please enter a reason before returning.'); return; }
+  document.getElementById('gb-return-overlay')?.remove();
+  const targets = Array.from(_gbBulkSelected.values());
+  _gbBulkRunning = true;
+  await window._loadGradebookManager?.();
+  let done = 0; let failed = 0;
+  for (const { uid, assessmentId, submissionId } of targets) {
+    _gbSetStatus(`Returning ${done + failed + 1}/${targets.length}…`);
+    const result = await returnSubmissionToTutor(assessmentId, uid, submissionId, { reason });
+    if (result?.ok) done++; else failed++;
+  }
+  _gbBulkRunning = false;
+  _gbBulkSelected.clear();
+  await window._loadGradebookManager?.();
+  _gbSetStatus(failed ? `Returned ${done}, ${failed} failed.` : `${done} script${done === 1 ? '' : 's'} returned to tutor.`, failed ? '#92400e' : '#166534');
+};
+
+window._archiveCollaborationScope = async (scopeId) => {
+  const safeScopeId = String(scopeId || '').trim();
+  if (!safeScopeId) return;
+
+  const label = _LECTURER_COLLAB_SCOPE_CATALOG.find((row) => row.id === safeScopeId)?.label || safeScopeId;
+  const ok = confirm(
+    `Archive "${label}"?\n\nThis moves the current groups and artefacts into the collaboration archive and locks the active space against further student changes.`
+  );
+  if (!ok) return;
+
+  try {
+    const result = await archiveCollaborationScope(safeScopeId, {
+      reason: `Archived from lecturer dashboard by ${STATE.user?.email || STATE.user?.uid || 'staff'}`,
+    });
+    if (!result?.archived) {
+      _showLecturerToast('This collaboration space is already archived.', 'warn', 3200);
+      return;
+    }
+    _showLecturerToast(`Archived ${label}. Groups preserved: ${Number(result.count || 0)}.`, 'success', 3600);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(`Could not archive collaboration space: ${err?.message || err || 'Unknown error'}`, 'warn', 4600);
+  }
+};
+
+window._startFreshCollaborationCycle = async (scopeId) => {
+  const safeScopeId = String(scopeId || '').trim();
+  if (!safeScopeId) return;
+
+  const label = _LECTURER_COLLAB_SCOPE_CATALOG.find((row) => row.id === safeScopeId)?.label || safeScopeId;
+  const ok = confirm(
+    `Open a fresh cycle for "${label}"?\n\nThis archives the current live groups and artefacts if needed, then reopens the collaboration space as an empty active cycle so new groups can register.`
+  );
+  if (!ok) return;
+
+  try {
+    const result = await startFreshCollaborationCycle(safeScopeId, {
+      reason: `Fresh cycle opened from lecturer dashboard by ${STATE.user?.email || STATE.user?.uid || 'staff'}`,
+    });
+    const archivedNote = Number(result?.archivedCount || 0) > 0
+      ? ` Archived groups preserved: ${Number(result.archivedCount || 0)}.`
+      : '';
+    _showLecturerToast(`Fresh collaboration cycle opened for ${label}.${archivedNote}`, 'success', 4200);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(`Could not open a fresh collaboration cycle: ${err?.message || err || 'Unknown error'}`, 'warn', 4600);
+  }
+};
+
+window._toggleLecturerCollabScope = async (scopeId, expanded) => {
+  const safeScopeId = String(scopeId || '').trim();
+  if (!safeScopeId) return;
+  window._lecturerExpandedCollabScopes = window._lecturerExpandedCollabScopes || {};
+  window._lecturerExpandedCollabScopes[safeScopeId] = Boolean(expanded);
+  await window._loadAnalytics?.();
+};
+
+window._addManagedCollaborationGroup = async (scopeId) => {
+  const safeScopeId = String(scopeId || '').trim();
+  if (!safeScopeId) return;
+
+  const scopeRow = _LECTURER_COLLAB_SCOPE_CATALOG.find((row) => row.id === safeScopeId) || {};
+  const label = scopeRow.label || safeScopeId;
+  const name = String(prompt(`Add a new group to "${label}"\n\nEnter the group name:`) || '').trim();
+  if (!name) return;
+
+  try {
+    const created = await createManagedCollaborationGroup(safeScopeId, {
+      scopeType: 'assessment',
+      scopeLabel: label,
+      sizeLimit: 5,
+      name,
+    });
+    _showLecturerToast(`Added group "${created.groupName}". Students can join it online.`, 'success', 3600);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(`Could not add the group: ${err?.message || err || 'Unknown error'}`, 'warn', 4200);
+  }
+};
+
+window._lecRenameGroup = async (scopeId, groupId) => {
+  const newName = String(prompt('Enter the new group name:') || '').trim();
+  if (!newName) return;
+  try {
+    const result = await renameCollaborationGroup(scopeId, groupId, newName);
+    _showLecturerToast(`Group renamed to "${result.groupName}".`, 'success', 3000);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(err?.message || 'Could not rename the group.', 'warn', 4000);
+  }
+};
+
+window._lecTransferLeader = async (scopeId, groupId, uid, name) => {
+  if (!confirm(`Make ${name} the leader of this group?`)) return;
+  try {
+    const result = await transferCollaborationGroupLeader(scopeId, groupId, uid);
+    _showLecturerToast(`${result.newLeaderName} is now the group leader.`, 'success', 3000);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(err?.message || 'Could not change the leader.', 'warn', 4000);
+  }
+};
+
+window._lecRemoveMember = async (scopeId, groupId, uid, name) => {
+  if (!confirm(`Remove ${name} from this group?`)) return;
+  try {
+    await removeCollaborationMember(scopeId, groupId, uid);
+    _showLecturerToast(`Removed ${name} from the group.`, 'success', 3000);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(err?.message || 'Could not remove the member.', 'warn', 4000);
+  }
+};
+
+window._lecMoveMember = async (scopeId, fromGroupId, uid, selectId) => {
+  const select = document.getElementById(selectId);
+  const toGroupId = String(select?.value || '').trim();
+  if (!toGroupId) { _showLecturerToast('Select a destination group first.', 'warn', 2500); return; }
+  try {
+    await moveCollaborationMember(scopeId, fromGroupId, toGroupId, uid);
+    _showLecturerToast('Student moved to the new group.', 'success', 3000);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(err?.message || 'Could not move the student.', 'warn', 4000);
+  }
+};
+
+window._lecDeleteGroup = async (scopeId, groupId, groupName) => {
+  if (!confirm(`Delete group "${groupName}"?\n\nAll members will be removed and the group chat will be closed. This cannot be undone.`)) return;
+  try {
+    await deleteCollaborationGroup(scopeId, groupId);
+    _showLecturerToast(`Deleted group "${groupName}".`, 'success', 3000);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(err?.message || 'Could not delete the group.', 'warn', 4000);
+  }
+};
+
+function _lecStudentInAnyGroup(uid, groups) {
+  for (const group of Object.values(groups || {})) {
+    if (group?.members?.[uid]) return true;
+  }
+  return false;
+}
+
+window._lecAddStudentToGroup = async (scopeId, groupId, selectId) => {
+  const select = document.getElementById(selectId);
+  const uid = String(select?.value || '').trim();
+  if (!uid) { _showLecturerToast('Select a student first.', 'warn', 2500); return; }
+
+  const student = (Array.isArray(_cachedStudents) ? _cachedStudents : []).find((s) => s.uid === uid);
+  if (!student) { _showLecturerToast('Student not found in roster.', 'warn', 3000); return; }
+
+  try {
+    await addMemberToCollaborationGroup(scopeId, groupId, {
+      uid: student.uid,
+      name: student.name,
+      email: student.personalEmail || student.email,
+    });
+    _showLecturerToast(`Added ${student.name} to the group.`, 'success', 3000);
+    await window._loadAnalytics?.();
+  } catch (err) {
+    _showLecturerToast(err?.message || 'Could not add the student.', 'warn', 4000);
+  }
+};
 
 function _showLecturerProcessing(message = 'Processing request...') {
   const id = 'lecturer-processing-overlay';
@@ -6075,10 +7685,33 @@ window._clearBulkPromoteSelection = () => {
   _refreshBulkPromoteSelectionUi();
 };
 
+function _bulkPromoteUnitFilter() {
+  return String(document.getElementById('bulk-promote-unit-filter')?.value || 'all').trim();
+}
+
+function _studentMatchesUnitFilter(student, unitFilter) {
+  if (!unitFilter || unitFilter === 'all') return true;
+  const locked = _nextLockedForStudent(student);
+  return locked && locked.unitId === unitFilter;
+}
+
+function _pendingPromotionRequestForStudentUnit(student, unitId) {
+  const uid = String(student?.uid || '').trim();
+  const targetUnitId = String(unitId || '').trim();
+  if (!uid || !targetUnitId) return null;
+
+  return (_cachedAllPromotionRequests || []).find((row) => (
+    String(row?.status || '').toLowerCase() === 'pending'
+    && String(row?.uid || '').trim() === uid
+    && String(row?.targetUnitId || '').trim() === targetUnitId
+  )) || null;
+}
+
 window._selectAllBulkPromote = () => {
+  const unitFilter = _bulkPromoteUnitFilter();
   _bulkPromoteSelectedUids.clear();
   _eligibleStudentsForPromote().forEach((s) => {
-    if (_nextLockedForStudent(s)) _bulkPromoteSelectedUids.add(s.uid);
+    if (_nextLockedForStudent(s) && _studentMatchesUnitFilter(s, unitFilter)) _bulkPromoteSelectedUids.add(s.uid);
   });
   _bulkPromoteLastClickedIndex = null;
   document.querySelectorAll('.bulk-promote-checkbox').forEach((el) => {
@@ -6089,9 +7722,10 @@ window._selectAllBulkPromote = () => {
 };
 
 window._openBulkPromoteAllEligible = () => {
-  const eligibleStudents = _eligibleStudentsForPromote();
+  const unitFilter = _bulkPromoteUnitFilter();
+  const eligibleStudents = _eligibleStudentsForPromote().filter((s) => _studentMatchesUnitFilter(s, unitFilter));
   if (!eligibleStudents.length) {
-    _showLecturerToast('Select students with a locked next unit before promoting all eligible.', 'warn', 3000);
+    _showLecturerToast('No students with a locked next unit match the current filter.', 'warn', 3000);
     return;
   }
   _bulkPromoteSelectedUids.clear();
@@ -6107,6 +7741,7 @@ window._openBulkPromoteAllEligible = () => {
 
 window._selectBulkPromoteByFilter = () => {
   const filter = String(document.getElementById('bulk-promote-filter')?.value || 'pending-requests').trim();
+  const unitFilter = _bulkPromoteUnitFilter();
 
   if (filter === 'all-eligible') {
     window._selectAllBulkPromote();
@@ -6114,21 +7749,15 @@ window._selectBulkPromoteByFilter = () => {
   }
 
   if (filter === 'pending-requests') {
-    const pendingByUid = new Set(
-      (_cachedAllPromotionRequests || [])
-        .filter((row) => String(row?.status || '').toLowerCase() === 'pending')
-        .map((row) => String(row?.uid || '').trim())
-        .filter(Boolean)
-    );
-
     _bulkPromoteSelectedUids.clear();
     _cachedStudents.forEach((student) => {
       const uid = String(student?.uid || '').trim();
       if (!uid) return;
-      if (!pendingByUid.has(uid)) return;
-      if (_nextLockedForStudent(student)) {
-        _bulkPromoteSelectedUids.add(uid);
-      }
+      const locked = _nextLockedForStudent(student);
+      if (!locked) return;
+      if (!_pendingPromotionRequestForStudentUnit(student, locked.unitId)) return;
+      if (!_studentMatchesUnitFilter(student, unitFilter)) return;
+      _bulkPromoteSelectedUids.add(uid);
     });
 
     document.querySelectorAll('.bulk-promote-checkbox').forEach((el) => {
@@ -6721,6 +8350,7 @@ async function _loadAnalytics() {
         skillStatus, skillScores, skillAvgs, needsRem,
         frustrationIdx, highPerformer, studyTopics,
         escalations, outcomes: studentOutcomes,
+        state: s || {},
       });
     }
 
@@ -7324,6 +8954,189 @@ async function _loadAnalytics() {
     const curriculumAlerts = Object.entries(classSkillData)
       .filter(([, d]) => d.assessed > 0 && (d.weakCount / _cachedStudents.length) >= 0.6)
       .map(([id]) => SKILL_LABELS_LEC[id]);
+    const collaborationScopeRows = await Promise.all(
+      _LECTURER_COLLAB_SCOPE_CATALOG.map(async (scope) => {
+        try {
+          const [liveScope, archivedVersions] = await Promise.all([
+            getCollaborationScope(scope.id, {
+              scopeType: 'assessment',
+              scopeLabel: scope.label,
+              sizeLimit: 5,
+            }),
+            getArchivedCollaborationScope(scope.id),
+          ]);
+          const activeSummary = _summarizeCollaborationScopeGroups(liveScope?.groups || {});
+          const archiveEntries = Object.values(archivedVersions || {});
+          const archivedGroups = archiveEntries.reduce((sum, entry) => sum + Object.keys(entry?.groups || {}).length, 0);
+          const archivedArtefacts = archiveEntries.reduce((sum, entry) => {
+            return sum + Object.values(entry?.groups || {}).reduce((groupSum, group) => groupSum + Object.keys(group?.artefacts || {}).length, 0);
+          }, 0);
+          return {
+            ...scope,
+            ok: true,
+            meta: liveScope?.meta || {},
+            groups: liveScope?.groups || {},
+            activeSummary,
+            archiveCount: archiveEntries.length,
+            archivedGroups,
+            archivedArtefacts,
+          };
+        } catch (err) {
+          return {
+            ...scope,
+            ok: false,
+            error: err?.message || 'Could not load collaboration space.',
+            meta: {},
+            groups: {},
+            activeSummary: { groups: 0, members: 0, artefacts: 0 },
+            archiveCount: 0,
+            archivedGroups: 0,
+            archivedArtefacts: 0,
+          };
+        }
+      })
+    );
+    const collaborationScopeHtml = collaborationScopeRows.map((scope) => {
+      const isArchived = String(scope?.meta?.status || 'active') === 'archived';
+      const statusLabel = isArchived ? 'Archived' : 'Active';
+      const statusColor = isArchived ? '#92400e' : '#166534';
+      const statusBg = isArchived ? '#fffbeb' : '#ecfdf5';
+      const actionLabel = isArchived ? 'Archived' : 'Archive space';
+      const refreshLabel = isArchived ? 'Open new cycle' : 'Archive + new cycle';
+      const compactExpanded = Boolean(window._lecturerExpandedCollabScopes?.[scope.id]);
+      if (scope.compact && !compactExpanded) {
+        const compactLabel = scope.compactLabel || scope.label;
+        const compactDetail = scope.ok
+          ? `${scope.activeSummary.groups} active group${scope.activeSummary.groups === 1 ? '' : 's'} · ${scope.activeSummary.members} member${scope.activeSummary.members === 1 ? '' : 's'} · ${scope.archiveCount} archive${scope.archiveCount === 1 ? '' : 's'}`
+          : (scope.error || 'Could not load collaboration space.');
+        return `
+          <div style="width:100%;border:1px solid var(--border);border-radius:14px;padding:16px 18px;background:white;box-shadow:0 8px 22px rgba(15,23,42,.05);">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+              <span style="font-size:15px;font-weight:900;color:var(--navy);">${_esc(compactLabel)}</span>
+              <span style="background:${statusBg};color:${statusColor};padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase;">${statusLabel}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:6px;">${_esc(compactDetail)}</div>
+            <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+              <button class="btn-prev" style="display:inline-flex;padding:6px 12px;font-size:12px;" onclick="_toggleLecturerCollabScope('${scope.id}', true)" ${!scope.ok ? 'disabled' : ''}>Manage A1</button>
+            </div>
+          </div>
+        `;
+      }
+
+      const groupEntries = Object.entries(scope.groups || {}).sort(([, a], [, b]) => {
+        const ac = Object.keys(a?.members || {}).length;
+        const bc = Object.keys(b?.members || {}).length;
+        return bc - ac || String(a?.name || '').localeCompare(String(b?.name || ''));
+      });
+      const allGroupIds = groupEntries.map(([gid]) => gid);
+
+      const groupCardsHtml = groupEntries.map(([groupId, group]) => {
+        const members = Object.entries(group?.members || {});
+        const memberCount = members.length;
+        const maxSize = Math.max(2, Number(group?.sizeLimit) || 5);
+        const leaderUid = String(group?.leaderUid || '');
+
+        return `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:white;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <div style="font-size:14px;font-weight:700;color:var(--navy);">${_esc(group.name || 'Unnamed')}</div>
+              <span style="font-size:12px;color:var(--muted);font-weight:600;">${memberCount} / ${maxSize}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Leader: ${_esc(members.find(([uid]) => uid === leaderUid)?.[1]?.name || leaderUid || 'None')}</div>
+
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+              <button class="btn-prev" style="display:inline-flex;padding:3px 8px;font-size:11px;" onclick="_lecRenameGroup('${scope.id}','${groupId}')">Rename</button>
+              <button class="btn-prev" style="display:inline-flex;padding:3px 8px;font-size:11px;border-color:#dc2626;color:#dc2626;" onclick="_lecDeleteGroup('${scope.id}','${groupId}','${_esc(group.name || '')}')">Delete</button>
+            </div>
+
+            <div style="margin-top:10px;">
+              ${members.length ? members.map(([uid, m]) => {
+                const isLeader = uid === leaderUid;
+                const memberMoveOptions = allGroupIds
+                  .filter((gid) => gid !== groupId)
+                  .map((gid) => `<option value="${gid}">${_esc(scope.groups[gid]?.name || gid)}</option>`)
+                  .join('');
+                return `
+                  <div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <span style="font-size:12px;font-weight:600;color:var(--navy);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(m?.name || m?.email || uid)}</span>
+                      ${isLeader ? '<span style="background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;flex-shrink:0;">Leader</span>' : ''}
+                    </div>
+                    ${m?.email ? `<div style="font-size:10px;color:var(--muted);margin-top:1px;">${_esc(m.email)}</div>` : ''}
+                    <div style="display:flex;align-items:center;gap:4px;margin-top:6px;flex-wrap:wrap;">
+                      ${!isLeader ? `<button class="btn-prev" style="display:inline-flex;padding:2px 8px;font-size:10px;" onclick="_lecTransferLeader('${scope.id}','${groupId}','${uid}','${_esc(m?.name || uid)}')">Make leader</button>` : ''}
+                      <button class="btn-prev" style="display:inline-flex;padding:2px 8px;font-size:10px;border-color:#dc2626;color:#dc2626;" onclick="_lecRemoveMember('${scope.id}','${groupId}','${uid}','${_esc(m?.name || uid)}')">Remove</button>
+                      ${memberMoveOptions ? `
+                        <select id="lec-move-${groupId}-${uid}" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;max-width:120px;">
+                          <option value="">Move to…</option>
+                          ${memberMoveOptions}
+                        </select>
+                        <button class="btn-prev" style="display:inline-flex;padding:2px 8px;font-size:10px;" onclick="_lecMoveMember('${scope.id}','${groupId}','${uid}','lec-move-${groupId}-${uid}')">Go</button>
+                      ` : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('') : '<div style="font-size:12px;color:var(--muted);padding:8px 0;">No members</div>'}
+            </div>
+
+            ${memberCount < maxSize ? `
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0;">
+                <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:6px;">Add student from roster</div>
+                <div style="display:flex;gap:4px;align-items:center;">
+                  <select id="lec-add-${groupId}" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;flex:1;min-width:0;">
+                    <option value="">Select student…</option>
+                    ${(Array.isArray(_cachedStudents) ? _cachedStudents : [])
+                      .filter((s) => !_lecStudentInAnyGroup(s.uid, scope.groups))
+                      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                      .map((s) => `<option value="${s.uid}">${_esc(s.name || s.email)} ${s.studentNumber ? '(' + _esc(s.studentNumber) + ')' : ''}</option>`)
+                      .join('')}
+                  </select>
+                  <button class="btn-prev" style="display:inline-flex;padding:3px 8px;font-size:11px;" onclick="_lecAddStudentToGroup('${scope.id}','${groupId}','lec-add-${groupId}')">Add</button>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="border:1px solid var(--border);border-radius:14px;padding:16px;background:${scope.ok ? 'white' : '#fff7ed'};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:15px;font-weight:800;color:var(--navy);">${_esc(scope.meta?.label || scope.label)}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5;">${_esc(scope.description || '')}</div>
+            </div>
+            <span style="background:${statusBg};color:${statusColor};padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase;">${statusLabel}</span>
+          </div>
+          ${scope.ok ? `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px;">
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Active groups</div><div style="font-size:18px;font-weight:900;color:var(--navy);">${scope.activeSummary.groups}</div></div>
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Members</div><div style="font-size:18px;font-weight:900;color:var(--navy);">${scope.activeSummary.members}</div></div>
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Artefacts</div><div style="font-size:18px;font-weight:900;color:var(--navy);">${scope.activeSummary.artefacts}</div></div>
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Archives</div><div style="font-size:18px;font-weight:900;color:var(--navy);">${scope.archiveCount}</div></div>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6;">Archived history: <strong style="color:var(--navy);">${scope.archivedGroups}</strong> groups and <strong style="color:var(--navy);">${scope.archivedArtefacts}</strong> artefacts preserved.</div>
+
+            ${groupCardsHtml ? `
+              <div style="margin-top:16px;">
+                <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px;">Group details</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;">
+                  ${groupCardsHtml}
+                </div>
+              </div>
+            ` : ''}
+          ` : `
+            <div style="font-size:12px;color:#9a3412;margin-top:14px;">${_esc(scope.error || 'Could not load collaboration space.')}</div>
+          `}
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+            <button class="btn-prev" style="display:inline-flex;background:#1d4ed8;border-color:#1d4ed8;color:white;" onclick="_addManagedCollaborationGroup('${scope.id}')" ${!scope.ok || isArchived ? 'disabled' : ''}>Add new group</button>
+            ${scope.compact ? `<button class="btn-prev" style="display:inline-flex;" onclick="_toggleLecturerCollabScope('${scope.id}', false)">Contract A1</button>` : ''}
+            <button class="btn-prev" style="display:inline-flex;background:#0f766e;border-color:#0f766e;color:white;" onclick="_startFreshCollaborationCycle('${scope.id}')" ${!scope.ok ? 'disabled' : ''}>${refreshLabel}</button>
+            <button class="btn-prev" style="display:inline-flex;${isArchived ? 'background:#e5e7eb;border-color:#d1d5db;color:#6b7280;' : 'background:#7f1d1d;border-color:#7f1d1d;color:white;'}" onclick="_archiveCollaborationScope('${scope.id}')" ${!scope.ok || isArchived ? 'disabled' : ''}>${actionLabel}</button>
+          </div>
+        </div>
+      `;
+    }).join('');
 
     const studentRows = _cachedStudents.map((s, index) => {
       const frustDots = Array.from({ length: 5 }, (_, i) =>
@@ -7476,6 +9289,18 @@ async function _loadAnalytics() {
         </div>
 
         <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div>
+              <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">🗂️ Collaboration Spaces</h2>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.6;">Archive a collaboration space when an event is complete. Active groups and artefacts are preserved in the archive and the live space becomes read-only.</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+            ${collaborationScopeHtml}
+          </div>
+        </div>
+
+        <div style="background:white;border-radius:16px;border:1px solid var(--border);padding:24px;margin-bottom:28px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
             <h2 style="font-size:16px;color:var(--navy);margin:0;font-family:var(--font-sans);">🧭 Learning Signals (Today)</h2>
             <div style="font-size:12px;color:var(--muted);">Active learners source: <strong style="color:var(--navy);">${activeLearnersSourceLabel}</strong></div>
@@ -7565,6 +9390,7 @@ async function _loadAnalytics() {
                 Date
                 <input type="date" value="${_esc(selectedAttendanceDateKey)}" onchange="_setAnalyticsAttendanceDate(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:white;color:var(--navy);" />
               </label>
+              <button class="btn-prev" style="display:inline-flex;padding:7px 10px;font-size:12px;" onclick="_loadAttendanceImportManager()">⬆ Import Register</button>
               <button class="btn-prev" style="display:inline-flex;padding:7px 10px;font-size:12px;" onclick="_downloadAttendanceExcel()">⬇ Excel</button>
               <button class="btn-prev" style="display:inline-flex;padding:7px 10px;font-size:12px;" onclick="_downloadAttendanceFullExcel()">⬇ Full Report</button>
             </div>
@@ -7878,6 +9704,379 @@ async function _loadAnalytics() {
   }
 }
 window._loadAnalytics = _loadAnalytics;
+
+window._loadStudentNotebooks = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+
+  if (!Array.isArray(_cachedStudents) || !_cachedStudents.length) {
+    mount.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">Loading student notebook data...</div>';
+    await _loadAnalytics();
+  }
+
+  _renderStudentNotebookBrowser();
+};
+
+function _renderStudentNotebookBrowser() {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+
+  if (!Array.isArray(_cachedStudents) || !_cachedStudents.length) {
+    mount.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">No active student states found. Open Cohort Overview first, then return to Student Notebooks.</div>';
+    return;
+  }
+
+  const stats = _studentNotebookCohortStats();
+  mount.innerHTML = `
+    <div style="padding:34px;max-width:1280px;margin:0 auto;animation:fadeIn .25s ease;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;margin-bottom:18px;">
+        <div>
+          <h1 style="margin:0;color:var(--navy);font-family:var(--font-heading);font-size:30px;">Student Notebooks</h1>
+          <p style="margin:6px 0 0 0;color:var(--muted);font-size:13px;line-height:1.6;">Browse saved tutorial and contact notebooks across the cohort without opening each student profile.</p>
+        </div>
+        <button class="btn-prev" style="display:inline-flex;" onclick="_loadAnalytics()">Back to Cohort Overview</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">
+        ${_studentNotebookMetric('Students', stats.students, 'var(--navy)')}
+        ${_studentNotebookMetric('With Notebook Work', stats.withWork, '#166534')}
+        ${_studentNotebookMetric('Tutorial Entries', stats.tutorialEntries, '#166534')}
+        ${_studentNotebookMetric('Contact Entries', stats.contactEntries, '#1d4ed8')}
+        ${_studentNotebookMetric('Notebook Words', stats.words.toLocaleString(), '#0f766e')}
+        ${_studentNotebookMetric('Uploads', stats.uploads, '#7c3aed')}
+      </div>
+
+      <div style="background:white;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;display:grid;grid-template-columns:minmax(220px,1fr) 190px;gap:10px;align-items:center;">
+        <input
+          id="student-notebook-search"
+          type="search"
+          placeholder="Search student, group, notebook text, or attachment name..."
+          value="${_esc(_studentNotebookSearchQuery)}"
+          oninput="_setStudentNotebookSearch(this.value)"
+          style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;"
+        />
+        <select
+          id="student-notebook-filter"
+          onchange="_setStudentNotebookFilter(this.value)"
+          style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:white;"
+        >
+          <option value="with-work" ${_studentNotebookFilterMode === 'with-work' ? 'selected' : ''}>With notebook work</option>
+          <option value="all" ${_studentNotebookFilterMode === 'all' ? 'selected' : ''}>All students</option>
+          <option value="tutorial" ${_studentNotebookFilterMode === 'tutorial' ? 'selected' : ''}>Tutorial notebook</option>
+          <option value="contact" ${_studentNotebookFilterMode === 'contact' ? 'selected' : ''}>Contact notebook</option>
+          <option value="no-work" ${_studentNotebookFilterMode === 'no-work' ? 'selected' : ''}>No notebook work</option>
+        </select>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;">
+        <div id="student-notebook-count" style="font-size:12px;color:var(--muted);"></div>
+        <div style="font-size:11px;color:var(--muted);">Rows open in place. Notebook content is read-only.</div>
+      </div>
+      <div id="student-notebook-list" style="display:grid;gap:10px;"></div>
+    </div>
+  `;
+
+  _renderStudentNotebookRows();
+}
+
+window._setStudentNotebookSearch = function (value = '') {
+  _studentNotebookSearchQuery = String(value || '');
+  window._renderStudentNotebookRows();
+};
+
+window._setStudentNotebookFilter = function (value = '') {
+  const mode = String(value || '').trim();
+  _studentNotebookFilterMode = ['all', 'with-work', 'tutorial', 'contact', 'no-work'].includes(mode) ? mode : 'with-work';
+  window._renderStudentNotebookRows();
+};
+
+window._renderStudentNotebookRows = function () {
+  const list = document.getElementById('student-notebook-list');
+  const count = document.getElementById('student-notebook-count');
+  if (!list) return;
+
+  const rows = _studentNotebookRows()
+    .filter((row) => _studentNotebookMatchesFilter(row))
+    .filter((row) => _studentNotebookMatchesSearch(row));
+
+  if (count) {
+    count.textContent = `Showing ${rows.length} of ${Array.isArray(_cachedStudents) ? _cachedStudents.length : 0} students`;
+  }
+
+  list.innerHTML = rows.length
+    ? rows.map((row) => _renderStudentNotebookRow(row)).join('')
+    : '<div style="padding:24px;text-align:center;color:var(--muted);background:white;border:1px solid var(--border);border-radius:12px;">No students match the current notebook filter.</div>';
+};
+
+function _studentNotebookMetric(label, value, color) {
+  return `
+    <div style="background:white;border:1px solid var(--border);border-radius:10px;padding:12px;">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:800;">${_esc(label)}</div>
+      <div style="font-size:22px;font-weight:900;color:${color};margin-top:4px;">${_esc(value)}</div>
+    </div>
+  `;
+}
+
+function _studentNotebookRows() {
+  return (Array.isArray(_cachedStudents) ? _cachedStudents : []).map((student, index) => {
+    const tutorialEntries = _studentNotebookEntries(student, 'tutorial');
+    const contactEntries = _studentNotebookEntries(student, 'contact');
+    const tutorialStats = _studentNotebookStats(student, 'tutorial', tutorialEntries);
+    const contactStats = _studentNotebookStats(student, 'contact', contactEntries);
+    const totalEntries = tutorialEntries.length + contactEntries.length;
+    const totalWords = tutorialStats.words + contactStats.words;
+    const totalUploads = tutorialStats.uploads + contactStats.uploads;
+    const latestMs = Math.max(tutorialStats.latestMs, contactStats.latestMs);
+    return {
+      index,
+      student,
+      tutorialEntries,
+      contactEntries,
+      tutorialStats,
+      contactStats,
+      totalEntries,
+      totalWords,
+      totalUploads,
+      latestMs,
+      hasWork: totalEntries > 0,
+    };
+  }).sort((a, b) => b.latestMs - a.latestMs || b.totalWords - a.totalWords || String(a.student.name || '').localeCompare(String(b.student.name || '')));
+}
+
+function _studentNotebookCohortStats() {
+  return _studentNotebookRows().reduce((acc, row) => ({
+    students: acc.students + 1,
+    withWork: acc.withWork + (row.hasWork ? 1 : 0),
+    tutorialEntries: acc.tutorialEntries + row.tutorialEntries.length,
+    contactEntries: acc.contactEntries + row.contactEntries.length,
+    words: acc.words + row.totalWords,
+    uploads: acc.uploads + row.totalUploads,
+  }), { students: 0, withWork: 0, tutorialEntries: 0, contactEntries: 0, words: 0, uploads: 0 });
+}
+
+function _studentNotebookMatchesFilter(row) {
+  const mode = String(_studentNotebookFilterMode || 'with-work');
+  if (mode === 'all') return true;
+  if (mode === 'tutorial') return row.tutorialEntries.length > 0;
+  if (mode === 'contact') return row.contactEntries.length > 0;
+  if (mode === 'no-work') return !row.hasWork;
+  return row.hasWork;
+}
+
+function _studentNotebookMatchesSearch(row) {
+  const q = String(_studentNotebookSearchQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  return _studentNotebookSearchText(row).includes(q);
+}
+
+function _studentNotebookSearchText(row) {
+  const student = row.student || {};
+  const entryText = [...row.tutorialEntries, ...row.contactEntries].map((entry) => {
+    const attachments = (Array.isArray(entry.attachments) ? entry.attachments : [])
+      .map((asset) => `${asset?.name || ''} ${asset?.type || ''} ${asset?.provider || ''}`)
+      .join(' ');
+    return `${entry.sessionTitle || ''} ${entry.sessionId || ''} ${entry.unitId || ''} ${entry.response || ''} ${entry.notes || ''} ${entry.searchLog || ''} ${entry.aiFeedback || ''} ${attachments}`;
+  }).join(' ');
+  return [
+    student.name,
+    student.email,
+    student.authEmail,
+    student.studentNumber,
+    student.tutorialGroup,
+    entryText,
+  ].join(' ').toLowerCase();
+}
+
+function _renderStudentNotebookRow(row) {
+  const student = row.student || {};
+  const latestLabel = row.latestMs ? _lecturerWhenLabel(new Date(row.latestMs).toISOString()) : 'No notebook work yet';
+  const workTone = row.hasWork ? '#166534' : '#64748b';
+  return `
+    <details style="background:white;border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 5px 16px rgba(15,23,42,.04);">
+      <summary style="cursor:pointer;list-style:none;padding:14px 16px;">
+        <div style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:12px;align-items:center;">
+          <div style="min-width:0;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div style="font-size:14px;font-weight:900;color:var(--navy);overflow-wrap:anywhere;">${_esc(student.name || 'Unknown student')}</div>
+              ${student.tutorialGroup ? `<span style="font-size:10px;font-weight:900;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:3px 8px;">Group ${_esc(student.tutorialGroup)}</span>` : ''}
+              <span style="font-size:10px;font-weight:900;color:${workTone};background:${row.hasWork ? '#ecfdf5' : '#f8fafc'};border:1px solid ${row.hasWork ? '#bbf7d0' : '#cbd5e1'};border-radius:999px;padding:3px 8px;">${row.hasWork ? 'Has notebook work' : 'No work'}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere;">${_esc(student.email || student.authEmail || 'No email')} ${student.studentNumber ? `· ${_esc(student.studentNumber)}` : ''}</div>
+          </div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;">
+            ${_studentNotebookPill('Tutorial', row.tutorialEntries.length, '#166534')}
+            ${_studentNotebookPill('Contact', row.contactEntries.length, '#1d4ed8')}
+            ${_studentNotebookPill('Words', row.totalWords.toLocaleString(), '#0f766e')}
+            ${_studentNotebookPill('Uploads', row.totalUploads, '#7c3aed')}
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;">Latest notebook update: <strong style="color:var(--navy);">${_esc(latestLabel)}</strong></div>
+      </summary>
+      <div style="border-top:1px solid #f1f5f9;padding:14px 16px;background:#fbfdff;">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+          <div style="font-size:12px;color:var(--muted);">Read-only notebook evidence for this student.</div>
+          <button class="btn-prev" style="display:inline-flex;padding:6px 10px;font-size:12px;" onclick="_renderStudentProfile(${row.index})">Open Profile</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;">
+          ${_renderStudentNotebookType('Tutorial Notebook', row.tutorialEntries, row.tutorialStats, '#166534', '#f0fdf4', '#bbf7d0')}
+          ${_renderStudentNotebookType('Contact Notebook', row.contactEntries, row.contactStats, '#1d4ed8', '#eff6ff', '#bfdbfe')}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function _studentNotebookPill(label, value, color) {
+  return `<span style="font-size:10px;font-weight:900;color:${color};background:${color}12;border:1px solid ${color}30;border-radius:999px;padding:4px 8px;">${_esc(label)}: ${_esc(value)}</span>`;
+}
+
+function _renderStudentNotebookType(title, entries, stats, accent, bg, border) {
+  return `
+    <div style="background:white;border:1px solid ${border};border-radius:12px;overflow:hidden;">
+      <div style="padding:11px 12px;background:${bg};border-bottom:1px solid ${border};">
+        <div style="font-size:13px;font-weight:900;color:${accent};">${_esc(title)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">${entries.length} entries · ${stats.words.toLocaleString()} words · ${stats.uploads} uploads</div>
+      </div>
+      <div style="display:grid;gap:8px;padding:10px;max-height:620px;overflow:auto;">
+        ${entries.length ? entries.map((entry, idx) => _renderStudentNotebookEntry(entry, idx, accent)).join('') : '<div style="font-size:12px;color:var(--muted);padding:8px;">No saved entries in this notebook.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function _renderStudentNotebookEntry(entry = {}, idx = 0, accent = 'var(--navy)') {
+  const title = entry.sessionTitle || entry.title || entry.sessionId || `Entry ${idx + 1}`;
+  const unit = entry.unitId ? String(entry.unitId).toUpperCase() : '';
+  const updated = _studentNotebookUpdatedAt(entry);
+  const words = _studentNotebookEntryWords(entry);
+  const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+
+  return `
+    <details style="border:1px solid var(--border);border-radius:10px;background:white;overflow:hidden;">
+      <summary style="cursor:pointer;list-style:none;padding:10px;">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:12px;font-weight:900;color:var(--navy);">${_esc(title)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">${unit ? `${_esc(unit)} · ` : ''}${_esc(_studentNotebookDateLabel(updated))}</div>
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;">
+            <span style="font-size:10px;font-weight:900;color:${accent};background:${accent}12;border:1px solid ${accent}30;border-radius:999px;padding:3px 7px;">${words} words</span>
+            <span style="font-size:10px;font-weight:900;color:var(--navy);background:#f8fafc;border:1px solid #cbd5e1;border-radius:999px;padding:3px 7px;">${attachments.length} uploads</span>
+          </div>
+        </div>
+      </summary>
+      <div style="border-top:1px solid #f1f5f9;padding:10px;display:grid;gap:10px;">
+        ${_renderStudentNotebookText('Student Response', entry.response)}
+        ${_renderStudentNotebookText('Notes & Evidence', entry.notes)}
+        ${_renderStudentNotebookText('Search Log & Sources', entry.searchLog)}
+        ${_renderStudentNotebookText('AI Writing Feedback', entry.aiFeedback)}
+        ${_renderStudentNotebookAttachments(attachments)}
+      </div>
+    </details>
+  `;
+}
+
+function _renderStudentNotebookText(label, text = '') {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  return `
+    <div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:900;margin-bottom:4px;">${_esc(label)}</div>
+      <div style="font-size:12px;color:#334155;line-height:1.65;white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px;max-height:220px;overflow:auto;">${_esc(value)}</div>
+    </div>
+  `;
+}
+
+function _renderStudentNotebookAttachments(attachments = []) {
+  if (!attachments.length) return '';
+  return `
+    <div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:900;margin-bottom:4px;">Attachments</div>
+      <div style="display:grid;gap:6px;">
+        ${attachments.map((asset) => {
+    const url = _studentNotebookSafeUrl(asset?.url || '');
+    const name = asset?.name || asset?.provider || 'Attachment';
+    const meta = [asset?.type, asset?.size ? _studentNotebookFormatBytes(asset.size) : ''].filter(Boolean).join(' · ');
+    return `
+          <a href="${_esc(url)}" target="_blank" rel="noopener" style="display:flex;justify-content:space-between;gap:10px;align-items:center;text-decoration:none;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:var(--navy);font-size:12px;">
+            <span style="font-weight:800;overflow-wrap:anywhere;">${_esc(name)}</span>
+            <span style="font-size:10px;color:var(--muted);white-space:nowrap;">${_esc(meta || 'Open')}</span>
+          </a>
+        `;
+  }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function _studentNotebookEntries(student, type) {
+  const key = type === 'contact' ? 'contactNotebook' : 'tutorialNotebook';
+  return Object.values(student?.state?.[key]?.entries || {})
+    .filter(_studentNotebookEntryHasActivity)
+    .sort((a, b) => _studentNotebookEntryMs(b) - _studentNotebookEntryMs(a));
+}
+
+function _studentNotebookStats(student, type, entries = []) {
+  const key = type === 'contact' ? 'contactNotebook' : 'tutorialNotebook';
+  const analytics = student?.state?.[key]?.analytics || {};
+  const computedWords = entries.reduce((sum, entry) => sum + _studentNotebookEntryWords(entry), 0);
+  const computedUploads = entries.reduce((sum, entry) => sum + (Array.isArray(entry.attachments) ? entry.attachments.length : 0), 0);
+  return {
+    words: Math.max(Number(analytics.totalWords || 0), computedWords),
+    uploads: Math.max(Number(analytics.totalAttachments || 0), computedUploads),
+    latestMs: entries.reduce((max, entry) => Math.max(max, _studentNotebookEntryMs(entry)), 0),
+  };
+}
+
+function _studentNotebookUpdatedAt(entry = {}) {
+  return entry.updatedAt || entry.createdAt || entry.aiFeedbackAt || '';
+}
+
+function _studentNotebookEntryMs(entry = {}) {
+  const ms = new Date(_studentNotebookUpdatedAt(entry) || 0).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function _studentNotebookEntryText(entry = {}) {
+  return `${entry.response || ''}\n${entry.notes || ''}\n${entry.searchLog || ''}`.trim();
+}
+
+function _studentNotebookEntryWords(entry = {}) {
+  return _studentNotebookEntryText(entry).split(/\s+/).filter(Boolean).length;
+}
+
+function _studentNotebookEntryHasActivity(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  return Boolean(
+    _studentNotebookEntryText(entry)
+    || String(entry.aiFeedback || '').trim()
+    || (Array.isArray(entry.attachments) && entry.attachments.length)
+  );
+}
+
+function _studentNotebookDateLabel(value = '') {
+  const ms = new Date(value || 0).getTime();
+  if (!Number.isFinite(ms) || !ms) return 'Not timestamped';
+  return _lecturerWhenLabel(value);
+}
+
+function _studentNotebookSafeUrl(raw = '') {
+  const text = String(raw || '').trim();
+  if (!text) return '#';
+  try {
+    const base = typeof window !== 'undefined' ? window.location.href : 'https://example.invalid/';
+    const url = new URL(text, base);
+    if (['http:', 'https:'].includes(url.protocol)) return url.href;
+  } catch { /* ignore malformed attachment URL */ }
+  return '#';
+}
+
+function _studentNotebookFormatBytes(bytes) {
+  const b = Number(bytes) || 0;
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 window._renderStudentProfile = (index) => {
   const mount = document.getElementById('analytics-mount');
@@ -8271,8 +10470,24 @@ window._renderStudentProfile = (index) => {
           </p>
         </div>
       </div>
+
+      <div id="student-deep-dive-mount">
+        <div style="text-align:center;padding:30px;color:var(--muted);">
+          <div class="rec-spinner" style="width:20px;height:20px;margin:0 auto 8px auto;"></div>
+          Loading comprehensive activity profile...
+        </div>
+      </div>
     </div>
   `;
+
+  // Async load the deep-dive data and inject it
+  renderStudentDeepDive(student).then((html) => {
+    const ddMount = document.getElementById('student-deep-dive-mount');
+    if (ddMount) ddMount.innerHTML = html;
+  }).catch((err) => {
+    const ddMount = document.getElementById('student-deep-dive-mount');
+    if (ddMount) ddMount.innerHTML = `<div style="padding:20px;color:var(--muted);font-size:12px;">Could not load activity profile: ${err?.message || 'Unknown error'}</div>`;
+  });
 };
 
 window._setStudentSupportMode = async (index, mode) => {
@@ -9613,6 +11828,797 @@ function _rmSelect(id, label, options) {
     </select>
   </div>`;
 }
+
+// ── Live Sessions (Teams Integration) ───────────
+window._loadLiveSessions = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div style="padding:30px;color:var(--muted);text-align:center;">⏳ Loading live sessions...</div>';
+
+  let classSession = null;
+  let tutorialSession = null;
+  try {
+    const [classSnap, tutSnap] = await Promise.all([
+      get(ref(db, 'sessions/live/class')),
+      get(ref(db, 'sessions/live/tutorial')),
+    ]);
+    if (classSnap.exists()) classSession = classSnap.val();
+    if (tutSnap.exists()) tutorialSession = tutSnap.val();
+  } catch (err) {
+    mount.innerHTML = `<div style="padding:30px;color:#b91c1c;">Failed to load sessions: ${_esc(err.message)}</div>`;
+    return;
+  }
+
+  const renderCard = (type, label, icon, session) => {
+    const isActive = session?.active === true;
+    const link = session?.teamsLink || '';
+    const startedBy = session?.startedBy || '';
+    const startedAt = session?.startedAt ? new Date(session.startedAt).toLocaleString() : '';
+    return `
+      <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:24px;box-shadow:0 10px 24px rgba(15,23,42,.04);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <div style="font-size:22px;font-weight:800;color:var(--navy);">${icon} ${_esc(label)} Session</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+              Status: ${isActive
+                ? '<span style="color:#166534;font-weight:700;">LIVE</span>'
+                : '<span style="color:var(--muted);">Not active</span>'}
+              ${isActive && startedAt ? ` · Started ${_esc(startedAt)}` : ''}
+            </div>
+          </div>
+          ${isActive
+            ? `<div style="width:14px;height:14px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.5);animation:pulse 2s infinite;"></div>`
+            : ''}
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-size:12px;font-weight:600;color:var(--navy);display:block;margin-bottom:6px;">Microsoft Teams Meeting Link</label>
+          <input
+            id="live-session-link-${type}"
+            type="url"
+            value="${_esc(link)}"
+            placeholder="https://teams.microsoft.com/l/meetup-join/..."
+            style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font-mono);box-sizing:border-box;"
+          />
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          ${isActive
+            ? `<a href="${_esc(link)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;border:none;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-weight:700;cursor:pointer;font-size:13px;text-decoration:none;">📹 Join Meeting</a>
+               <button onclick="_stopLiveSession('${type}')" style="padding:10px 20px;border-radius:10px;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;font-weight:700;cursor:pointer;font-size:13px;">Stop Session</button>
+               <button onclick="_updateLiveSessionLink('${type}')" style="padding:10px 20px;border-radius:10px;border:1px solid var(--border);background:white;color:var(--navy);font-weight:600;cursor:pointer;font-size:13px;">Update Link</button>`
+            : `<button onclick="_startLiveSession('${type}')" style="padding:10px 20px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:700;cursor:pointer;font-size:13px;">Start Session</button>
+               <button onclick="_saveLiveSessionLink('${type}')" style="padding:10px 20px;border-radius:10px;border:1px solid var(--border);background:white;color:var(--navy);font-weight:600;cursor:pointer;font-size:13px;">Save Link</button>`}
+        </div>
+      </div>`;
+  };
+
+  mount.innerHTML = `
+    <div style="max-width:900px;margin:0 auto;">
+      <h2 style="margin:0 0 6px 0;color:var(--navy);">Live Sessions</h2>
+      <p style="margin:0 0 24px 0;color:var(--muted);font-size:14px;line-height:1.6;">
+        Set your Microsoft Teams meeting links below. When you start a session, students will see a prominent
+        "Join Live Session" button on their dashboard. You can set the link in advance and start/stop sessions as needed.
+      </p>
+      <div style="display:grid;gap:20px;">
+        ${renderCard('class', 'Contact Class', '🏫', classSession)}
+        ${renderCard('tutorial', 'Tutorial', '👥', tutorialSession)}
+      </div>
+    </div>`;
+};
+
+window._startLiveSession = async (type) => {
+  const input = document.getElementById(`live-session-link-${type}`);
+  const link = input?.value?.trim() || '';
+  if (!link) {
+    _showLecturerToast('Please enter a Teams meeting link first.', 'warn');
+    return;
+  }
+  try {
+    const user = auth.currentUser;
+    await set(ref(db, `sessions/live/${type}`), {
+      active: true,
+      teamsLink: link,
+      startedBy: user?.displayName || user?.email || '',
+      startedAt: new Date().toISOString(),
+    });
+    _showLecturerToast(`${type === 'class' ? 'Contact class' : 'Tutorial'} session is now LIVE. Students can join.`, 'ok');
+    await _loadLiveSessions();
+  } catch (err) {
+    _showLecturerToast(`Failed to start session: ${err.message}`, 'warn');
+  }
+};
+
+window._stopLiveSession = async (type) => {
+  try {
+    await set(ref(db, `sessions/live/${type}`), {
+      active: false,
+      teamsLink: (await get(ref(db, `sessions/live/${type}/teamsLink`))).val() || '',
+      stoppedAt: new Date().toISOString(),
+    });
+    _showLecturerToast(`${type === 'class' ? 'Contact class' : 'Tutorial'} session stopped.`, 'ok');
+    await _loadLiveSessions();
+  } catch (err) {
+    _showLecturerToast(`Failed to stop session: ${err.message}`, 'warn');
+  }
+};
+
+window._updateLiveSessionLink = async (type) => {
+  const input = document.getElementById(`live-session-link-${type}`);
+  const link = input?.value?.trim() || '';
+  if (!link) {
+    _showLecturerToast('Please enter a Teams meeting link.', 'warn');
+    return;
+  }
+  try {
+    await set(ref(db, `sessions/live/${type}/teamsLink`), link);
+    _showLecturerToast('Link updated.', 'ok');
+  } catch (err) {
+    _showLecturerToast(`Failed to update link: ${err.message}`, 'warn');
+  }
+};
+
+window._saveLiveSessionLink = async (type) => {
+  const input = document.getElementById(`live-session-link-${type}`);
+  const link = input?.value?.trim() || '';
+  if (!link) {
+    _showLecturerToast('Please enter a Teams meeting link.', 'warn');
+    return;
+  }
+  try {
+    await set(ref(db, `sessions/live/${type}`), {
+      active: false,
+      teamsLink: link,
+      savedAt: new Date().toISOString(),
+    });
+    _showLecturerToast('Link saved. Start the session when ready.', 'ok');
+  } catch (err) {
+    _showLecturerToast(`Failed to save link: ${err.message}`, 'warn');
+  }
+};
+
+// ── Tutor Staff Screen ──────────────────────────
+let _tutorStaffCache = [];
+
+window._loadTutorStaff = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div style="padding:30px;color:var(--muted);text-align:center;">⏳ Loading tutor staff...</div>';
+
+  try {
+    const [usersSnap, assignSnap] = await Promise.all([
+      get(ref(db, 'users')),
+      get(ref(db, 'tutorial-groups/assignmentsByTutor')),
+    ]);
+    const allUsers = usersSnap.exists() ? usersSnap.val() : {};
+    const assignments = assignSnap.exists() ? assignSnap.val() : {};
+
+    // Filter tutors
+    _tutorStaffCache = Object.entries(allUsers)
+      .filter(([, u]) => String(u?.profile?.role || '').toLowerCase() === 'tutor')
+      .map(([uid, u]) => {
+        const p = u?.profile || {};
+        const tutorAssignment = assignments[uid];
+        const groupCount = Array.isArray(tutorAssignment?.groups) ? tutorAssignment.groups.length : 0;
+        return {
+          uid,
+          displayName: p.displayName || '',
+          email: p.email || '',
+          disabled: Boolean(p.disabled),
+          createdAt: p.createdAt || '',
+          groupCount,
+        };
+      })
+      .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+
+    const tutorRows = _tutorStaffCache.map((t) => {
+      const cleanName = String(t.displayName || '').replace(/\s*\[tutor\]\s*/i, '').trim();
+      return `
+      <tr>
+        <td style="padding:8px 10px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input id="ts-name-${_esc(t.uid)}" value="${_esc(cleanName)}" style="font-weight:700;color:var(--navy);border:1px solid transparent;border-radius:6px;padding:4px 6px;font-size:13px;background:transparent;min-width:120px;transition:border-color .2s;" onfocus="this.style.borderColor='var(--border)';this.style.background='white'" onblur="this.style.borderColor='transparent';this.style.background='transparent'" />
+          </div>
+        </td>
+        <td style="padding:8px 10px;">
+          <input id="ts-email-${_esc(t.uid)}" value="${_esc(t.email)}" style="font-size:12px;color:var(--navy);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;min-width:160px;transition:border-color .2s;" onfocus="this.style.borderColor='var(--border)';this.style.background='white'" onblur="this.style.borderColor='transparent';this.style.background='transparent'" />
+        </td>
+        <td style="padding:8px 10px;text-align:center;">${t.groupCount}</td>
+        <td style="padding:8px 10px;text-align:center;">
+          <span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;background:${t.disabled ? '#fef2f2' : '#ecfdf5'};color:${t.disabled ? '#991b1b' : '#065f46'};">${t.disabled ? 'Disabled' : 'Active'}</span>
+        </td>
+        <td style="padding:8px 10px;font-size:11px;color:var(--muted);">${t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—'}</td>
+        <td style="padding:8px 10px;">
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            <button class="btn-prev" style="display:inline-flex;padding:4px 10px;font-size:11px;background:#dbeafe;border-color:#bfdbfe;color:#1d4ed8;" onclick="_saveTutorProfile('${_esc(t.uid)}')">Save</button>
+            <button class="btn-prev" style="display:inline-flex;padding:4px 10px;font-size:11px;background:#ecfdf5;border-color:#a7f3d0;color:#065f46;" onclick="_previewTutorDashboard('${_esc(t.uid)}')">Preview Dashboard</button>
+            <button class="btn-prev" style="display:inline-flex;padding:4px 10px;font-size:11px;background:${t.disabled ? '#ecfdf5' : '#fef2f2'};border-color:${t.disabled ? '#a7f3d0' : '#fecaca'};color:${t.disabled ? '#065f46' : '#991b1b'};" onclick="_toggleTutorDisabled('${_esc(t.uid)}', ${!t.disabled})">${t.disabled ? 'Enable' : 'Disable'}</button>
+            <button class="btn-prev" style="display:inline-flex;padding:4px 10px;font-size:11px;background:#fef2f2;border-color:#fecaca;color:#991b1b;" onclick="_deleteTutor('${_esc(t.uid)}', '${_esc(cleanName)}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+    }).join('');
+
+    mount.innerHTML = `
+      <div style="padding:34px;max-width:1200px;margin:0 auto;animation:fadeIn 0.3s ease;">
+        <h1 style="margin:0 0 10px 0;color:var(--navy);font-family:var(--font-heading);">🎓 Tutor Staff</h1>
+        <p style="margin:0 0 16px 0;color:var(--muted);line-height:1.6;">Enroll new tutors and manage existing tutor accounts.</p>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px;">
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Enroll New Tutor</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+            <input id="ts-new-name" placeholder="Full name" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+            <input id="ts-new-email" type="email" placeholder="email@domain" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+            <button class="btn-prev" style="display:inline-flex;background:var(--accent);color:white;border-color:var(--accent);" onclick="_createTutorAccount()">Create Tutor Account</button>
+          </div>
+          <div id="ts-create-result" style="margin-top:8px;"></div>
+        </div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:12px;padding:14px;">
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Current Tutors (${_tutorStaffCache.length})</div>
+          ${_tutorStaffCache.length ? `
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr style="border-bottom:2px solid var(--border);text-align:left;">
+                    <th style="padding:8px 10px;font-weight:800;color:var(--navy);">Name</th>
+                    <th style="padding:8px 10px;font-weight:800;color:var(--navy);">Email</th>
+                    <th style="padding:8px 10px;font-weight:800;color:var(--navy);text-align:center;">Groups</th>
+                    <th style="padding:8px 10px;font-weight:800;color:var(--navy);text-align:center;">Status</th>
+                    <th style="padding:8px 10px;font-weight:800;color:var(--navy);">Created</th>
+                    <th style="padding:8px 10px;font-weight:800;color:var(--navy);"></th>
+                  </tr>
+                </thead>
+                <tbody>${tutorRows}</tbody>
+              </table>
+            </div>
+          ` : '<div style="font-size:13px;color:var(--muted);padding:12px 0;">No tutors enrolled yet.</div>'}
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    mount.innerHTML = `<div style="padding:30px;color:#ef4444;text-align:center;">Failed to load tutor staff: ${_esc(err.message)}</div>`;
+  }
+};
+
+window._previewTutorDashboard = function (uid) {
+  const tutor = _tutorStaffCache.find((entry) => entry.uid === uid);
+  if (!tutor) {
+    _showLecturerToast('Refresh the Tutor Staff screen, then select a tutor to preview.', 'warn', 3200);
+    return;
+  }
+  if (typeof window.openTutorDashboardPreview !== 'function') {
+    _showLecturerToast('Tutor dashboard preview is unavailable right now.', 'warn', 3200);
+    return;
+  }
+  window.openTutorDashboardPreview({
+    uid: tutor.uid,
+    displayName: tutor.displayName,
+    email: tutor.email,
+  });
+};
+
+window._createTutorAccount = async () => {
+  const name = String(document.getElementById('ts-new-name')?.value || '').trim();
+  const email = String(document.getElementById('ts-new-email')?.value || '').trim().toLowerCase();
+  const resultDiv = document.getElementById('ts-create-result');
+
+  if (!name || !email) {
+    _showLecturerToast('Enter both name and email.', 'warn', 2600);
+    return;
+  }
+
+  try {
+    if (resultDiv) resultDiv.innerHTML = '<div style="font-size:12px;color:var(--muted);">Creating tutor account...</div>';
+    const createTutor = httpsCallable(functions, 'createTutorAccount');
+    const result = await createTutor({ name, email });
+    const { uid, tempPassword } = result.data;
+
+    if (resultDiv) {
+      resultDiv.innerHTML = `
+        <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:12px;margin-top:8px;">
+          <div style="font-weight:800;color:#065f46;margin-bottom:6px;">Tutor account created successfully</div>
+          <div style="font-size:12px;color:#065f46;line-height:1.6;">
+            <div><strong>UID:</strong> ${_esc(uid)}</div>
+            <div><strong>Email:</strong> ${_esc(email)}</div>
+            <div><strong>Temporary Password:</strong> <code style="background:#d1fae5;padding:2px 6px;border-radius:4px;font-weight:800;user-select:all;">${_esc(tempPassword)}</code></div>
+            <div style="margin-top:6px;color:#92400e;font-weight:700;">Share this password with the tutor securely. It is shown only once.</div>
+          </div>
+        </div>
+      `;
+    }
+
+    document.getElementById('ts-new-name').value = '';
+    document.getElementById('ts-new-email').value = '';
+    // Refresh tutor list
+    setTimeout(() => _loadTutorStaff(), 800);
+  } catch (err) {
+    const msg = err?.message || err?.code || 'Unknown error';
+    if (resultDiv) {
+      resultDiv.innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:10px;margin-top:8px;font-size:12px;color:#991b1b;">${_esc(msg)}</div>`;
+    }
+    _showLecturerToast(`Failed to create tutor: ${msg}`, 'warn', 3600);
+  }
+};
+
+window._toggleTutorDisabled = async (uid, disabled) => {
+  if (!uid) return;
+  const action = disabled ? 'disable' : 'enable';
+  if (!confirm(`Are you sure you want to ${action} this tutor?`)) return;
+  try {
+    const snap = await get(ref(db, `users/${uid}/profile`));
+    const current = snap.exists() ? snap.val() : {};
+    await set(ref(db, `users/${uid}/profile`), {
+      ...current,
+      disabled,
+      updatedAt: new Date().toISOString(),
+      updatedByUid: STATE.user?.uid || null,
+    });
+    _showLecturerToast(`Tutor ${action}d.`, 'success', 2200);
+    await _loadTutorStaff();
+  } catch (err) {
+    _showLecturerToast(`Failed to ${action} tutor: ${err.message}`, 'warn', 3200);
+  }
+};
+
+window._saveTutorProfile = async (uid) => {
+  if (!uid) return;
+  const nameInput = document.getElementById(`ts-name-${uid}`);
+  const emailInput = document.getElementById(`ts-email-${uid}`);
+  const newName = String(nameInput?.value || '').trim();
+  const newEmail = String(emailInput?.value || '').trim().toLowerCase();
+
+  if (!newName) {
+    _showLecturerToast('Name cannot be empty.', 'warn', 2400);
+    return;
+  }
+
+  try {
+    const snap = await get(ref(db, `users/${uid}/profile`));
+    const current = snap.exists() ? snap.val() : {};
+    const displayName = `${newName} [tutor]`;
+    await set(ref(db, `users/${uid}/profile`), {
+      ...current,
+      displayName,
+      email: newEmail || current.email,
+      updatedAt: new Date().toISOString(),
+      updatedByUid: STATE.user?.uid || null,
+    });
+
+    // Also update the tutor name in assignmentsByTutor if present
+    const assignSnap = await get(ref(db, `tutorial-groups/assignmentsByTutor/${uid}`));
+    if (assignSnap.exists()) {
+      const entry = assignSnap.val();
+      entry.tutor = { ...entry.tutor, displayName, email: newEmail || entry.tutor?.email };
+      entry.updatedAt = new Date().toISOString();
+      await set(ref(db, `tutorial-groups/assignmentsByTutor/${uid}`), entry);
+    }
+
+    await _syncGroupToTutorSummary();
+    _showLecturerToast('Tutor profile saved.', 'success', 2200);
+    await _loadTutorStaff();
+  } catch (err) {
+    _showLecturerToast(`Failed to save: ${err.message}`, 'warn', 3200);
+  }
+};
+
+window._deleteTutor = async (uid, name) => {
+  if (!uid) return;
+  if (!confirm(`Permanently delete tutor "${name}"?\n\nThis will remove their profile and unassign all groups. This cannot be undone.`)) return;
+
+  try {
+    await _hardDeleteUserAccountRecord(uid, {
+      reason: 'tutor-delete',
+      name: name || null,
+      role: 'tutor',
+    });
+    _showLecturerToast(`Tutor "${name}" deleted.`, 'success', 2600);
+    await _loadTutorStaff();
+  } catch (err) {
+    _showLecturerToast(`Failed to delete tutor: ${err.message}`, 'warn', 3200);
+  }
+};
+
+// ── Simple Group Assignment Screen ──────────────
+window._loadSimpleGroupAssignment = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div style="padding:30px;color:var(--muted);text-align:center;">⏳ Loading group assignment...</div>';
+
+  try {
+    const [usersSnap, assignSnap, rosterSnap] = await Promise.all([
+      get(ref(db, 'users')),
+      get(ref(db, 'tutorial-groups/assignmentsByTutor')),
+      get(ref(db, 'rosters/classList')),
+    ]);
+    const allUsers = usersSnap.exists() ? usersSnap.val() : {};
+    const assignments = assignSnap.exists() ? assignSnap.val() : {};
+    const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+
+    // Get tutors
+    const tutors = Object.entries(allUsers)
+      .filter(([, u]) => String(u?.profile?.role || '').toLowerCase() === 'tutor' && !u?.profile?.disabled)
+      .map(([uid, u]) => ({ uid, displayName: u?.profile?.displayName || '', email: u?.profile?.email || '' }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    // Build group letters from roster
+    const groupLetters = [...new Set(
+      rosterRows
+        .map((r) => String(r?.tutorialGroup || r?.group || '').trim().toUpperCase())
+        .filter((g) => /^[K-Z]$/.test(g))
+    )].sort();
+
+    // Count students per group from roster
+    const studentsPerGroup = {};
+    for (const letter of groupLetters) studentsPerGroup[letter] = 0;
+    for (const row of rosterRows) {
+      const g = String(row?.tutorialGroup || row?.group || '').trim().toUpperCase();
+      if (groupLetters.includes(g)) studentsPerGroup[g]++;
+    }
+
+    // Build current assignment map: group letter -> tutor uid
+    const groupToTutor = {};
+    const tutorGroupCounts = {};
+    for (const [tutorUid, entry] of Object.entries(assignments)) {
+      const groups = Array.isArray(entry?.groups) ? entry.groups : [];
+      tutorGroupCounts[tutorUid] = groups.length;
+      for (const g of groups) {
+        const gId = String(g?.id || '').toUpperCase();
+        if (gId) groupToTutor[gId] = tutorUid;
+      }
+    }
+
+    // Tutor option HTML
+    const tutorOptions = tutors.map((t) => `<option value="${_esc(t.uid)}">${_esc(t.displayName)}</option>`).join('');
+
+    // Build tutor summary cards
+    const tutorCards = tutors.map((t) => {
+      const count = tutorGroupCounts[t.uid] || 0;
+      return `
+        <div style="background:white;border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:140px;">
+          <div style="font-weight:800;color:var(--navy);font-size:13px;">${_esc(t.displayName.replace(/\s*\[tutor\]\s*/i, ''))}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${_esc(t.email)}</div>
+          <div style="font-size:12px;font-weight:700;color:var(--accent);margin-top:4px;">${count} group${count !== 1 ? 's' : ''}</div>
+        </div>
+      `;
+    }).join('');
+
+    // Build group cards
+    const groupCards = groupLetters.map((letter) => {
+      const assignedTutorUid = groupToTutor[letter] || '';
+      const studentCount = studentsPerGroup[letter] || 0;
+      const isUnassigned = !assignedTutorUid;
+      const borderColor = isUnassigned ? '#fde68a' : 'var(--border)';
+      const bgColor = isUnassigned ? '#fffbeb' : 'white';
+
+      return `
+        <div style="background:${bgColor};border:2px solid ${borderColor};border-radius:12px;padding:12px;min-width:160px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="font-size:18px;font-weight:900;color:var(--navy);">Group ${_esc(letter)}</div>
+            <div style="font-size:11px;color:var(--muted);">${studentCount} student${studentCount !== 1 ? 's' : ''}</div>
+          </div>
+          ${isUnassigned ? '<div style="font-size:11px;color:#92400e;font-weight:700;margin-bottom:6px;">Unassigned</div>' : ''}
+          <select onchange="_sgaAssignGroup('${_esc(letter)}', this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:white;">
+            <option value="">— No tutor —</option>
+            ${tutors.map((t) => `<option value="${_esc(t.uid)}" ${assignedTutorUid === t.uid ? 'selected' : ''}>${_esc(t.displayName.replace(/\s*\[tutor\]\s*/i, ''))}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }).join('');
+
+    const unassignedCount = groupLetters.filter((l) => !groupToTutor[l]).length;
+
+    mount.innerHTML = `
+      <div style="padding:34px;max-width:1200px;margin:0 auto;animation:fadeIn 0.3s ease;">
+        <h1 style="margin:0 0 10px 0;color:var(--navy);font-family:var(--font-heading);">🗂️ Group Assignment</h1>
+        <p style="margin:0 0 16px 0;color:var(--muted);line-height:1.6;">Assign tutors to tutorial groups. Changes are saved immediately.</p>
+
+        ${unassignedCount > 0 ? `<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px;font-weight:700;">${unassignedCount} group${unassignedCount !== 1 ? 's' : ''} still unassigned</div>` : ''}
+
+        <div style="margin-bottom:14px;">
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Tutors (${tutors.length})</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">${tutorCards || '<div style="font-size:13px;color:var(--muted);">No active tutors. Enroll tutors in the Tutor Staff screen.</div>'}</div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Groups (${groupLetters.length})</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">${groupCards || '<div style="font-size:13px;color:var(--muted);">No groups found. Upload a roster with tutorial group letters (K–Z).</div>'}</div>
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    mount.innerHTML = `<div style="padding:30px;color:#ef4444;text-align:center;">Failed to load group assignment: ${_esc(err.message)}</div>`;
+  }
+};
+
+window._sgaAssignGroup = async (groupLetter, tutorUid) => {
+  try {
+    // Load current state
+    const [assignSnap, usersSnap, rosterSnap] = await Promise.all([
+      get(ref(db, 'tutorial-groups/assignmentsByTutor')),
+      get(ref(db, 'users')),
+      get(ref(db, 'rosters/classList')),
+    ]);
+    const currentAssignments = assignSnap.exists() ? assignSnap.val() : {};
+    const allUsers = usersSnap.exists() ? usersSnap.val() : {};
+    const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+
+    // Find student UIDs for this group from roster
+    const groupStudentUids = [];
+    const { uidByEmail } = _buildUserLookup(allUsers);
+    for (const row of rosterRows) {
+      const g = String(row?.tutorialGroup || row?.group || '').trim().toUpperCase();
+      if (g !== groupLetter) continue;
+      const email = _normEmail(row?.email || '');
+      if (email && uidByEmail[email]) groupStudentUids.push(uidByEmail[email]);
+    }
+
+    // Track which tutor UIDs need to be written
+    const writes = [];
+
+    // Remove this group from any current tutor
+    for (const [uid, entry] of Object.entries(currentAssignments)) {
+      if (!Array.isArray(entry?.groups)) continue;
+      const hadGroup = entry.groups.some((g) => String(g?.id || '').toUpperCase() === groupLetter);
+      if (!hadGroup) continue;
+      entry.groups = entry.groups.filter((g) => String(g?.id || '').toUpperCase() !== groupLetter);
+      if (entry.groups.length === 0) {
+        // Remove this tutor entry entirely
+        writes.push(remove(ref(db, `tutorial-groups/assignmentsByTutor/${uid}`)));
+      } else {
+        // Update with group removed
+        entry.updatedAt = new Date().toISOString();
+        entry.source = 'dashboard/simple-group-assignment';
+        writes.push(set(ref(db, `tutorial-groups/assignmentsByTutor/${uid}`), entry));
+      }
+    }
+
+    // Assign to new tutor (if a tutor was selected)
+    if (tutorUid) {
+      const tutorProfile = allUsers[tutorUid]?.profile || {};
+      const existing = currentAssignments[tutorUid] || {
+        tutor: {
+          uid: tutorUid,
+          email: tutorProfile.email || null,
+          displayName: tutorProfile.displayName || null,
+        },
+        groups: [],
+      };
+      // Ensure we don't double-add (in case it was already there)
+      existing.groups = (existing.groups || []).filter((g) => String(g?.id || '').toUpperCase() !== groupLetter);
+      existing.groups.push({
+        id: groupLetter,
+        name: `Group ${groupLetter}`,
+        studentUids: groupStudentUids,
+        students: [],
+      });
+      existing.updatedAt = new Date().toISOString();
+      existing.source = 'dashboard/simple-group-assignment';
+      writes.push(set(ref(db, `tutorial-groups/assignmentsByTutor/${tutorUid}`), existing));
+    }
+
+    await Promise.all(writes);
+
+    // Rebuild and write the groupToTutor summary (readable by students)
+    await _syncGroupToTutorSummary();
+
+    _showLecturerToast(tutorUid ? `Group ${groupLetter} assigned.` : `Group ${groupLetter} unassigned.`, 'success', 2000);
+    // Refresh
+    await _loadSimpleGroupAssignment();
+  } catch (err) {
+    _showLecturerToast(`Failed to update assignment: ${err.message}`, 'warn', 3200);
+  }
+};
+
+// Sync a student-readable summary: { K: { tutorName, tutorEmail }, L: ... }
+async function _syncGroupToTutorSummary() {
+  try {
+    const assignSnap = await get(ref(db, 'tutorial-groups/assignmentsByTutor'));
+    const assignments = assignSnap.exists() ? assignSnap.val() : {};
+    const summary = {};
+    for (const [, entry] of Object.entries(assignments)) {
+      const tutorName = String(entry?.tutor?.displayName || '').replace(/\s*\[tutor\]\s*/i, '').trim();
+      const tutorEmail = String(entry?.tutor?.email || '').trim();
+      for (const g of (entry?.groups || [])) {
+        const gId = String(g?.id || '').toUpperCase();
+        if (gId) {
+          summary[gId] = { tutorName, tutorEmail };
+        }
+      }
+    }
+    await set(ref(db, 'tutorial-groups/groupToTutor'), summary);
+  } catch (err) {
+    console.warn('Failed to sync groupToTutor summary:', err);
+  }
+}
+
+// ── Tutorial Stats Screen ───────────────────────
+window._loadTutorialStats = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div style="padding:30px;color:var(--muted);text-align:center;">⏳ Loading tutorial statistics...</div>';
+
+  try {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    // Collect recent session dates (last 14 days)
+    const recentDates = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      return d.toISOString().slice(0, 10);
+    });
+
+    const [usersSnap, assignSnap, rosterSnap, ...sessionCheckinSnaps] = await Promise.all([
+      get(ref(db, 'users')),
+      get(ref(db, 'tutorial-groups/assignmentsByTutor')),
+      get(ref(db, 'rosters/classList')),
+      ...recentDates.map((d) => get(ref(db, `attendance/checkins/${d}`))),
+    ]);
+
+    const allUsers = usersSnap.exists() ? usersSnap.val() : {};
+    const assignments = assignSnap.exists() ? assignSnap.val() : {};
+    const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+
+    // Merge all checkins
+    const allCheckins = {};
+    sessionCheckinSnaps.forEach((snap, idx) => {
+      if (!snap.exists()) return;
+      const dayData = snap.val();
+      for (const [uid, stamps] of Object.entries(dayData || {})) {
+        if (!allCheckins[uid]) allCheckins[uid] = {};
+        allCheckins[uid][recentDates[idx]] = stamps;
+      }
+    });
+
+    // Build roster lookup: email -> group letter
+    const emailToGroup = {};
+    const { uidByEmail } = _buildUserLookup(allUsers);
+    for (const row of rosterRows) {
+      const email = _normEmail(row?.email || '');
+      const g = String(row?.tutorialGroup || row?.group || '').trim().toUpperCase();
+      if (email && /^[K-Z]$/.test(g)) emailToGroup[email] = g;
+    }
+
+    // uid -> group letter via roster
+    const uidToGroup = {};
+    for (const [email, g] of Object.entries(emailToGroup)) {
+      const uid = uidByEmail[email];
+      if (uid) uidToGroup[uid] = g;
+    }
+
+    // Build per-group stats
+    const groupStats = {};
+    const tutorStats = {};
+    let totalAtRisk = 0;
+
+    for (const [tutorUid, entry] of Object.entries(assignments)) {
+      const tutorName = String(entry?.tutor?.displayName || '').replace(/\s*\[tutor\]\s*/i, '');
+      const groups = Array.isArray(entry?.groups) ? entry.groups : [];
+      if (!tutorStats[tutorUid]) {
+        tutorStats[tutorUid] = { name: tutorName, groups: [], totalStudents: 0, totalAttendance: 0, totalAtRisk: 0 };
+      }
+
+      for (const g of groups) {
+        const gId = String(g?.id || '').toUpperCase();
+        const studentUids = Array.isArray(g?.studentUids) ? g.studentUids : [];
+        const enrolled = studentUids.length;
+
+        // Attendance: how many of these students have any checkin
+        let attendedCount = 0;
+        for (const uid of studentUids) {
+          if (allCheckins[uid]) attendedCount++;
+        }
+
+        // Tutorial notebook word counts
+        let totalWords = 0;
+        let notebookCount = 0;
+        let atRiskCount = 0;
+        for (const uid of studentUids) {
+          const userState = allUsers[uid]?.state;
+          const analytics = userState?.tutorialNotebook?.analytics;
+          if (analytics?.totalWords) {
+            totalWords += Number(analytics.totalWords || 0);
+            notebookCount++;
+          }
+          // At-risk check
+          const escalations = userState?.adaptive?.escalations;
+          if (escalations && typeof escalations === 'object' && Object.keys(escalations).length > 0) {
+            atRiskCount++;
+          }
+        }
+
+        const stat = {
+          groupId: gId,
+          enrolled,
+          attended: attendedCount,
+          attendanceRate: enrolled > 0 ? Math.round((attendedCount / enrolled) * 100) : 0,
+          avgWords: notebookCount > 0 ? Math.round(totalWords / notebookCount) : 0,
+          notebookSubmissions: notebookCount,
+          atRisk: atRiskCount,
+        };
+
+        groupStats[gId] = stat;
+        tutorStats[tutorUid].groups.push(stat);
+        tutorStats[tutorUid].totalStudents += enrolled;
+        tutorStats[tutorUid].totalAttendance += attendedCount;
+        tutorStats[tutorUid].totalAtRisk += atRiskCount;
+        totalAtRisk += atRiskCount;
+      }
+    }
+
+    // Summary
+    const totalTutors = Object.keys(tutorStats).length;
+    const totalGroups = Object.keys(groupStats).length;
+    const totalStudents = Object.values(tutorStats).reduce((s, t) => s + t.totalStudents, 0);
+    const totalAttended = Object.values(tutorStats).reduce((s, t) => s + t.totalAttendance, 0);
+    const avgAttendance = totalStudents > 0 ? Math.round((totalAttended / totalStudents) * 100) : 0;
+
+    // Summary cards
+    const summaryCards = [
+      { label: 'Active Tutors', value: totalTutors, color: '#0d9488' },
+      { label: 'Groups', value: totalGroups, color: '#2563eb' },
+      { label: 'Total Students', value: totalStudents, color: '#7c3aed' },
+      { label: 'Avg Attendance', value: `${avgAttendance}%`, color: '#059669' },
+      { label: 'At-Risk Students', value: totalAtRisk, color: totalAtRisk > 0 ? '#dc2626' : '#059669' },
+    ].map((c) => `
+      <div style="background:white;border:1px solid var(--border);border-radius:10px;padding:12px;">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">${c.label}</div>
+        <div style="font-size:22px;font-weight:900;color:${c.color};margin-top:4px;">${c.value}</div>
+      </div>
+    `).join('');
+
+    // Detail table per tutor
+    const tutorSections = Object.entries(tutorStats).map(([, t]) => {
+      if (!t.groups.length) return '';
+      const rows = t.groups.map((g) => `
+        <tr>
+          <td style="padding:6px 10px;font-weight:700;color:var(--navy);">Group ${_esc(g.groupId)}</td>
+          <td style="padding:6px 10px;text-align:center;">${g.enrolled}</td>
+          <td style="padding:6px 10px;text-align:center;">${g.attended}/${g.enrolled}</td>
+          <td style="padding:6px 10px;text-align:center;font-weight:700;color:${g.attendanceRate >= 70 ? '#059669' : g.attendanceRate >= 40 ? '#d97706' : '#dc2626'};">${g.attendanceRate}%</td>
+          <td style="padding:6px 10px;text-align:center;">${g.notebookSubmissions}</td>
+          <td style="padding:6px 10px;text-align:center;">${g.avgWords}</td>
+          <td style="padding:6px 10px;text-align:center;color:${g.atRisk > 0 ? '#dc2626' : '#059669'};font-weight:700;">${g.atRisk}</td>
+        </tr>
+      `).join('');
+
+      return `
+        <div style="background:white;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;">
+          <div style="font-weight:800;color:var(--navy);margin-bottom:8px;">${_esc(t.name || 'Unknown Tutor')} — ${t.groups.length} group${t.groups.length !== 1 ? 's' : ''}, ${t.totalStudents} students</div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--border);text-align:left;">
+                  <th style="padding:6px 10px;">Group</th>
+                  <th style="padding:6px 10px;text-align:center;">Enrolled</th>
+                  <th style="padding:6px 10px;text-align:center;">Attended</th>
+                  <th style="padding:6px 10px;text-align:center;">Rate</th>
+                  <th style="padding:6px 10px;text-align:center;">Notebooks</th>
+                  <th style="padding:6px 10px;text-align:center;">Avg Words</th>
+                  <th style="padding:6px 10px;text-align:center;">At-Risk</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    mount.innerHTML = `
+      <div style="padding:34px;max-width:1200px;margin:0 auto;animation:fadeIn 0.3s ease;">
+        <h1 style="margin:0 0 10px 0;color:var(--navy);font-family:var(--font-heading);">📊 Tutorial Statistics</h1>
+        <p style="margin:0 0 16px 0;color:var(--muted);line-height:1.6;">Per-group performance metrics based on attendance, notebook submissions, and adaptive support data.</p>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px;">${summaryCards}</div>
+
+        ${tutorSections || '<div style="background:white;border:1px solid var(--border);border-radius:12px;padding:20px;text-align:center;color:var(--muted);font-size:13px;">No tutor group assignments found. Assign tutors to groups first.</div>'}
+      </div>
+    `;
+  } catch (err) {
+    mount.innerHTML = `<div style="padding:30px;color:#ef4444;text-align:center;">Failed to load tutorial statistics: ${_esc(err.message)}</div>`;
+  }
+};
 
 function _esc(str) {
   return String(str ?? '')
