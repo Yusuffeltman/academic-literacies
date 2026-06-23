@@ -7395,6 +7395,7 @@ window._gbReturnSelectChip = (btn) => {
   btn.style.background = '#fff1f2';
   btn.style.color = '#991b1b';
   btn.style.fontWeight = '700';
+  overlay.dataset.chipSelected = '1';
   const textarea = overlay.querySelector('textarea');
   if (textarea && !textarea.value.trim()) textarea.value = btn.dataset.detail || '';
 };
@@ -7412,9 +7413,11 @@ window._gbBulkReturnToTutor = () => {
 };
 
 window._gbBulkReturnToTutorConfirm = async () => {
-  const reason = String(document.getElementById('gb-return-overlay-reason')?.value || '').trim();
+  const overlay = document.getElementById('gb-return-overlay');
+  if (!overlay?.dataset.chipSelected) { alert('Please select a reason chip before returning.'); return; }
+  const reason = String(overlay.querySelector('textarea')?.value || '').trim();
   if (!reason) { alert('Please select a reason before returning.'); return; }
-  document.getElementById('gb-return-overlay')?.remove();
+  overlay.remove();
   const targets = Array.from(_gbBulkSelected.values());
   _gbBulkRunning = true;
   await window._loadGradebookManager?.();

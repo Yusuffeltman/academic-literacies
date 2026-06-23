@@ -5081,6 +5081,7 @@ window._returnReasonSelectChip = function (btn) {
   btn.style.background = '#fff1f2';
   btn.style.color = '#991b1b';
   btn.style.fontWeight = '700';
+  overlay.dataset.chipSelected = '1';
   const textarea = overlay.querySelector('textarea');
   if (textarea && !textarea.value.trim()) textarea.value = btn.dataset.detail || '';
 };
@@ -5098,9 +5099,11 @@ window._bulkReturnToTutor = function () {
 };
 
 window._bulkReturnToTutorConfirm = async function () {
-  const reason = String(document.getElementById('bulk-return-overlay-reason')?.value || '').trim();
+  const overlay = document.getElementById('bulk-return-overlay');
+  if (!overlay?.dataset.chipSelected) { alert('Please select a reason chip before returning.'); return; }
+  const reason = String(overlay.querySelector('textarea')?.value || '').trim();
   if (!reason) { alert('Please select a reason before returning.'); return; }
-  document.getElementById('bulk-return-overlay')?.remove();
+  overlay.remove();
   const targets = Array.from(_bulkSelectedSubmissions.values());
   _bulkModerationRunning = true;
   await _refreshReviewer();
@@ -5119,17 +5122,19 @@ window._bulkReturnToTutorConfirm = async function () {
   await _refreshReviewer();
 };
 
-window._toggleTriageMode = function () {
+window._toggleTriageMode = async function () {
   _triageMode = !_triageMode;
   _triagePendingMarks.clear();
   _triageExpandedRows.clear();
+  document.getElementById('triage-autoapprove-bar')?.remove();
   if (_bulkSelectionMode) { _bulkSelectionMode = false; _bulkSelectedSubmissions.clear(); }
-  _refreshReviewer();
+  await _refreshReviewer();
   if (_triageMode) window._triageOfferAutoApproveGreens();
 };
 
 window._triageOfferAutoApproveGreens = async function () {
   await new Promise((r) => setTimeout(r, 350));
+  if (!_triageMode) return;
   const greens = _triageTierCache.green || [];
   if (!greens.length) return;
   const existing = document.getElementById('triage-autoapprove-bar');
