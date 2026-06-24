@@ -3,19 +3,23 @@
 // Unit Reader — linear, screen-by-screen navigation for unit content.
 //
 // PROTOTYPE: wraps an already-rendered unit so the learner moves through
-// one focused screen at a time (Learn → Watch → Practise → …) instead of
-// scrolling a single long page. Reduces cognitive load and gives a clear
-// sense of progress.
+// one focused screen at a time instead of scrolling a long page.
 //
-// Non-invasive by design: it runs AFTER the unit's interactive components
-// have been booted, then MOVES the live DOM nodes into screen sections.
-// Because appendChild moves nodes rather than cloning them, event
-// listeners, video iframes, and the reading-task stepper keep working.
+// Non-invasive: runs AFTER the unit's interactive components are booted,
+// then MOVES the live DOM nodes into screen sections. appendChild moves
+// nodes rather than cloning, so listeners, video iframes, and the
+// reading-task stepper keep working. Screens split at natural content
+// boundaries (<h1>, <h2>, .section-label).
 //
-// Screens are split at natural content boundaries: <h1>, <h2>, and
-// .section-label. No change to unit content is required, so this works
-// for any unit once enabled.
+// HOST MODE / delegation: a screen may contain a component with its own
+// step flow (e.g. the reading task) that exposes a navigation contract on
+// window._stepperNav[id]. The reader absorbs those inner steps into ONE
+// continuous flow: it hides the component's own chrome and drives it from
+// the single Back/Next footer, with the Next button gated and relabelled
+// per inner step. Progress ("Step X of N") counts the inner steps too.
 // ─────────────────────────────────────────────
+
+let _rtChangeHandler = null;
 
 function _isBoundary(node) {
   if (!node || node.nodeType !== 1) return false;
@@ -35,117 +39,196 @@ function _titleOf(group, fallback) {
   return fallback;
 }
 
-/**
- * Transform the children of `area` into a stepped reader.
- * @param {HTMLElement} area        the unit content container (#content-area)
- * @param {object}      opts
- * @param {Function}    opts.onComplete  called when the learner finishes the last screen
- * @param {string}      opts.scrollSelector  id of the scroll container to reset (default content-window)
- * @returns {{goTo:Function}|null}   null if the content had no boundaries to split on
- */
+// Find a hosted stepper inside a screen section: a .rt-container (or other
+// future stepper mount) whose id is registered in window._stepperNav.
+function _findStepperId(section) {
+  const nav = window._stepperNav || {};
+  const mounts = section.querySelectorAll('.rt-container[id]');
+  for (const el of mounts) {
+    if (nav[el.id]) return el.id;
+  }
+  return null;
+}
+
 export function paginateUnit(area, { onComplete = null, scrollSelector = 'content-window' } = {}) {
   if (!area) return null;
 
-  // 1. Snapshot existing (already-booted) child nodes and group them.
-  const nodes = Array.from(area.childNodes);
+  // Tear down any listener from a previous pagination.
+  if (_rtChangeHandler) {
+    document.removeEventListener('rt:stepchange', _rtChangeHandler);
+    _rtChangeHandler = null;
+  }
+
+  // 1. Group existing (already-booted) child nodes at boundaries.
+  const childNodes = Array.from(area.childNodes);
   let groups = [];
   let current = null;
-  for (const node of nodes) {
-    if (_isBoundary(node)) {
-      current = [node];
-      groups.push(current);
-    } else {
-      if (!current) { current = []; groups.push(current); }
-      current.push(node);
-    }
+  for (const node of childNodes) {
+    if (_isBoundary(node)) { current = [node]; groups.push(current); }
+    else { if (!current) { current = []; groups.push(current); } current.push(node); }
   }
-  groups = groups.filter(_hasElement); // drop leading whitespace-only groups
-
-  // Nothing meaningful to split → leave the page as-is.
+  groups = groups.filter(_hasElement);
   if (groups.length <= 1) return null;
 
-  // 2. Build the reader scaffold.
+  // 2. Build scaffold.
   area.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'unit-reader';
-
   const header = document.createElement('div');
   header.className = 'unit-reader-head';
-
   const screensHost = document.createElement('div');
   screensHost.className = 'unit-reader-screens';
-
   const footer = document.createElement('div');
   footer.className = 'unit-reader-foot';
-
   wrap.append(header, screensHost, footer);
   area.appendChild(wrap);
 
-  // 3. Move grouped nodes into screen sections (move = preserve live state).
-  const titles = [];
+  // 3. Move grouped nodes into screen sections; detect hosted steppers.
+  const screens = [];
   groups.forEach((group, i) => {
     const section = document.createElement('section');
     section.className = 'unit-screen';
     section.dataset.index = String(i);
     group.forEach((n) => section.appendChild(n));
     screensHost.appendChild(section);
-    titles.push(_titleOf(group, `Section ${i + 1}`));
+    const stepperId = _findStepperId(section);
+    if (stepperId) window._rtSetHostMode?.(stepperId, true); // hide inner chrome
+    screens.push({ section, title: _titleOf(group, `Section ${i + 1}`), stepperId });
   });
 
-  const total = groups.length;
-  let idx = 0;
+  // 4. Flatten into "stops": each non-stepper screen is one stop; a stepper
+  //    screen contributes one stop per inner step.
+  const stops = [];
+  screens.forEach((scr, si) => {
+    const nav = scr.stepperId ? window._stepperNav[scr.stepperId] : null;
+    if (nav) nav.steps.forEach((step, k) => stops.push({ screen: si, stepperId: scr.stepperId, step, innerIdx: k }));
+    else stops.push({ screen: si, stepperId: null });
+  });
+  const total = stops.length;
+
+  let pos = 0;          // current flat stop index
+  let maxScreen = 0;    // furthest screen reached (gates forward dot jumps)
+
+  const navOf = (s) => (s.stepperId ? window._stepperNav[s.stepperId] : null);
+  const firstStopOfScreen = (si) => stops.findIndex((s) => s.screen === si);
+  const stopOfScreenStep = (si, step) => {
+    const idx = stops.findIndex((s) => s.screen === si && s.step === step);
+    return idx === -1 ? firstStopOfScreen(si) : idx;
+  };
 
   function renderChrome() {
-    const dots = titles.map((t, i) => {
-      const state = i === idx ? 'is-active' : (i < idx ? 'is-done' : '');
-      const safe = t.replace(/"/g, '&quot;');
-      return `<button type="button" class="ur-dot ${state}" data-go="${i}" title="${safe}" aria-label="Go to: ${safe}"></button>`;
+    const s = stops[pos];
+    const nav = navOf(s);
+    const innerIdx = nav ? nav.index() : -1;
+    const onFirst = pos === 0;
+    const onLast = pos === total - 1;
+
+    // One dot per screen (major sections); clickable up to furthest reached.
+    const dots = screens.map((scr, si) => {
+      const state = si === s.screen ? 'is-active' : (si < s.screen ? 'is-done' : '');
+      const reachable = si <= maxScreen;
+      const safe = scr.title.replace(/"/g, '&quot;');
+      return `<button type="button" class="ur-dot ${state}" data-screen="${si}" ${reachable ? '' : 'disabled'} title="${safe}" aria-label="Go to: ${safe}"></button>`;
     }).join('');
+
+    const innerSuffix = nav ? ` · ${nav.labels[innerIdx]}` : '';
     header.innerHTML = `
       <div class="ur-progress-row">
-        <span class="ur-step-count">Step ${idx + 1} of ${total}</span>
+        <span class="ur-step-count">Step ${pos + 1} of ${total}</span>
         <div class="ur-dots">${dots}</div>
       </div>
-      <h2 class="ur-screen-title">${titles[idx]}</h2>`;
+      <h2 class="ur-screen-title">${screens[s.screen].title}${innerSuffix}</h2>`;
 
-    const onFirst = idx === 0;
-    const onLast = idx === total - 1;
-    const pct = Math.round(((idx + 1) / total) * 100);
+    // Footer Next: delegate to inner unless on the inner's last step.
+    let nextLabel = onLast ? 'Finish Unit ✓' : 'Next →';
+    let nextDisabled = false;
+    const innerHasMore = nav && innerIdx < nav.count() - 1;
+    if (innerHasMore) {
+      nextLabel = nav.nextLabel();
+      nextDisabled = !nav.canNext();
+    }
+    const pct = Math.round(((pos + 1) / total) * 100);
     footer.innerHTML = `
       <button type="button" class="ur-btn ur-back" data-act="back" ${onFirst ? 'disabled' : ''}>← Back</button>
       <span class="ur-bar"><span class="ur-bar-fill" style="width:${pct}%"></span></span>
-      <button type="button" class="ur-btn ur-next" data-act="${onLast ? 'complete' : 'next'}">${onLast ? 'Finish Unit ✓' : 'Next →'}</button>`;
+      <button type="button" class="ur-btn ur-next" data-act="next" ${nextDisabled ? 'disabled' : ''}>${nextLabel}</button>`;
   }
 
-  function show(n) {
-    idx = Math.max(0, Math.min(total - 1, n));
-    const children = Array.from(screensHost.children);
-    children.forEach((sec, i) => { sec.style.display = i === idx ? '' : 'none'; });
-    const active = children[idx];
+  function showScreen(si) {
+    Array.from(screensHost.children).forEach((sec, i) => { sec.style.display = i === si ? '' : 'none'; });
+    const active = screensHost.children[si];
     if (active) {
       active.classList.remove('ur-anim');
-      void active.offsetWidth; // restart animation
+      void active.offsetWidth;
       active.classList.add('ur-anim');
     }
-    renderChrome();
+    maxScreen = Math.max(maxScreen, si);
     const scroller = document.getElementById(scrollSelector);
     if (scroller) scroller.scrollTop = 0;
   }
 
-  header.addEventListener('click', (e) => {
-    const dot = e.target.closest('[data-go]');
-    if (dot) show(Number(dot.dataset.go));
-  });
+  // Move to an absolute stop. When landing on a stepper screen, snap to the
+  // inner component's CURRENT step (so a resumed task lands in the right place).
+  function gotoStop(n) {
+    n = Math.max(0, Math.min(total - 1, n));
+    const s = stops[n];
+    const nav = navOf(s);
+    if (nav) pos = stopOfScreenStep(s.screen, nav.current());
+    else pos = n;
+    showScreen(stops[pos].screen);
+    renderChrome();
+  }
 
+  function onNext() {
+    const s = stops[pos];
+    const nav = navOf(s);
+    if (nav && nav.index() < nav.count() - 1) {
+      if (!nav.canNext()) return;        // gated (button is disabled anyway)
+      nav.next();                        // advances inner → rt:stepchange re-syncs us
+      return;
+    }
+    if (pos === total - 1) { if (typeof onComplete === 'function') onComplete(); return; }
+    gotoStop(pos + 1);
+  }
+
+  function onBack() {
+    const s = stops[pos];
+    const nav = navOf(s);
+    if (nav && nav.index() > 0) { nav.prev(); return; } // step inner back → re-syncs
+    gotoStop(pos - 1);
+  }
+
+  header.addEventListener('click', (e) => {
+    const dot = e.target.closest('[data-screen]');
+    if (dot && !dot.disabled) gotoStop(firstStopOfScreen(Number(dot.dataset.screen)));
+  });
   footer.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
-    if (!btn) return;
-    const act = btn.dataset.act;
-    if (act === 'back') show(idx - 1);
-    else if (act === 'next') show(idx + 1);
-    else if (act === 'complete' && typeof onComplete === 'function') onComplete();
+    if (!btn || btn.disabled) return;
+    if (btn.dataset.act === 'back') onBack();
+    else if (btn.dataset.act === 'next') onNext();
   });
 
-  show(0);
-  return { goTo: show };
+  // When a hosted stepper changes its own step (delegated nav, live gate
+  // updates, or the async writing→feedback transition), re-sync the reader.
+  _rtChangeHandler = (e) => {
+    const id = e?.detail?.id;
+    if (!id) return;
+    const s = stops[pos];
+    if (s.stepperId === id) {
+      const nav = navOf(s);
+      const newPos = stopOfScreenStep(s.screen, nav.current());
+      const stepChanged = newPos !== pos;
+      pos = newPos;
+      renderChrome();
+      if (stepChanged) {
+        const scroller = document.getElementById(scrollSelector);
+        if (scroller) scroller.scrollTop = 0;
+      }
+    }
+  };
+  document.addEventListener('rt:stepchange', _rtChangeHandler);
+
+  gotoStop(0);
+  return { goTo: gotoStop };
 }
