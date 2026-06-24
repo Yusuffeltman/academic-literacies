@@ -1,10 +1,11 @@
 // src/app.js
-import { STATE, saveState } from './state.js';
+import { STATE, saveState, syncStatus } from './state.js';
 import { signOut } from './auth.js';
 import { UNITS } from '../content/units/index.js';
 import { VIDEOS, VIDEO_CONFIG } from '../content/videos.js';
 import { InteractiveVideoPlayer } from './components/video-player.js';
 import { initAllReadingTasks } from './components/reading-task.js';
+import { paginateUnit } from './components/unit-reader.js';
 import { initAllVisualTasks } from './components/visual-task.js';
 import { initAllAssessmentTasks } from './components/assessment-task.js';
 import { initAITutor, updateAITutorContext } from './components/ai-tutor.js';
@@ -19,6 +20,8 @@ import { renderTutorialNotebook } from './components/tutorial-notebook.js';
 import { renderGalleryWalk } from './components/gallery-walk.js';
 import { renderSessionPlan } from './components/session-plan.js';
 import { renderGovernanceFramework } from './components/governance-framework.js';
+import { renderChallengeArena } from './components/challenge-arena.js';
+import { loadAssessmentSettingsOverrides } from './assessment-settings.js';
 import { ER_TIERS } from '../content/readings.js';
 import { _aiChat } from './ai.js';
 import { SESSIONS } from '../content/sessions/sessions.js';
@@ -30,6 +33,8 @@ import { getAppSurface, initAppSurfaceRuntime, registerAndroidBackHandler, setAp
 import { startPresenceHeartbeat, stopPresenceHeartbeat } from './presence.js';
 import { initChatPanel, destroyChatPanel, handleChatBack, closeChatPanel, toggleChatPanel } from './components/chat-panel.js';
 import { stopChatListeners } from './chat.js';
+import { renderSubmissionPanel } from './components/submission-panel.js';
+import { isOpenByDefault } from './unit-access.js';
 
 // AI utility exposed globally for legacy inline handlers
 window._aiChat = _aiChat;
@@ -37,6 +42,40 @@ window._aiChat = _aiChat;
 // Expose STATE + saveState globally for reading-task progress tracking
 window.STATE = STATE;
 window.saveState = saveState;
+
+const ANDROID_FOCUS_MODE_KEY = 'ale00y1-android-focus-mode';
+
+// PROTOTYPE: units rendered with linear screen-by-screen navigation
+// instead of a single scrolling page. Scoped to Unit 1 for now.
+const PAGINATED_UNIT_IDS = new Set(['u1']);
+
+function _resolveUserIdentity(user = STATE.user) {
+  const rawName = String(user?.displayName || '').split(' [')[0].trim();
+  const rawEmail = String(user?.email || '').trim();
+  const name = rawName || rawEmail || 'Student';
+  const firstName = name.split(/\s+/).find(Boolean) || 'Student';
+  const rawRole = String(user?._resolvedRole || user?.displayName?.match(/\[(.*?)\]/)?.[1] || '').trim().toLowerCase();
+  const role = ['student', 'tutor', 'lecturer', 'moderator'].includes(rawRole) ? rawRole : 'student';
+  return {
+    name,
+    firstName,
+    role,
+    avatar: name.charAt(0).toUpperCase() || 'S',
+  };
+}
+
+function _runOptionalStartupTask(label, task) {
+  try {
+    const result = task();
+    if (result && typeof result.catch === 'function') {
+      result.catch((err) => {
+        console.error(`${label} failed:`, err);
+      });
+    }
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+  }
+}
 
 function _isAndroidStudentApp() {
   return Boolean(getAppSurface().isAndroidApp);
@@ -50,8 +89,30 @@ function _isAndroidImmersiveMode() {
   return Boolean(window._androidImmersiveMode);
 }
 
-function _setAndroidImmersiveMode(enabled, rerender = true) {
+function _loadAndroidImmersivePreference() {
+  try {
+    const stored = localStorage.getItem(ANDROID_FOCUS_MODE_KEY);
+    if (stored === '0') return false;
+    if (stored === '1') return true;
+  } catch {
+    // Ignore storage failures and fall back to the default below.
+  }
+  return true;
+}
+
+function _persistAndroidImmersivePreference(enabled) {
+  try {
+    localStorage.setItem(ANDROID_FOCUS_MODE_KEY, enabled ? '1' : '0');
+  } catch {
+    // Ignore storage failures; the current session state still works.
+  }
+}
+
+function _setAndroidImmersiveMode(enabled, rerender = true, persist = true) {
   window._androidImmersiveMode = Boolean(enabled);
+  if (persist) {
+    _persistAndroidImmersivePreference(window._androidImmersiveMode);
+  }
   document.body.classList.toggle('android-immersive-mode', window._androidImmersiveMode);
   if (!rerender) return;
   if (document.querySelector('.android-course-shell')) {
@@ -170,10 +231,16 @@ window.trackLearningEvent = async function (eventType, meta = {}) {
 
 export function initApp(user) {
   STATE.user = user;
+  window._dashboardTutorPreview = null;
+  window._dashboardRolePreview = '';
   initAppSurfaceRuntime();
   _registerAndroidBackContract();
-  const role = user.displayName?.match(/\[(.*?)\]/)?.[1] ?? 'student';
+  const { role } = _resolveUserIdentity(user);
   const requestedStudentView = _consumeRequestedStudentView();
+
+  if (_isAndroidStudentApp() && typeof window._androidImmersiveMode !== 'boolean') {
+    _setAndroidImmersiveMode(_loadAndroidImmersivePreference(), false, false);
+  }
 
   if (!STATE.deviceInfo) {
     const ua = navigator.userAgent;
@@ -184,18 +251,52 @@ export function initApp(user) {
     saveState();
   }
 
-  // Initialize auto-save every 2 minutes
+  // Initialize auto-save every 60 seconds
   if (!window._autoSaveTimer) {
     window._autoSaveTimer = setInterval(() => {
       window.autoSave?.();
-    }, 2 * 60 * 1000);
+    }, 60 * 1000);
+  }
+
+  // Warn students before closing if there are unsaved changes
+  if (!window._beforeUnloadBound) {
+    window._beforeUnloadBound = true;
+    window.addEventListener('beforeunload', (e) => {
+      if (syncStatus.dirty) {
+        e.preventDefault();
+        return '';
+      }
+    });
+    // Also try to flush state on page hide (mobile browsers)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && syncStatus.dirty) {
+        saveState();
+      }
+    });
+  }
+
+  if (_isAndroidStudentApp() && role !== 'student') {
+    window._viewAsStudent = true;
+    window._androidInspectionRole = role;
+    _wireStudentView();
+    _runOptionalStartupTask('Student presence heartbeat init', () => startPresenceHeartbeat());
+    _runOptionalStartupTask('Student chat panel init', () => initChatPanel());
+    if (!window._studentAndroidTab) {
+      _setAndroidStudentTab('home', false);
+    }
+    if (requestedStudentView === 'governance-rewards') {
+      window.goToGovernanceFramework();
+      return;
+    }
+    renderStudentDashboard();
+    return;
   }
 
   if (role === 'lecturer' || role === 'moderator') {
     renderDashboardShell(user, role);
     const container = document.getElementById('dash-mount');
     renderLecturerDashboard(container);
-    initChatPanel();
+    _runOptionalStartupTask('Lecturer chat panel init', () => initChatPanel());
     return;
   }
 
@@ -203,14 +304,16 @@ export function initApp(user) {
     renderDashboardShell(user, role);
     const container = document.getElementById('dash-mount');
     renderTutorDashboard(container);
-    initChatPanel();
+    _runOptionalStartupTask('Tutor chat panel init', () => initChatPanel());
     return;
   }
 
   // Default: student view
+  window._viewAsStudent = false;
+  window._androidInspectionRole = '';
   _wireStudentView();
-  startPresenceHeartbeat();
-  initChatPanel();
+  _runOptionalStartupTask('Student presence heartbeat init', () => startPresenceHeartbeat());
+  _runOptionalStartupTask('Student chat panel init', () => initChatPanel());
   if (_isAndroidStudentApp() && !window._studentAndroidTab) {
     _setAndroidStudentTab('home', false);
   }
@@ -321,20 +424,31 @@ function _wireStudentView() {
     document.getElementById('btn-next')?.style && (document.getElementById('btn-next').style.display = 'none');
     renderGovernanceFramework();
   };
+  window.goToChallengeArena = () => {
+    window._androidStudentReturnTab = 'home';
+    setAppSurfaceRoute('student-challenge-arena');
+    const app = document.getElementById('app');
+    app.innerHTML = '<div id="challenge-arena-root" class="anim-fade" style="min-height:100vh;"></div>';
+    const root = document.getElementById('challenge-arena-root');
+    renderChallengeArena(root);
+  };
+  window.goToSubmissions = (assessmentId = '') => {
+    window._androidStudentReturnTab = 'home';
+    window._submissionPanelInitialAssessment = String(assessmentId || '').trim() || '';
+    setAppSurfaceRoute('student-submissions');
+    const app = document.getElementById('app');
+    app.innerHTML = '<div id="submissions-root" class="anim-fade" style="min-height:100vh;padding:0 16px;"></div>';
+    const root = document.getElementById('submissions-root');
+    renderSubmissionPanel(root);
+  };
+  window.goToSubmissionAssessment = (assessmentId = '') => window.goToSubmissions(assessmentId);
+  window.goToStudentDashboard = () => renderStudentDashboard();
 
   window.autoSave = async () => {
-    // 1. Sync from various components
     if (typeof syncActivitiesToState === 'function') {
       syncActivitiesToState();
     }
-
-    // 2. Persist
-    try {
-      const synced = await saveState();
-      showToast(synced ? 'Progress auto-saved' : 'Saved locally (check connection)', synced ? 'success' : 'info');
-    } catch (err) {
-      console.error('Auto-save failed:', err);
-    }
+    await saveState();
   };
 }
 
@@ -517,6 +631,52 @@ function _profileInput(id, label, value, placeholder, style, type = 'text') {
   `;
 }
 
+function _renderAndroidStaffAccessBlocked(user, role) {
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  const roleLabel = role === 'lecturer'
+    ? 'Lecturer'
+    : role === 'tutor'
+      ? 'Tutor'
+      : 'Staff';
+  const name = String(user?.displayName || user?.email || roleLabel).split(' [')[0].trim() || roleLabel;
+  const email = String(user?.email || '').trim();
+
+  document.body.style.cssText = 'display:block;background:linear-gradient(180deg,#0f172a 0%,#111827 100%);min-height:100vh;overflow:auto;padding:0;';
+  app.style.display = 'block';
+  app.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+      <div style="width:min(560px,100%);background:rgba(255,255,255,.96);border:1px solid rgba(15,23,42,.08);border-radius:28px;box-shadow:0 24px 56px rgba(15,23,42,.28);padding:28px 24px;">
+        <div style="font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#f59e0b;margin-bottom:14px;">Android Student App</div>
+        <h1 style="margin:0 0 12px 0;font-family:'Playfair Display',serif;font-size:34px;line-height:1.08;color:#0f172a;">Staff tools stay on the web.</h1>
+        <p style="margin:0 0 18px 0;font-size:15px;line-height:1.75;color:#475569;">
+          This Android build is now reserved for the student learning experience only. ${_escHtml(roleLabel)} dashboards, analytics, roster tools, moderation, attendance controls, and bulk actions should be used from the web app.
+        </p>
+        <div style="padding:16px 18px;border-radius:18px;background:linear-gradient(180deg,#fffaf0,#fffbeb);border:1px solid #fde68a;margin-bottom:18px;">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#92400e;font-family:'DM Mono',monospace;margin-bottom:8px;">Signed in</div>
+          <div style="font-size:18px;font-weight:800;color:#0f172a;">${_escHtml(name)}</div>
+          <div style="font-size:13px;color:#64748b;margin-top:4px;">${_escHtml(email || `${roleLabel.toLowerCase()} account`)}</div>
+        </div>
+        <div style="display:grid;gap:10px;margin-bottom:20px;">
+          <div style="padding:14px 16px;border-radius:16px;background:#f8fafc;border:1px solid rgba(148,163,184,.22);font-size:14px;color:#334155;line-height:1.7;">
+            Use the web app for lecturer and tutor workflows.
+          </div>
+          <div style="padding:14px 16px;border-radius:16px;background:#f8fafc;border:1px solid rgba(148,163,184,.22);font-size:14px;color:#334155;line-height:1.7;">
+            Students can continue using this Android app normally.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button onclick="appSignOut()" style="display:inline-flex;align-items:center;justify-content:center;padding:14px 18px;border-radius:16px;border:none;background:#0f172a;color:white;font-weight:800;cursor:pointer;">Sign Out</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  window.appSignOut = () => { destroyChatPanel(); stopPresenceHeartbeat(); signOut(); };
+  setAppSurfaceRoute('android-staff-blocked');
+}
+
 function _escHtml(value = '') {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -528,6 +688,8 @@ function _escHtml(value = '') {
 
 export function switchToTutorView() {
   window._viewAsStudent = false;
+  window._dashboardTutorPreview = null;
+  window._dashboardRolePreview = '';
   const user = STATE.user;
   renderDashboardShell(user, 'tutor');
   const container = document.getElementById('dash-mount');
@@ -535,8 +697,28 @@ export function switchToTutorView() {
 }
 window.switchToTutorView = switchToTutorView;
 
+export function openTutorDashboardPreview(tutor = null) {
+  window._viewAsStudent = false;
+  const safeTutor = tutor && typeof tutor === 'object'
+    ? {
+      uid: String(tutor.uid || '').trim(),
+      displayName: String(tutor.displayName || tutor.name || '').replace(/\s*\[(tutor|lecturer|moderator)\]\s*/i, '').trim(),
+      email: String(tutor.email || '').trim(),
+    }
+    : null;
+  window._dashboardTutorPreview = safeTutor && (safeTutor.uid || safeTutor.displayName || safeTutor.email) ? safeTutor : null;
+  window._dashboardRolePreview = window._dashboardTutorPreview ? 'tutor' : '';
+  const user = STATE.user;
+  renderDashboardShell(user, 'tutor');
+  const container = document.getElementById('dash-mount');
+  renderTutorDashboard(container);
+}
+window.openTutorDashboardPreview = openTutorDashboardPreview;
+
 export function switchToLecturerView() {
   window._viewAsStudent = false;
+  window._dashboardTutorPreview = null;
+  window._dashboardRolePreview = '';
   const user = STATE.user;
   renderDashboardShell(user, 'lecturer');
   const container = document.getElementById('dash-mount');
@@ -546,8 +728,8 @@ window.switchToLecturerView = switchToLecturerView;
 
 // ── Dashboard shell (lecturer + tutor) ────────
 function renderDashboardShell(user, role) {
-  const name = user.displayName?.split(' [')[0] ?? user.email;
-  const actualRole = user.displayName?.match(/\[(.*?)\]/)?.[1]?.toLowerCase() ?? 'student';
+  const { name, avatar, role: actualRole } = _resolveUserIdentity(user);
+  const previewTutor = role === 'tutor' ? window._dashboardTutorPreview : null;
   const label = role === 'moderator'
     ? '🛡 Moderator Dashboard'
     : role === 'lecturer'
@@ -561,13 +743,14 @@ function renderDashboardShell(user, role) {
         <div class="dash-topbar-left">
           <div class="dash-topbar-logo">ACADLIT · AI</div>
           <div class="dash-topbar-title">${label}</div>
+          ${isLecturerViewingAsTutor && previewTutor ? `<div style="margin-left:12px;padding:6px 12px;border-radius:999px;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:700;border:1px solid #a7f3d0;">Previewing ${_escHtml(previewTutor.displayName || previewTutor.email || previewTutor.uid || 'Tutor')}</div>` : ''}
         </div>
         <div class="dash-topbar-right">
           ${isLecturerViewingAsTutor ? '<button onclick="switchToLecturerView()" style="margin-right: 8px; background: var(--navy); color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: 600; cursor: pointer;">← Lecturer Dashboard</button>' : ''}
           ${role === 'lecturer' ? '<button class="dash-tutor-btn" onclick="switchToTutorView()" style="margin-right: 8px; background: var(--green); color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: 600; cursor: pointer;">👥 Tutor View</button>' : ''}
           <button class="dash-student-btn" onclick="switchToStudentView()" style="margin-right: 16px; background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 20px; font-weight: 600; cursor: pointer;">👩‍🎓 Student View</button>
           <div class="dash-user-pill">
-            <div class="dash-user-avatar">${name[0].toUpperCase()}</div>
+            <div class="dash-user-avatar">${avatar}</div>
             <div class="dash-user-name">${name}</div>
           </div>
           <button class="dash-signout-btn" onclick="appSignOut()">Sign Out</button>
@@ -605,7 +788,7 @@ function _renderAndroidCourseShell(user, name, role) {
     const complete = STATE.progress[u.id]?.readingComplete;
     let isLocked = false;
     let lockedReason = '';
-    if (i > 0) {
+    if (i > 0 && !isOpenByDefault(UNITS, i)) {
       const prevUnit = UNITS[i - 1];
       const prevComplete = STATE.progress[prevUnit.id]?.readingComplete || STATE.progress[prevUnit.id]?.assessmentSubmitted;
       const isHighAchiever = (STATE.erProgress?.extraMarks || 0) >= 15;
@@ -652,6 +835,13 @@ function _renderAndroidCourseShell(user, name, role) {
             <div class="nav-info">
               <div class="nav-badge">Tutorial</div>
               <div class="nav-lbl">Tutorial Notebook</div>
+            </div>
+          </div>
+          <div class="nav-item" id="nav-submissions" onclick="window.goToSubmissions();window.closeAndroidUnitRail();">
+            <div class="nav-num">📤</div>
+            <div class="nav-info">
+              <div class="nav-badge">Portal</div>
+              <div class="nav-lbl">Assessment Submissions</div>
             </div>
           </div>
         </div>
@@ -733,9 +923,9 @@ function _renderAndroidCourseShell(user, name, role) {
 }
 
 function renderShell() {
+  _runOptionalStartupTask('assessment settings preload', () => loadAssessmentSettingsOverrides());
   const user = STATE.user;
-  const name = user.displayName?.split(' [')[0] ?? user.email;
-  const role = user.displayName?.match(/\[(.*?)\]/)?.[1] ?? 'student';
+  const { name, role } = _resolveUserIdentity(user);
 
   if (_isAndroidStudentApp()) {
     _renderAndroidCourseShell(user, name, role);
@@ -791,7 +981,7 @@ function renderShell() {
     // Unit Locking Logic
     let isLocked = false;
     let lockedReason = '';
-    if (i > 0) {
+    if (i > 0 && !isOpenByDefault(UNITS, i)) {
       const prevUnit = UNITS[i - 1];
       const prevComplete = STATE.progress[prevUnit.id]?.readingComplete || STATE.progress[prevUnit.id]?.assessmentSubmitted;
 
@@ -1026,6 +1216,12 @@ export function navigateTo(index) {
   initAllReadingTasks();
   initAllVisualTasks();
   initAllAssessmentTasks();
+
+  // PROTOTYPE: linear screen-by-screen navigation for selected units.
+  // Runs after boot so live components are moved (not rebuilt) into screens.
+  if (PAGINATED_UNIT_IDS.has(unit.id)) {
+    paginateUnit(area, { onComplete: () => window.nextUnit?.() });
+  }
 
   // Topbar — show unit number only for actual units, not assessments
   const badgeText = unit.isAssessment ? unit.badge : unit.badge;
