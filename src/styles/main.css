@@ -993,6 +993,105 @@ a:hover {
   transition: width 0.3s ease;
 }
 
+/* Screen type chip + focused presentation */
+.ur-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.unit-reader-head .ur-dots {
+  margin: 2px 0 12px;
+}
+
+.ur-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.ur-type-watch { background: var(--amber-dim); color: var(--amber2); }
+.ur-type-check { background: rgba(16, 185, 129, 0.12); color: var(--green); }
+.ur-type-practise { background: rgba(139, 92, 246, 0.12); color: var(--purple); }
+.ur-type-reflect { background: var(--cream2); color: var(--muted); }
+
+/* Focused measure for text-heavy screens; watch/practise stay full width. */
+.unit-screen[data-type="learn"],
+.unit-screen[data-type="orient"],
+.unit-screen[data-type="check"],
+.unit-screen[data-type="reflect"] {
+  max-width: 680px;
+  margin-inline: auto;
+}
+
+.unit-reader .lead {
+  font-size: 21px;
+  line-height: 1.6;
+}
+
+/* Progressive disclosure for static aside cards */
+.ur-disclosure {
+  margin: 22px 0;
+}
+
+.ur-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy);
+  background: #fff;
+  transition: var(--transition);
+}
+
+.ur-disclosure > summary:hover {
+  background: var(--cream2);
+}
+
+.ur-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ur-disclosure > summary::after {
+  content: '+';
+  margin-left: auto;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.ur-disclosure[open] > summary::after {
+  content: '\2212';
+}
+
+.ur-disclosure[open] > summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.ur-disclosure .concept-card {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
 @media (max-width: 720px) {
   .ur-screen-title { font-size: 16px; }
   .ur-btn { padding: 9px 16px; font-size: 13px; }

@@ -39,6 +39,50 @@ function _titleOf(group, fallback) {
   return fallback;
 }
 
+// Screen types — the predictable lesson "beat". Each screen does one job.
+const SCREEN_TYPES = {
+  orient:   { label: 'Orient', icon: '🎯' },
+  watch:    { label: 'Watch', icon: '🎬' },
+  learn:    { label: 'Learn', icon: '💡' },
+  check:    { label: 'Check', icon: '✅' },
+  practise: { label: 'Practise', icon: '✍️' },
+  reflect:  { label: 'Reflect', icon: '💭' },
+};
+
+// Infer a screen's type from its content and heading. Heuristic, no content
+// changes required; order matters (first match wins).
+function _screenType(section, index, title) {
+  const has = (sel) => !!section.querySelector(sel);
+  const t = (title || '').toLowerCase();
+  if (index === 0) return 'orient';
+  if (has('.ivp-container') || /\bwatch\b/.test(t)) return 'watch';
+  if (has('.rt-container') || has('.visual-task') || has('.assessment-task')) return 'practise';
+  if (has('.ex-block') || has('.unit-closing')
+      || /reflect|before you move on|self-directed|portfolio|milestone|contract|learning cycle/.test(t)) return 'reflect';
+  if (has('.quiz-block')) return 'check';
+  return 'learn';
+}
+
+// Collapse static "aside" concept cards (analogies, notes) behind a toggle to
+// reduce default density. Interactive concept cards (pathway/portfolio blocks
+// carry inputs/buttons) are left expanded.
+function _wrapAsides(section) {
+  section.querySelectorAll('.concept-card').forEach((card) => {
+    if (card.closest('.ur-disclosure')) return;
+    if (card.querySelector('input,textarea,select,button,a,[contenteditable],.ivp-container')) return;
+    const labelEl = card.querySelector('.concept-card-label');
+    const summaryText = labelEl ? labelEl.textContent.trim() : 'Show example';
+    const details = document.createElement('details');
+    details.className = 'ur-disclosure';
+    const summary = document.createElement('summary');
+    summary.textContent = summaryText;
+    card.parentNode.insertBefore(details, card);
+    details.appendChild(summary);
+    details.appendChild(card);
+    if (labelEl) labelEl.style.display = 'none';
+  });
+}
+
 // Find a hosted stepper inside a screen section: a .rt-container (or other
 // future stepper mount) whose id is registered in window._stepperNav.
 function _findStepperId(section) {
@@ -91,9 +135,22 @@ export function paginateUnit(area, { onComplete = null, scrollSelector = 'conten
     section.dataset.index = String(i);
     group.forEach((n) => section.appendChild(n));
     screensHost.appendChild(section);
+
     const stepperId = _findStepperId(section);
     if (stepperId) window._rtSetHostMode?.(stepperId, true); // hide inner chrome
-    screens.push({ section, title: _titleOf(group, `Section ${i + 1}`), stepperId });
+
+    // Title comes from the heading; hide it in the body (the chrome shows it).
+    // Strip any leading emoji/symbol — the type chip already carries an icon.
+    const boundary = group.find(_isBoundary);
+    const rawTitle = boundary ? (boundary.textContent || '').trim() : `Section ${i + 1}`;
+    const title = rawTitle.replace(/^[^\p{L}\p{N}]+/u, '').trim() || rawTitle;
+    if (boundary) boundary.style.display = 'none';
+
+    const type = _screenType(section, i, title);
+    section.dataset.type = type;
+    if (type !== 'practise') _wrapAsides(section); // don't touch reading-task internals
+
+    screens.push({ section, title, stepperId, type });
   });
 
   // 4. Flatten into "stops": each non-stepper screen is one stop; a stepper
@@ -131,13 +188,16 @@ export function paginateUnit(area, { onComplete = null, scrollSelector = 'conten
       return `<button type="button" class="ur-dot ${state}" data-screen="${si}" ${reachable ? '' : 'disabled'} title="${safe}" aria-label="Go to: ${safe}"></button>`;
     }).join('');
 
+    const scr = screens[s.screen];
+    const ty = SCREEN_TYPES[scr.type] || SCREEN_TYPES.learn;
     const innerSuffix = nav ? ` · ${nav.labels[innerIdx]}` : '';
     header.innerHTML = `
-      <div class="ur-progress-row">
+      <div class="ur-top-row">
+        <span class="ur-type-chip ur-type-${scr.type}">${ty.icon} ${ty.label}</span>
         <span class="ur-step-count">Step ${pos + 1} of ${total}</span>
-        <div class="ur-dots">${dots}</div>
       </div>
-      <h2 class="ur-screen-title">${screens[s.screen].title}${innerSuffix}</h2>`;
+      <div class="ur-dots">${dots}</div>
+      <h2 class="ur-screen-title">${scr.title}${innerSuffix}</h2>`;
 
     // Footer Next: delegate to inner unless on the inner's last step.
     let nextLabel = onLast ? 'Finish Unit ✓' : 'Next →';
