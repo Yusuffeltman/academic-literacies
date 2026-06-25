@@ -45,9 +45,12 @@ window.saveState = saveState;
 
 const ANDROID_FOCUS_MODE_KEY = 'ale00y1-android-focus-mode';
 
-// PROTOTYPE: units rendered with linear screen-by-screen navigation
-// instead of a single scrolling page. Scoped to Unit 1 for now.
-const PAGINATED_UNIT_IDS = new Set(['u1']);
+// PROTOTYPE (PARKED): linear screen-by-screen unit navigation.
+// Disabled pending research into an evidence-based, pedagogically sound
+// presentation model. Empty set = all units render in their original
+// scrolling format. The unit-reader code is retained for future iteration.
+// Re-enable for a unit by adding its id, e.g. new Set(['u1']).
+const PAGINATED_UNIT_IDS = new Set();
 
 function _resolveUserIdentity(user = STATE.user) {
   const rawName = String(user?.displayName || '').split(' [')[0].trim();
