@@ -94,7 +94,34 @@ function _findStepperId(section) {
   return null;
 }
 
-export function paginateUnit(area, { onComplete = null, scrollSelector = 'content-window' } = {}) {
+// Does a node start an authored chunk? Matches a heading substring or a selector.
+function _matchesStart(node, start) {
+  if (!start || !node || node.nodeType !== 1) return false;
+  if (start.headingIncludes) {
+    return _isBoundary(node)
+      && (node.textContent || '').toLowerCase().includes(start.headingIncludes.toLowerCase());
+  }
+  if (start.selector) {
+    return (node.matches && node.matches(start.selector))
+      || (node.querySelector && !!node.querySelector(start.selector));
+  }
+  return false;
+}
+
+// Group nodes by authored chunk boundaries (Arm B). chunk[0] starts the unit;
+// each later chunk starts at the first node matching its `start`. Connected
+// content between boundaries stays in one chunk (prose is never fragmented).
+function _groupByAuthored(nodes, chunks) {
+  const groups = chunks.map((c) => ({ nodes: [], type: c.type, title: c.title }));
+  let ci = 0;
+  for (const node of nodes) {
+    if (ci + 1 < chunks.length && _matchesStart(node, chunks[ci + 1].start)) ci++;
+    groups[ci].nodes.push(node);
+  }
+  return groups.filter((g) => g.nodes.some((n) => n.nodeType === 1));
+}
+
+export function paginateUnit(area, { onComplete = null, scrollSelector = 'content-window', authoredChunks = null } = {}) {
   if (!area) return null;
 
   // Tear down any listener from a previous pagination.
@@ -103,16 +130,22 @@ export function paginateUnit(area, { onComplete = null, scrollSelector = 'conten
     _rtChangeHandler = null;
   }
 
-  // 1. Group existing (already-booted) child nodes at boundaries.
+  // 1. Group child nodes — by authored chunk boundaries (Arm B) or, failing
+  //    that, by heading boundaries (heuristic). Normalise to {nodes,type,title}.
   const childNodes = Array.from(area.childNodes);
-  let groups = [];
-  let current = null;
-  for (const node of childNodes) {
-    if (_isBoundary(node)) { current = [node]; groups.push(current); }
-    else { if (!current) { current = []; groups.push(current); } current.push(node); }
+  let normGroups;
+  if (Array.isArray(authoredChunks) && authoredChunks.length) {
+    normGroups = _groupByAuthored(childNodes, authoredChunks);
+  } else {
+    let groups = [];
+    let current = null;
+    for (const node of childNodes) {
+      if (_isBoundary(node)) { current = [node]; groups.push(current); }
+      else { if (!current) { current = []; groups.push(current); } current.push(node); }
+    }
+    normGroups = groups.filter(_hasElement).map((g) => ({ nodes: g, type: null, title: null }));
   }
-  groups = groups.filter(_hasElement);
-  if (groups.length <= 1) return null;
+  if (normGroups.length <= 1) return null;
 
   // 2. Build scaffold.
   area.innerHTML = '';
@@ -129,24 +162,28 @@ export function paginateUnit(area, { onComplete = null, scrollSelector = 'conten
 
   // 3. Move grouped nodes into screen sections; detect hosted steppers.
   const screens = [];
-  groups.forEach((group, i) => {
+  normGroups.forEach((group, i) => {
+    const nodes = group.nodes;
     const section = document.createElement('section');
     section.className = 'unit-screen';
     section.dataset.index = String(i);
-    group.forEach((n) => section.appendChild(n));
+    nodes.forEach((n) => section.appendChild(n));
     screensHost.appendChild(section);
 
     const stepperId = _findStepperId(section);
     if (stepperId) window._rtSetHostMode?.(stepperId, true); // hide inner chrome
 
-    // Title comes from the heading; hide it in the body (the chrome shows it).
-    // Strip any leading emoji/symbol — the type chip already carries an icon.
-    const boundary = group.find(_isBoundary);
-    const rawTitle = boundary ? (boundary.textContent || '').trim() : `Section ${i + 1}`;
-    const title = rawTitle.replace(/^[^\p{L}\p{N}]+/u, '').trim() || rawTitle;
+    // Title comes from authored metadata or the heading; hide the in-body
+    // heading (the chrome shows it). Strip a leading emoji — the chip has one.
+    const boundary = nodes.find(_isBoundary);
+    let title = group.title;
+    if (!title) {
+      const rawTitle = boundary ? (boundary.textContent || '').trim() : `Section ${i + 1}`;
+      title = rawTitle.replace(/^[^\p{L}\p{N}]+/u, '').trim() || rawTitle;
+    }
     if (boundary) boundary.style.display = 'none';
 
-    const type = _screenType(section, i, title);
+    const type = group.type || _screenType(section, i, title);
     section.dataset.type = type;
     if (type !== 'practise') _wrapAsides(section); // don't touch reading-task internals
 

@@ -6,6 +6,7 @@ import { VIDEOS, VIDEO_CONFIG } from '../content/videos.js';
 import { InteractiveVideoPlayer } from './components/video-player.js';
 import { initAllReadingTasks } from './components/reading-task.js';
 import { paginateUnit } from './components/unit-reader.js';
+import { isTestUnit, resolveArmForUser, getAuthoredChunks } from './lesson-experiment.js';
 import { initAllVisualTasks } from './components/visual-task.js';
 import { initAllAssessmentTasks } from './components/assessment-task.js';
 import { initAITutor, updateAITutorContext } from './components/ai-tutor.js';
@@ -1224,6 +1225,24 @@ export function navigateTo(index) {
   // Runs after boot so live components are moved (not rebuilt) into screens.
   if (PAGINATED_UNIT_IDS.has(unit.id)) {
     paginateUnit(area, { onComplete: () => window.nextUnit?.() });
+  }
+
+  // Lesson-presentation A/B (docs/lesson-presentation-redesign-spec.md).
+  // Test units are assigned an arm; Arm B renders the authored-chunk
+  // presentation, Arm A stays the original scroll. Both arms are logged.
+  if (isTestUnit(unit.id)) {
+    const presentationArm = resolveArmForUser(STATE.user, unit.id);
+    window.trackLearningEvent?.('lesson_arm_assigned', {
+      unitId: unit.id,
+      presentationArm,
+      source: 'lesson-experiment',
+    });
+    if (presentationArm === 'B') {
+      paginateUnit(area, {
+        onComplete: () => window.nextUnit?.(),
+        authoredChunks: getAuthoredChunks(unit.id),
+      });
+    }
   }
 
   // Topbar — show unit number only for actual units, not assessments

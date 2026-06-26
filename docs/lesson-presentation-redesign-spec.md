@@ -53,7 +53,7 @@ Critically, Arm B is **not** the parked prototype: boundaries are authored (not 
 
 Rationale: small course cohorts give weak between-groups power; within-subjects is more sensitive and, importantly, **fairer** — no student is confined to one format on assessed work (see §7).
 
-- **Test units:** 2 units matched on phase, length, and difficulty (e.g. two Phase-1/Phase-2 content units; avoid assessment units).
+- **Test units (confirmed): `unit07` "The Professional Fact-Checker" and `unit08` "Trusting AI with Your Research".** Both Phase 2 (Finding & Evaluating Knowledge), identical length (141 lines), near-identical writing difficulty (140/150 words), identical component structure, cognate source/AI-evaluation skills, and adjacent + mid-course (low attrition, no first-unit novelty confound). Runner-up if an exact difficulty match is preferred over data completeness: `unit16` + `unit17` (Phase 4, both 220-word target).
 - **Assignment:** deterministic from a hash of `studentId × unitId` so the split is balanced and reproducible; persisted in `STATE` so a student always sees the same arm for a given unit.
 - **Counterbalance:** half the cohort sees unit X in Arm A / unit Y in Arm B; the other half the reverse.
 
