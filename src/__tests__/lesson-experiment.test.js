@@ -5,9 +5,11 @@ import {
   TEST_UNIT_IDS,
   isTestUnit,
   getAuthoredChunks,
+  getComprehensionItems,
   assignArm,
   resolveArmForUser,
 } from '../lesson-experiment.js';
+import { scoreAnswers } from '../lesson-measurement.js';
 
 test('test units are u7 and u8', () => {
   assert.deepEqual(TEST_UNIT_IDS, ['u7', 'u8']);
@@ -17,16 +19,36 @@ test('test units are u7 and u8', () => {
   assert.equal(isTestUnit(''), false);
 });
 
-test('authored chunks exist for both test units and start the unit with orient', () => {
+test('authored chunks exist for both test units, start with orient, end with check', () => {
   for (const u of ['u7', 'u8']) {
     const chunks = getAuthoredChunks(u);
-    assert.ok(Array.isArray(chunks) && chunks.length === 6);
+    assert.ok(Array.isArray(chunks) && chunks.length === 7);
     assert.equal(chunks[0].type, 'orient');
     assert.equal(chunks[0].start, undefined); // first chunk has no start matcher
     assert.ok(chunks.slice(1).every((c) => c.start)); // every later chunk has one
-    assert.equal(chunks[chunks.length - 1].type, 'reflect');
+    assert.equal(chunks[chunks.length - 1].type, 'check'); // measurement panel last
   }
   assert.equal(getAuthoredChunks('u1'), null);
+});
+
+test('comprehension items are well-formed with in-range answer keys', () => {
+  for (const u of ['u7', 'u8']) {
+    const items = getComprehensionItems(u);
+    assert.ok(Array.isArray(items) && items.length >= 3);
+    for (const it of items) {
+      assert.equal(typeof it.q, 'string');
+      assert.ok(Array.isArray(it.options) && it.options.length >= 3);
+      assert.ok(Number.isInteger(it.answer) && it.answer >= 0 && it.answer < it.options.length);
+    }
+  }
+  assert.equal(getComprehensionItems('u1'), null);
+});
+
+test('scoreAnswers counts correct selections', () => {
+  assert.deepEqual(scoreAnswers([1, 1, 1, 1], [1, 1, 1, 1]), { score: 4, max: 4 });
+  assert.deepEqual(scoreAnswers([0, 1, 2, 0], [1, 1, 1, 1]), { score: 1, max: 4 });
+  assert.deepEqual(scoreAnswers([null, 1], [1, 1]), { score: 1, max: 2 });
+  assert.deepEqual(scoreAnswers('bad', [1]), { score: 0, max: 0 });
 });
 
 test('assignment is deterministic for a given student and unit', () => {

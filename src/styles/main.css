@@ -1104,6 +1104,119 @@ a:hover {
   display: none !important;
 }
 
+/* Lesson-presentation A/B — end-of-unit measurement panel */
+.lesson-measure {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--cream);
+  padding: 28px;
+  margin: 32px 0;
+}
+
+.lm-kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lm-title {
+  margin: 4px 0 8px;
+}
+
+.lm-note {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.lm-section {
+  margin-top: 20px;
+}
+
+.lm-q {
+  margin-bottom: 18px;
+}
+
+.lm-q-text {
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.lm-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: var(--transition);
+}
+
+.lm-opt:hover {
+  border-color: var(--accent);
+}
+
+.lm-opt input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.lm-scale {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-scale input[type="range"] {
+  flex: 1;
+}
+
+.lm-effort-readout {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--navy);
+}
+
+.lm-err {
+  color: var(--red);
+  font-size: 13px;
+  margin: 14px 0 0;
+}
+
+.lm-submit {
+  margin-top: 20px;
+  padding: 11px 24px;
+  border: none;
+  border-radius: 30px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lm-submit:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
 /* ── BACK TO TOP BUTTON ── */
 .btn-back-to-top {
   position: absolute;

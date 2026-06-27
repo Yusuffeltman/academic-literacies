@@ -27,10 +27,107 @@ const CHUNKS_U7_U8 = [
   { type: 'learn',    title: 'Choose your challenge',  start: { headingIncludes: 'Pathway Challenge' } },
   { type: 'practise', title: 'Read & write',           start: { headingIncludes: 'Reading & Writing' } },
   { type: 'reflect',  title: 'Apply & reflect',        start: { selector: '.ex-block' } },
+  { type: 'check',    title: 'Quick check',            start: { selector: '.lesson-measure' } },
 ];
 
 // unit07 and unit08 are structurally identical, so they share one chunk map.
 export const AUTHORED_CHUNKS = { u7: CHUNKS_U7_U8, u8: CHUNKS_U7_U8 };
+
+// Comprehension items — the experiment's PRIMARY outcome. Drafted from each
+// unit's reading; formative (ungraded). DRAFT — requires lecturer review and
+// sign-off before the trial runs. `answer` is the 0-based index of the correct
+// option. Kept deliberately short (recall + light inference of the reading).
+const COMPREHENSION_U7 = [
+  {
+    q: 'According to the reading, how do professional fact-checkers mainly evaluate a source?',
+    options: [
+      'By reading it very carefully from beginning to end',
+      'By looking at what independent others say about it (lateral reading)',
+      "By studying the source's own “About Us” page",
+      'By counting how many citations it provides',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'The reading calls the “Stop” step perhaps the most important because:',
+    options: [
+      'It is simply the first letter of SIFT',
+      'Misinformation is usually designed to trigger an emotional reaction first',
+      'Stopping gives you time to read the whole article',
+      'It stops you opening too many browser tabs',
+    ],
+    answer: 1,
+  },
+  {
+    q: "Why does the reading argue an “About Us” page cannot establish credibility?",
+    options: [
+      'About Us pages are usually too short to be useful',
+      'The source writes its own About Us page, so it cannot independently verify itself',
+      'About Us pages are often out of date',
+      'Search engines rank them too low to trust',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does the reading claim about the time cost of lateral reading?',
+    options: [
+      'It takes longer than reading the source but is more accurate',
+      'About three minutes — faster and more informative than hours spent reading the source itself',
+      'It requires reading the full article first',
+      'It is only practical for journalists, not teachers',
+    ],
+    answer: 1,
+  },
+];
+
+const COMPREHENSION_U8 = [
+  {
+    q: "In the reading's opening example, why did the New York lawyer face serious professional consequences?",
+    options: [
+      'He refused to use AI in his legal work',
+      'He submitted a brief citing court cases that ChatGPT had fabricated',
+      "He copied another lawyer's brief word for word",
+      'He missed an important filing deadline',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'According to the reading, what makes a hallucinated citation particularly dangerous?',
+    options: [
+      'It is always poorly formatted and therefore obvious',
+      'It is structurally designed to be indistinguishable from a real citation without verification',
+      'It can delete your other references',
+      'It only ever appears in legal documents',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'Which option correctly matches the reading’s “create vs retrieve” distinction?',
+    options: [
+      'ChatGPT retrieves real papers; Elicit creates text',
+      'ChatGPT generates text from patterns; Elicit and Scopus AI retrieve real papers from databases',
+      'Both ChatGPT and Elicit retrieve from the same database',
+      'Retrieval tools invent citations; generative tools verify them',
+    ],
+    answer: 1,
+  },
+  {
+    q: 'What does the reading give as the non-negotiable rule for chatbot use in academic work?',
+    options: [
+      'Never use a chatbot for any academic purpose',
+      'AI generates, you verify — every specific claim and citation, every time',
+      'Only trust citations if the journal name sounds real',
+      'Use chatbots only for final proofreading',
+    ],
+    answer: 1,
+  },
+];
+
+export const COMPREHENSION_ITEMS = { u7: COMPREHENSION_U7, u8: COMPREHENSION_U8 };
+
+export function getComprehensionItems(unitId) {
+  return COMPREHENSION_ITEMS[String(unitId || '')] || null;
+}
 
 export function isTestUnit(unitId) {
   return TEST_UNIT_IDS.includes(String(unitId || ''));

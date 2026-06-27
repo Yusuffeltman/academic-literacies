@@ -7,6 +7,8 @@ import { InteractiveVideoPlayer } from './components/video-player.js';
 import { initAllReadingTasks } from './components/reading-task.js';
 import { paginateUnit } from './components/unit-reader.js';
 import { isTestUnit, resolveArmForUser, getAuthoredChunks } from './lesson-experiment.js';
+import { renderLessonMeasurePanel } from './components/lesson-measure.js';
+import { markLessonOpened } from './lesson-measurement.js';
 import { initAllVisualTasks } from './components/visual-task.js';
 import { initAllAssessmentTasks } from './components/assessment-task.js';
 import { initAITutor, updateAITutorContext } from './components/ai-tutor.js';
@@ -1200,6 +1202,13 @@ export function navigateTo(index) {
   void area.offsetWidth;
   area.innerHTML = unit.html();
   area.classList.add('anim-slide-up');
+
+  // Lesson-presentation A/B: append the end-of-unit measurement panel to test
+  // units (arm-independent), before boot/pagination so Arm B can chunk it.
+  if (isTestUnit(unit.id)) {
+    area.insertAdjacentHTML('beforeend', renderLessonMeasurePanel(unit.id));
+    markLessonOpened(unit.id);
+  }
 
   // Scroll to top
   document.getElementById('content-window').scrollTop = 0;
