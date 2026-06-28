@@ -42,7 +42,7 @@ Critically, Arm B is **not** the parked prototype: boundaries are authored (not 
 | **Completion** | Unit/reading completion rate | `STATE.progress[unitId].readingComplete` | none |
 | **Time-on-task / drop-off** | Timestamps; last step reached | `unit_open` events + reading-task `savedAt`/`step` | Log step on exit |
 | **Frustration** | Existing frustration index | `STATE.adaptive.frustration_index` | none |
-| **Prior knowledge** (moderator) | Per-skill status before the unit | `STATE.adaptive.skill_status` | none |
+| **Prior knowledge** (moderator) | Prior-knowledge band (lower/higher) from skill_status, logged on completion | `STATE.adaptive.skill_status` → `priorKnowledgeBand()` | done — split shown in the read-out |
 | **EAL** (moderator) | Home language | not currently captured | Optional profile field; else use prior-knowledge proxy |
 
 **Condition + outcome logging:** extend `trackLearningEvent` to stamp `presentationArm` ('A'|'B') on unit events, and add `lesson_arm_assigned` and `lesson_completed` to `LEARNING_ACTION_EVENT_TYPES` in [analytics.js](../src/analytics.js) so they flow through the existing xAPI/metrics pipeline.

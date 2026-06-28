@@ -28,11 +28,23 @@ export function scoreAnswers(selected, correct) {
   return { score, max };
 }
 
-// Pure: aggregate lesson_completed analytics events into a by-(unit × arm)
-// summary for the lecturer read-out. Dedupes to the latest completion per
-// student per unit, then averages each outcome.
-export function aggregateExperimentEvents(events) {
-  const latest = new Map(); // `${student}|${unit}` -> event (latest by trustedAt)
+// Pure: classify a student's prior knowledge into a band from skill_status.
+// 'higher' if their tested skills average at/above "developing→strong"; else
+// 'lower'; 'unknown' if nothing is tested yet. Proxy moderator for the
+// expertise-reversal check (does segmentation help lower-knowledge students?).
+export function priorKnowledgeBand(skillStatus) {
+  const score = { weak: 0, developing: 1, strong: 2 };
+  const vals = Object.values(skillStatus || {})
+    .map((s) => score[s])
+    .filter((v) => v != null);
+  if (!vals.length) return 'unknown';
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  return mean >= 1 ? 'higher' : 'lower';
+}
+
+// Dedupe lesson_completed events to the latest completion per student per unit.
+function _dedupeLatest(events) {
+  const latest = new Map();
   for (const e of (events || [])) {
     if (!e || e.eventType !== 'lesson_completed') continue;
     const m = e.meta || {};
@@ -42,12 +54,19 @@ export function aggregateExperimentEvents(events) {
     const prev = latest.get(key);
     if (!prev || String(e.trustedAt || '') > String(prev.trustedAt || '')) latest.set(key, e);
   }
+  return [...latest.values()];
+}
 
+// Average the deduped events into groups defined by keyFn(meta).
+function _summarise(events, keyFn) {
   const groups = {};
-  for (const e of latest.values()) {
+  for (const e of events) {
     const m = e.meta || {};
-    const gkey = `${m.unitId}|${m.presentationArm}`;
-    const g = groups[gkey] || (groups[gkey] = { unitId: m.unitId, arm: m.presentationArm, n: 0, comp: [], effort: [], writing: [], complete: 0, time: [] });
+    const gkey = keyFn(m);
+    const g = groups[gkey] || (groups[gkey] = {
+      unitId: m.unitId, arm: m.presentationArm, band: m.priorKnowledge || 'unknown',
+      n: 0, comp: [], effort: [], writing: [], complete: 0, time: [],
+    });
     g.n++;
     if (Number(m.comprehensionMax) > 0 && m.comprehensionScore != null) g.comp.push((Number(m.comprehensionScore) / Number(m.comprehensionMax)) * 100);
     if (m.effort != null) g.effort.push(Number(m.effort));
@@ -55,16 +74,13 @@ export function aggregateExperimentEvents(events) {
     if (m.readingComplete) g.complete++;
     if (m.timeOnTaskMs != null) g.time.push(Number(m.timeOnTaskMs));
   }
-
   const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
   const round = (v, d) => (v == null ? null : Number(v.toFixed(d)));
   const summary = {};
   for (const [k, g] of Object.entries(groups)) {
     const t = mean(g.time);
     summary[k] = {
-      unitId: g.unitId,
-      arm: g.arm,
-      n: g.n,
+      unitId: g.unitId, arm: g.arm, band: g.band, n: g.n,
       comprehensionPct: round(mean(g.comp), 0),
       effort: round(mean(g.effort), 1),
       writingLevel: round(mean(g.writing), 1),
@@ -73,6 +89,16 @@ export function aggregateExperimentEvents(events) {
     };
   }
   return summary;
+}
+
+// By unit × arm (the primary comparison).
+export function aggregateExperimentEvents(events) {
+  return _summarise(_dedupeLatest(events), (m) => `${m.unitId}|${m.presentationArm}`);
+}
+
+// By unit × arm × prior-knowledge band (the spec's key moderator check).
+export function aggregateExperimentBySubgroup(events) {
+  return _summarise(_dedupeLatest(events), (m) => `${m.unitId}|${m.presentationArm}|${m.priorKnowledge || 'unknown'}`);
 }
 
 export function markLessonOpened(unitId) {
@@ -103,9 +129,11 @@ export function completeLesson(unitId, { user = null } = {}) {
 
   let writingLevel = null;
   let readingComplete = false;
+  let priorKnowledge = 'unknown';
   try {
     writingLevel = window?._rtState?.[`rt-${unitId}`]?.feedback?.level ?? null;
     readingComplete = !!window?.STATE?.progress?.[unitId]?.readingComplete;
+    priorKnowledge = priorKnowledgeBand(window?.STATE?.adaptive?.skill_status);
   } catch { /* ignore */ }
 
   _logged[unitId] = true;
@@ -118,6 +146,7 @@ export function completeLesson(unitId, { user = null } = {}) {
     effort: d.effort ?? null,
     writingLevel,
     readingComplete,
+    priorKnowledge,
     source: 'lesson-experiment',
   });
 }

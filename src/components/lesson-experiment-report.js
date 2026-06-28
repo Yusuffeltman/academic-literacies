@@ -11,7 +11,7 @@ import { ref, get } from 'firebase/database';
 import { db } from '../firebase.js';
 import { analyticsDateKey } from '../analytics.js';
 import { TEST_UNIT_IDS } from '../lesson-experiment.js';
-import { aggregateExperimentEvents } from '../lesson-measurement.js';
+import { aggregateExperimentEvents, aggregateExperimentBySubgroup } from '../lesson-measurement.js';
 
 function _dateKeys(days) {
   const keys = [];
@@ -34,6 +34,7 @@ export async function renderLessonExperimentReport(container, { days = 30 } = {}
     </div>`;
 
   let summary = {};
+  let subgroup = {};
   try {
     const snaps = await Promise.all(
       _dateKeys(days).map((k) => get(ref(db, `analytics/raw-events/${k}`)).catch(() => null)),
@@ -41,6 +42,7 @@ export async function renderLessonExperimentReport(container, { days = 30 } = {}
     const events = [];
     snaps.forEach((s) => { if (s && s.exists()) events.push(...Object.values(s.val() || {})); });
     summary = aggregateExperimentEvents(events);
+    subgroup = aggregateExperimentBySubgroup(events);
   } catch (err) {
     console.error('Lesson experiment report failed to load:', err);
     container.innerHTML = `<div style="max-width:1100px;margin:24px auto 0;padding:18px 0;border-top:1px solid var(--border);color:var(--muted);font-size:13px;">Could not load experiment data.</div>`;
@@ -48,6 +50,29 @@ export async function renderLessonExperimentReport(container, { days = 30 } = {}
   }
 
   const totalN = Object.values(summary).reduce((s, g) => s + (g.n || 0), 0);
+
+  const BANDS = ['lower', 'higher', 'unknown'];
+  const bandLabel = { lower: 'Lower prior knowledge', higher: 'Higher prior knowledge', unknown: 'Not yet assessed' };
+  const subRows = [];
+  for (const unitId of TEST_UNIT_IDS) {
+    for (const band of BANDS) {
+      for (const arm of ['A', 'B']) {
+        const g = subgroup[`${unitId}|${arm}|${band}`];
+        if (!g || !g.n) continue;
+        subRows.push(`
+          <tr>
+            <td style="padding:7px 10px;font-weight:600;color:var(--navy);">${unitId.toUpperCase()}</td>
+            <td style="padding:7px 10px;">${bandLabel[band]}</td>
+            <td style="padding:7px 10px;">${arm === 'A' ? 'A · scroll' : 'B · segmented'}</td>
+            <td style="padding:7px 10px;text-align:right;">${_fmt(g.n)}</td>
+            <td style="padding:7px 10px;text-align:right;">${_fmt(g.comprehensionPct, '%')}</td>
+            <td style="padding:7px 10px;text-align:right;">${_fmt(g.effort)}</td>
+            <td style="padding:7px 10px;text-align:right;">${_fmt(g.completionPct, '%')}</td>
+          </tr>`);
+      }
+    }
+  }
+
   const rows = [];
   for (const unitId of TEST_UNIT_IDS) {
     for (const arm of ['A', 'B']) {
@@ -96,7 +121,26 @@ export async function renderLessonExperimentReport(container, { days = 30 } = {}
             </thead>
             <tbody>${rows.join('')}</tbody>
           </table>
-        </div>`}
+        </div>
+        ${subRows.length ? `
+        <h3 style="margin:22px 0 6px;color:var(--navy);font-size:15px;">By prior knowledge (the key check)</h3>
+        <p style="margin:0 0 10px;color:var(--muted);font-size:12px;">Does segmentation help lower-prior-knowledge students most? Compare A vs B within each band.</p>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left;">
+                <th style="padding:7px 10px;">Unit</th>
+                <th style="padding:7px 10px;">Prior knowledge</th>
+                <th style="padding:7px 10px;">Arm</th>
+                <th style="padding:7px 10px;text-align:right;">N</th>
+                <th style="padding:7px 10px;text-align:right;">Comprehension</th>
+                <th style="padding:7px 10px;text-align:right;">Effort /9</th>
+                <th style="padding:7px 10px;text-align:right;">Reading done</th>
+              </tr>
+            </thead>
+            <tbody>${subRows.join('')}</tbody>
+          </table>
+        </div>` : ''}`}
       <p style="margin:14px 0 0;color:var(--muted);font-size:12px;">
         Lower effort and higher completion favour B; comprehension and writing must not drop. Small samples are noisy — read alongside confidence, not as a verdict. Comprehension items are drafts pending review. Subgroup (prior-knowledge) split is a planned enhancement.
       </p>

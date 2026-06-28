@@ -9,7 +9,12 @@ import {
   assignArm,
   resolveArmForUser,
 } from '../lesson-experiment.js';
-import { scoreAnswers, aggregateExperimentEvents } from '../lesson-measurement.js';
+import {
+  scoreAnswers,
+  aggregateExperimentEvents,
+  aggregateExperimentBySubgroup,
+  priorKnowledgeBand,
+} from '../lesson-measurement.js';
 
 test('test units are u7 and u8', () => {
   assert.deepEqual(TEST_UNIT_IDS, ['u7', 'u8']);
@@ -73,6 +78,30 @@ test('aggregateExperimentEvents summarises by unit x arm and dedupes per student
   assert.equal(s['u7|B'].n, 1);
   assert.equal(s['u7|B'].comprehensionPct, 100);
   assert.equal(s['u7|B'].timeMin, 8);           // 480000ms
+});
+
+test('priorKnowledgeBand classifies from skill_status', () => {
+  assert.equal(priorKnowledgeBand({ a: 'strong', b: 'strong', c: 'developing' }), 'higher');
+  assert.equal(priorKnowledgeBand({ a: 'weak', b: 'weak', c: 'developing' }), 'lower');
+  assert.equal(priorKnowledgeBand({ a: 'untested', b: 'untested' }), 'unknown');
+  assert.equal(priorKnowledgeBand({}), 'unknown');
+  assert.equal(priorKnowledgeBand(null), 'unknown');
+});
+
+test('aggregateExperimentBySubgroup splits by unit x arm x band', () => {
+  const ev = (student, arm, band, comp) => ({
+    eventType: 'lesson_completed', canonicalStudentKey: student, trustedAt: '2026-06-01T10:00:00Z',
+    meta: { unitId: 'u7', presentationArm: arm, priorKnowledge: band, comprehensionScore: comp, comprehensionMax: 4, readingComplete: true },
+  });
+  const s = aggregateExperimentBySubgroup([
+    ev('s1', 'A', 'lower', 2),
+    ev('s2', 'B', 'lower', 4),
+    ev('s3', 'B', 'higher', 3),
+  ]);
+  assert.equal(s['u7|A|lower'].n, 1);
+  assert.equal(s['u7|A|lower'].comprehensionPct, 50);
+  assert.equal(s['u7|B|lower'].comprehensionPct, 100);
+  assert.equal(s['u7|B|higher'].n, 1);
 });
 
 test('assignment is deterministic for a given student and unit', () => {
