@@ -9,6 +9,7 @@ import { paginateUnit } from './components/unit-reader.js';
 import { isTestUnit, resolveArmForUser, getAuthoredChunks } from './lesson-experiment.js';
 import { renderLessonMeasurePanel } from './components/lesson-measure.js';
 import { markLessonOpened } from './lesson-measurement.js';
+import { isParticipating, maybeShowExperimentNotice } from './components/experiment-notice.js';
 import { initAllVisualTasks } from './components/visual-task.js';
 import { initAllAssessmentTasks } from './components/assessment-task.js';
 import { initAITutor, updateAITutorContext } from './components/ai-tutor.js';
@@ -1205,7 +1206,9 @@ export function navigateTo(index) {
 
   // Lesson-presentation A/B: append the end-of-unit measurement panel to test
   // units (arm-independent), before boot/pagination so Arm B can chunk it.
-  if (isTestUnit(unit.id)) {
+  // Skipped for students who have opted out of the trial.
+  const inExperiment = isParticipating(unit.id, isTestUnit(unit.id));
+  if (inExperiment) {
     area.insertAdjacentHTML('beforeend', renderLessonMeasurePanel(unit.id));
     markLessonOpened(unit.id);
   }
@@ -1239,7 +1242,8 @@ export function navigateTo(index) {
   // Lesson-presentation A/B (docs/lesson-presentation-redesign-spec.md).
   // Test units are assigned an arm; Arm B renders the authored-chunk
   // presentation, Arm A stays the original scroll. Both arms are logged.
-  if (isTestUnit(unit.id)) {
+  // Opted-out students are not assigned, rendered, or logged.
+  if (inExperiment) {
     const presentationArm = resolveArmForUser(STATE.user, unit.id);
     window.trackLearningEvent?.('lesson_arm_assigned', {
       unitId: unit.id,
@@ -1252,6 +1256,7 @@ export function navigateTo(index) {
         authoredChunks: getAuthoredChunks(unit.id),
       });
     }
+    maybeShowExperimentNotice(true);
   }
 
   // Topbar — show unit number only for actual units, not assessments
