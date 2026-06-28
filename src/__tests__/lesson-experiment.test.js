@@ -9,7 +9,7 @@ import {
   assignArm,
   resolveArmForUser,
 } from '../lesson-experiment.js';
-import { scoreAnswers } from '../lesson-measurement.js';
+import { scoreAnswers, aggregateExperimentEvents } from '../lesson-measurement.js';
 
 test('test units are u7 and u8', () => {
   assert.deepEqual(TEST_UNIT_IDS, ['u7', 'u8']);
@@ -49,6 +49,30 @@ test('scoreAnswers counts correct selections', () => {
   assert.deepEqual(scoreAnswers([0, 1, 2, 0], [1, 1, 1, 1]), { score: 1, max: 4 });
   assert.deepEqual(scoreAnswers([null, 1], [1, 1]), { score: 1, max: 2 });
   assert.deepEqual(scoreAnswers('bad', [1]), { score: 0, max: 0 });
+});
+
+test('aggregateExperimentEvents summarises by unit x arm and dedupes per student/unit', () => {
+  const ev = (student, unitId, arm, meta, trustedAt) => ({
+    eventType: 'lesson_completed', canonicalStudentKey: student, trustedAt,
+    meta: { unitId, presentationArm: arm, ...meta },
+  });
+  const events = [
+    ev('s1', 'u7', 'A', { comprehensionScore: 4, comprehensionMax: 4, effort: 6, writingLevel: 4, readingComplete: true, timeOnTaskMs: 600000 }, '2026-06-01T10:00:00Z'),
+    ev('s2', 'u7', 'A', { comprehensionScore: 2, comprehensionMax: 4, effort: 8, writingLevel: 2, readingComplete: false, timeOnTaskMs: 1200000 }, '2026-06-01T11:00:00Z'),
+    // s1 retakes u7/A later — only the latest should count
+    ev('s1', 'u7', 'A', { comprehensionScore: 3, comprehensionMax: 4, effort: 5, writingLevel: 4, readingComplete: true, timeOnTaskMs: 300000 }, '2026-06-02T10:00:00Z'),
+    ev('s3', 'u7', 'B', { comprehensionScore: 4, comprehensionMax: 4, effort: 4, writingLevel: 5, readingComplete: true, timeOnTaskMs: 480000 }, '2026-06-01T10:00:00Z'),
+    { eventType: 'unit_open', meta: { unitId: 'u7', presentationArm: 'A' } }, // ignored
+  ];
+  const s = aggregateExperimentEvents(events);
+  // u7/A: s1 (latest: 3/4=75) + s2 (50) => mean comp 62.5 -> 63 (rounded), n=2
+  assert.equal(s['u7|A'].n, 2);
+  assert.equal(s['u7|A'].comprehensionPct, 63);
+  assert.equal(s['u7|A'].effort, 6.5);          // (5 + 8)/2
+  assert.equal(s['u7|A'].completionPct, 50);    // 1 of 2
+  assert.equal(s['u7|B'].n, 1);
+  assert.equal(s['u7|B'].comprehensionPct, 100);
+  assert.equal(s['u7|B'].timeMin, 8);           // 480000ms
 });
 
 test('assignment is deterministic for a given student and unit', () => {

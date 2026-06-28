@@ -28,6 +28,53 @@ export function scoreAnswers(selected, correct) {
   return { score, max };
 }
 
+// Pure: aggregate lesson_completed analytics events into a by-(unit × arm)
+// summary for the lecturer read-out. Dedupes to the latest completion per
+// student per unit, then averages each outcome.
+export function aggregateExperimentEvents(events) {
+  const latest = new Map(); // `${student}|${unit}` -> event (latest by trustedAt)
+  for (const e of (events || [])) {
+    if (!e || e.eventType !== 'lesson_completed') continue;
+    const m = e.meta || {};
+    if (!m.unitId || !m.presentationArm) continue;
+    const student = e.canonicalStudentKey || e.uid || 'unknown';
+    const key = `${student}|${m.unitId}`;
+    const prev = latest.get(key);
+    if (!prev || String(e.trustedAt || '') > String(prev.trustedAt || '')) latest.set(key, e);
+  }
+
+  const groups = {};
+  for (const e of latest.values()) {
+    const m = e.meta || {};
+    const gkey = `${m.unitId}|${m.presentationArm}`;
+    const g = groups[gkey] || (groups[gkey] = { unitId: m.unitId, arm: m.presentationArm, n: 0, comp: [], effort: [], writing: [], complete: 0, time: [] });
+    g.n++;
+    if (Number(m.comprehensionMax) > 0 && m.comprehensionScore != null) g.comp.push((Number(m.comprehensionScore) / Number(m.comprehensionMax)) * 100);
+    if (m.effort != null) g.effort.push(Number(m.effort));
+    if (m.writingLevel != null) g.writing.push(Number(m.writingLevel));
+    if (m.readingComplete) g.complete++;
+    if (m.timeOnTaskMs != null) g.time.push(Number(m.timeOnTaskMs));
+  }
+
+  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  const round = (v, d) => (v == null ? null : Number(v.toFixed(d)));
+  const summary = {};
+  for (const [k, g] of Object.entries(groups)) {
+    const t = mean(g.time);
+    summary[k] = {
+      unitId: g.unitId,
+      arm: g.arm,
+      n: g.n,
+      comprehensionPct: round(mean(g.comp), 0),
+      effort: round(mean(g.effort), 1),
+      writingLevel: round(mean(g.writing), 1),
+      completionPct: round(g.n ? (g.complete / g.n) * 100 : null, 0),
+      timeMin: round(t != null ? t / 60000 : null, 1),
+    };
+  }
+  return summary;
+}
+
 export function markLessonOpened(unitId) {
   if (!isTestUnit(unitId)) return;
   _openedAt[unitId] = Date.now();
