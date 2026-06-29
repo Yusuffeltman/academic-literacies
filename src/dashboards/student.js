@@ -12,18 +12,8 @@ window.verifyAttendanceQr = async function () {
   try {
     const result = await window.verifyAttendanceQrPayload?.(token, false);
     if (result?.ok) {
-      if (statusEl) statusEl.textContent = `✅ Attendance confirmed for ${result.sessionType}.`;
-      await _recordAttendanceAnalytics(result, result.token || token);
-      // Save attendance to Firebase
-      try {
-        if (!window.saveState) {
-          const mod = await import('../state.js');
-          window.saveState = mod.saveState;
-        }
-        await window.saveState();
-      } catch (err) {
-        console.error('Attendance save failed:', err);
-      }
+      if (statusEl) statusEl.textContent = `✅ Attendance confirmed for ${result.sessionLabel || _attendanceSessionLabel(result.sessionType)}.`;
+      await _finalizeAttendanceCheckin(result, result.token || token, 'student-attendance-manual');
     } else {
       if (statusEl) statusEl.textContent = result?.message || 'Invalid or expired code. Please try again.';
     }
@@ -71,7 +61,14 @@ window.verifyAttendanceQrPayload = async function (token, isQr) {
 
       // Mark as present
       markPresent(sessionType);
-      return { ok: true, sessionType, token: normalizedToken, message: 'Attendance confirmed.' };
+      return {
+        ok: true,
+        sessionType,
+        sessionLabel: _attendanceSessionLabel(sessionType),
+        sessionId: String(match.sessionId || ''),
+        token: normalizedToken,
+        message: 'Attendance confirmed.',
+      };
     }
 
     return { ok: false, token: normalizedToken, message: 'Invalid or expired code. Please try scanning the latest QR code.' };
@@ -83,14 +80,18 @@ window.verifyAttendanceQrPayload = async function (token, isQr) {
 
 // src/dashboards/student.js
 import { STATE, recordOutcome, markPresent } from '../state.js';
-import { db } from '../firebase.js';
-import { ref, get } from 'firebase/database';
+import { getReviewQueue, describeDue, SKILL_MODULE_MAP } from '../spaced-review.js';
+import { db, functions } from '../firebase.js';
+import { ref, get, onValue, set } from 'firebase/database';
+import { httpsCallable } from 'firebase/functions';
 import { UNITS } from '../../content/units/index.js';
 import { DASHBOARD_CONTENT } from '../../content/dashboard.js';
 import { getCoordinatorRecommendation } from '../ai.js';
 import { getPinnedGalleryPosts } from '../gallery.js';
 import { writeAttendanceCheckinEvent } from '../analytics.js';
 import { getAppSurface, setAppSurfaceRoute } from '../platform.js';
+import { renderChallengeArena } from '../components/challenge-arena.js';
+import { isOpenByDefault } from '../unit-access.js';
 
 function _studentAnalyticsProfile() {
   return STATE.user?._studentProfileContext?.profile || {
@@ -108,6 +109,19 @@ function _attendanceDateLabel(dateKey = '') {
   const parsed = new Date(`${normalized}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) return normalized;
   return parsed.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function _attendanceDateKeyValue(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function _attendanceSessionLabel(sessionType = 'class') {
+  return sessionType === 'tutorial' ? 'tutorial session' : 'contact session';
 }
 
 function _attendanceHistoryRows(attendanceByDate = {}) {
@@ -135,17 +149,101 @@ function _attendanceHistoryRows(attendanceByDate = {}) {
     .sort((a, b) => String(b.dateKey || '').localeCompare(String(a.dateKey || '')));
 }
 
-async function _recordAttendanceAnalytics(result, token) {
+function _attendanceRecordForDate(dateKey) {
+  STATE.attendance = STATE.attendance && typeof STATE.attendance === 'object'
+    ? STATE.attendance
+    : { byDate: {} };
+  STATE.attendance.byDate = STATE.attendance.byDate || {};
+
+  const record = STATE.attendance.byDate[dateKey] || {
+    present: false,
+    firstSeen: null,
+    lastSeen: null,
+    totalSeconds: 0,
+    classSeconds: 0,
+    tutorialSeconds: 0,
+    lastSessionType: 'class',
+    qrCheckins: [],
+  };
+  record.qrCheckins = Array.isArray(record.qrCheckins) ? record.qrCheckins : [];
+  return record;
+}
+
+async function _finalizeAttendanceCheckin(result, token, source = 'student-attendance-qr') {
+  const sessionType = result?.sessionType === 'tutorial' ? 'tutorial' : 'class';
+  const sessionLabel = result?.sessionLabel || _attendanceSessionLabel(sessionType);
+  const normalizedToken = _extractAttendanceToken(result?.token || token);
+  const nowIso = new Date().toISOString();
+  const dateKey = _attendanceDateKeyValue(nowIso);
+  const record = _attendanceRecordForDate(dateKey);
+  const duplicateIndex = record.qrCheckins.findIndex((row) =>
+    String(row?.sessionId || '') === String(result?.sessionId || '')
+    && String(row?.sessionType || '') === sessionType
+    && String(row?.token || '') === normalizedToken
+  );
+  const checkin = {
+    at: nowIso,
+    token: normalizedToken,
+    sessionType,
+    sessionLabel,
+    sessionId: String(result?.sessionId || ''),
+    source,
+  };
+
+  record.present = true;
+  record.firstSeen = record.firstSeen || nowIso;
+  record.lastSeen = nowIso;
+  record.lastSessionType = sessionType;
+  if (duplicateIndex >= 0) {
+    record.qrCheckins[duplicateIndex] = {
+      ...record.qrCheckins[duplicateIndex],
+      ...checkin,
+    };
+  } else {
+    record.qrCheckins.push(checkin);
+  }
+  STATE.attendance.byDate[dateKey] = record;
+
   try {
     await writeAttendanceCheckinEvent({
       user: STATE.user || {},
       profile: _studentAnalyticsProfile(),
-      sessionType: result?.sessionType || 'class',
-      token: token || '',
-      source: 'student-attendance-qr',
+      sessionType,
+      token: normalizedToken,
+      source,
     });
   } catch (err) {
     console.error('Attendance analytics write failed:', err);
+  }
+
+  const uid = STATE.user?.uid || '';
+  if (uid && duplicateIndex < 0) {
+    const stamp = `${Date.now()}`;
+    const remotePayload = {
+      ...checkin,
+      uid,
+      dateKey,
+    };
+    try {
+      await Promise.all([
+        set(ref(db, `attendance/checkins/${dateKey}/${uid}/${stamp}`), remotePayload),
+        result?.sessionId
+          ? set(ref(db, `attendance/session-checkins/${result.sessionId}/${uid}`), remotePayload)
+          : Promise.resolve(),
+      ]);
+    } catch (err) {
+      console.error('Attendance remote check-in write failed:', err);
+    }
+  }
+
+  try {
+    if (!window.saveState) {
+      const mod = await import('../state.js');
+      window.saveState = mod.saveState;
+    }
+    await window.saveState();
+  } catch (err) {
+    console.error('Attendance save failed:', err);
   }
 }
 
@@ -194,13 +292,8 @@ async function _consumeAttendanceQrLink() {
   try {
     const result = await window.verifyAttendanceQrPayload?.(token, true);
     if (result?.ok) {
-      if (statusEl) statusEl.textContent = `✅ Attendance confirmed for ${result.sessionType}.`;
-      await _recordAttendanceAnalytics(result, result.token || token);
-      if (!window.saveState) {
-        const mod = await import('../state.js');
-        window.saveState = mod.saveState;
-      }
-      await window.saveState();
+      if (statusEl) statusEl.textContent = `✅ Attendance confirmed for ${result.sessionLabel || _attendanceSessionLabel(result.sessionType)}.`;
+      await _finalizeAttendanceCheckin(result, result.token || token, 'student-attendance-link');
       window._lastHandledAttendanceQr = handledKey;
     } else if (statusEl) {
       statusEl.textContent = result?.message || 'Invalid or expired attendance link.';
@@ -271,11 +364,341 @@ const MODULE_LABELS = {
   'reading-strategies': 'Reading Strategies',
 };
 
+const REFERENCING_POLL_ID = 'referencing-management-session-2026-05-16';
+const REFERENCING_POLL_CLOSE_AT = '2026-05-15T23:00:00+02:00';
+const REFERENCING_POLL_CLOSE_LABEL = '23:00 tonight (Friday, 15 May 2026)';
+const REFERENCING_POLL_SESSION_DATE_LABEL = 'Saturday, 16 May 2026';
+const REFERENCING_POLL_MIN_VOTES = 300;
+const REFERENCING_POLL_OPTIONS = [
+  { id: 'slot_1300_1400', label: '13:00-14:00' },
+  { id: 'slot_1400_1600', label: '14:00-16:00' },
+  { id: 'slot_1830_1930', label: '18:30-19:30' },
+];
+
+let _referencingPollCallable = null;
+let _referencingPollUnsub = null;
+let _referencingPollLastSummary = null;
+
+function _resolveStudentIdentity(user = STATE.user) {
+  const rawName = String(user?.displayName || '').split(' [')[0].trim();
+  const rawEmail = String(user?.email || '').trim();
+  const name = rawName || rawEmail || 'Student';
+  const firstName = name.split(/\s+/).find(Boolean) || 'Student';
+  const avatar = name.charAt(0).toUpperCase() || 'S';
+  return { name, firstName, avatar };
+}
+
+function _requireAppRoot() {
+  const appRoot = document.getElementById('app');
+  if (!appRoot) {
+    throw new Error('App mount not found.');
+  }
+  return appRoot;
+}
+
+function _runOptionalStudentStartupTask(label, task) {
+  try {
+    const result = task();
+    if (result && typeof result.catch === 'function') {
+      result.catch((err) => {
+        console.error(`${label} failed:`, err);
+      });
+    }
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+  }
+}
+
+function _isReferencingPollClosed() {
+  const closeTime = new Date(REFERENCING_POLL_CLOSE_AT).getTime();
+  return Number.isFinite(closeTime) && Date.now() >= closeTime;
+}
+
+function _normalisePollStudentNumber(value = '') {
+  return String(value || '').replace(/\D/g, '').trim();
+}
+
+function _renderReferencingPollControls() {
+  const disabled = _isReferencingPollClosed() ? 'disabled' : '';
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px;">
+      ${REFERENCING_POLL_OPTIONS.map((option, index) => `
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid rgba(15,23,42,.12);border-radius:12px;background:white;cursor:${disabled ? 'not-allowed' : 'pointer'};">
+          <input data-referencing-poll-input type="radio" name="referencing-poll-timeslot" value="${_escHtml(option.id)}" ${index === 0 ? 'checked' : ''} ${disabled} />
+          <span style="font-size:14px;font-weight:800;color:var(--navy);">${_escHtml(option.label)}</span>
+        </label>
+      `).join('')}
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:14px;">
+      <label style="flex:1;min-width:220px;">
+        <span style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;">Student number</span>
+        <input
+          id="referencing-poll-student-number"
+          data-referencing-poll-input
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="Enter your student number"
+          ${disabled}
+          style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:white;"
+        />
+      </label>
+      <button
+        type="button"
+        id="referencing-poll-submit"
+        data-referencing-poll-input
+        class="btn-primary"
+        onclick="window.submitReferencingPollVote()"
+        ${disabled}
+        style="padding:11px 16px;min-height:42px;"
+      >Submit vote</button>
+    </div>
+    <div id="referencing-poll-status" style="min-height:18px;font-size:12px;color:var(--muted);margin-top:8px;"></div>
+  `;
+}
+
+function _renderReferencingPollCard({ android = false } = {}) {
+  const closed = _isReferencingPollClosed();
+  const statusLabel = closed ? 'Poll closed' : 'Poll open';
+  const wrapperClass = android ? 'android-panel' : '';
+  const wrapperStyle = android
+    ? ''
+    : 'background:#f8fafc;border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:0 10px 24px rgba(15,23,42,.05);';
+  const inner = `
+    <div id="referencing-poll-card" class="${wrapperClass}" style="${wrapperStyle}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div style="max-width:760px;">
+          <div style="display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border-radius:999px;background:${closed ? '#fee2e2' : '#ecfdf5'};color:${closed ? '#991b1b' : '#047857'};font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;">${statusLabel}</div>
+          <h2 style="margin:10px 0 8px 0;color:var(--navy);font-size:22px;line-height:1.25;">Referencing management applications session</h2>
+          <p style="margin:0;color:var(--muted);font-size:14px;line-height:1.65;">
+            A practical session on using referencing management applications is planned for ${REFERENCING_POLL_SESSION_DATE_LABEL}. Vote for the time that works best for you. The poll closes at ${REFERENCING_POLL_CLOSE_LABEL}; the timeslot with the most votes will determine when the session is held.
+          </p>
+          <p style="margin:8px 0 0 0;color:#92400e;font-size:13px;line-height:1.6;">
+            If fewer than ${REFERENCING_POLL_MIN_VOTES} students vote, the session will not take place tomorrow and will instead move to class time next week.
+          </p>
+        </div>
+        <div style="min-width:170px;padding:12px;border:1px solid rgba(15,23,42,.1);border-radius:12px;background:white;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Turnout needed</div>
+          <div style="font-size:26px;font-weight:900;color:var(--navy);line-height:1;margin-top:6px;">${REFERENCING_POLL_MIN_VOTES}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">minimum votes</div>
+        </div>
+      </div>
+      ${_renderReferencingPollControls()}
+      <div id="referencing-poll-results" style="margin-top:14px;"></div>
+    </div>
+  `;
+
+  if (android) return inner;
+  return `<section class="dash-section" style="margin-top:18px;">${inner}</section>`;
+}
+
+function _setReferencingPollStatus(message, tone = 'muted') {
+  const statusEl = document.getElementById('referencing-poll-status');
+  if (!statusEl) return;
+  const colors = {
+    muted: 'var(--muted)',
+    good: '#047857',
+    warn: '#92400e',
+    error: '#b91c1c',
+  };
+  statusEl.style.color = colors[tone] || colors.muted;
+  statusEl.textContent = message;
+}
+
+function _setReferencingPollBusy(isBusy) {
+  const submit = document.getElementById('referencing-poll-submit');
+  if (!submit) return;
+  submit.disabled = Boolean(isBusy) || _isReferencingPollClosed();
+  submit.textContent = isBusy ? 'Submitting...' : 'Submit vote';
+}
+
+function _refreshReferencingPollClosedState() {
+  const closed = _isReferencingPollClosed();
+  document.querySelectorAll('[data-referencing-poll-input]').forEach((el) => {
+    el.disabled = closed;
+  });
+  if (closed) {
+    _setReferencingPollStatus(`This poll closed at ${REFERENCING_POLL_CLOSE_LABEL}.`, 'warn');
+  }
+}
+
+function _renderReferencingPollLoadingState() {
+  const resultsEl = document.getElementById('referencing-poll-results');
+  if (!resultsEl) return;
+  resultsEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:white;">Loading poll totals...</div>';
+}
+
+function _renderReferencingPollSummary(summary = {}, options = {}) {
+  const resultsEl = document.getElementById('referencing-poll-results');
+  if (!resultsEl) return;
+  const remember = options.remember !== false;
+  const rawCounts = summary?.counts || {};
+  const counts = Object.fromEntries(
+    REFERENCING_POLL_OPTIONS.map((option) => [option.id, Math.max(0, Number(rawCounts[option.id] || 0))])
+  );
+  const computedTotal = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const total = Number.isFinite(Number(summary?.totalVotes)) ? Number(summary.totalVotes) : computedTotal;
+  if (remember) {
+    _referencingPollLastSummary = {
+      ...summary,
+      counts,
+      totalVotes: total,
+    };
+  }
+  const maxCount = Math.max(1, ...Object.values(counts));
+  const leading = REFERENCING_POLL_OPTIONS
+    .map((option) => ({ ...option, count: counts[option.id] || 0 }))
+    .sort((a, b) => b.count - a.count)[0];
+  const remaining = Math.max(REFERENCING_POLL_MIN_VOTES - total, 0);
+  const thresholdPct = Math.min(100, Math.round((total / REFERENCING_POLL_MIN_VOTES) * 100));
+  const thresholdMessage = remaining
+    ? `${remaining} more vote${remaining === 1 ? '' : 's'} needed for the session to go ahead tomorrow.`
+    : 'The minimum turnout has been reached; the leading timeslot will determine the session time.';
+
+  resultsEl.innerHTML = `
+    <div style="padding:12px;border:1px solid rgba(15,23,42,.1);border-radius:12px;background:white;">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Live poll status</div>
+          <div style="font-size:14px;font-weight:800;color:var(--navy);margin-top:3px;">${total} vote${total === 1 ? '' : 's'} received${leading?.count ? ` · Leading: ${_escHtml(leading.label)}` : ''}</div>
+        </div>
+        <div style="font-size:12px;color:${remaining ? '#92400e' : '#047857'};font-weight:700;">${_escHtml(thresholdMessage)}</div>
+      </div>
+      <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin-bottom:12px;">
+        <div style="height:100%;width:${thresholdPct}%;background:${remaining ? '#f59e0b' : '#10b981'};"></div>
+      </div>
+      <div style="display:grid;gap:8px;">
+        ${REFERENCING_POLL_OPTIONS.map((option) => {
+          const count = counts[option.id] || 0;
+          const pct = total ? Math.round((count / total) * 100) : 0;
+          const barPct = count ? Math.max(8, Math.round((count / maxCount) * 100)) : 0;
+          return `
+            <div style="display:grid;gap:5px;">
+              <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--navy);font-weight:700;">
+                <span>${_escHtml(option.label)}</span>
+                <span>${count} vote${count === 1 ? '' : 's'}${total ? ` · ${pct}%` : ''}</span>
+              </div>
+              <div style="height:7px;background:#eef2f7;border-radius:999px;overflow:hidden;">
+                <div style="height:100%;width:${barPct}%;background:#0d9488;"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  _refreshReferencingPollClosedState();
+}
+
+function _watchReferencingPollSummary() {
+  if (_referencingPollUnsub) {
+    _referencingPollUnsub();
+    _referencingPollUnsub = null;
+  }
+  if (!document.getElementById('referencing-poll-card')) return;
+  if (_referencingPollLastSummary) {
+    _renderReferencingPollSummary(_referencingPollLastSummary, { remember: false });
+  } else {
+    _renderReferencingPollLoadingState();
+  }
+  _referencingPollUnsub = onValue(
+    ref(db, `temporaryPolls/${REFERENCING_POLL_ID}/summary`),
+    (snap) => {
+      if (snap.exists()) {
+        _renderReferencingPollSummary(snap.val() || {});
+      } else {
+        _renderReferencingPollSummary({}, { remember: false });
+      }
+    },
+    () => {
+      if (_referencingPollLastSummary) {
+        _renderReferencingPollSummary(_referencingPollLastSummary, { remember: false });
+        _setReferencingPollStatus('Showing the last loaded poll totals. Live totals could not refresh.', 'warn');
+      } else {
+        const resultsEl = document.getElementById('referencing-poll-results');
+        if (resultsEl) {
+          resultsEl.innerHTML = '<div style="font-size:12px;color:#92400e;padding:10px 12px;border:1px solid #fde68a;border-radius:10px;background:#fffbeb;">Poll totals could not be loaded in this view. Ask the lecturer to confirm that database rules have been deployed.</div>';
+        }
+      }
+    }
+  );
+}
+
+function _initReferencingPoll() {
+  const card = document.getElementById('referencing-poll-card');
+  if (!card) {
+    if (_referencingPollUnsub) {
+      _referencingPollUnsub();
+      _referencingPollUnsub = null;
+    }
+    return;
+  }
+
+  window.submitReferencingPollVote = async () => {
+    if (_isReferencingPollClosed()) {
+      _refreshReferencingPollClosedState();
+      return;
+    }
+
+    const studentNumberInput = document.getElementById('referencing-poll-student-number');
+    const studentNumber = _normalisePollStudentNumber(studentNumberInput?.value || '');
+    const selected = document.querySelector('input[name="referencing-poll-timeslot"]:checked');
+    const option = String(selected?.value || '').trim();
+
+    if (studentNumberInput) studentNumberInput.value = studentNumber;
+    if (!/^\d{6,12}$/.test(studentNumber)) {
+      _setReferencingPollStatus('Enter a valid student number before voting.', 'error');
+      studentNumberInput?.focus();
+      return;
+    }
+    if (!REFERENCING_POLL_OPTIONS.some((row) => row.id === option)) {
+      _setReferencingPollStatus('Select a timeslot before voting.', 'error');
+      return;
+    }
+
+    _setReferencingPollBusy(true);
+    _setReferencingPollStatus('Submitting your vote...', 'muted');
+    try {
+      if (!_referencingPollCallable) {
+        _referencingPollCallable = httpsCallable(functions, 'castTemporaryPollVote');
+      }
+      const result = await _referencingPollCallable({
+        pollId: REFERENCING_POLL_ID,
+        studentNumber,
+        option,
+      });
+      _renderReferencingPollSummary(result?.data?.summary || {});
+      _setReferencingPollStatus('Your vote has been recorded. Only one vote is allowed per student number.', 'good');
+    } catch (err) {
+      const code = String(err?.code || '').toLowerCase();
+      if (code.includes('already-exists')) {
+        _setReferencingPollStatus('A vote for this student number has already been recorded.', 'warn');
+      } else if (code.includes('failed-precondition')) {
+        _refreshReferencingPollClosedState();
+      } else if (code.includes('unauthenticated')) {
+        _setReferencingPollStatus('Please sign in before voting.', 'error');
+      } else {
+        _setReferencingPollStatus('Could not submit the vote right now. Please try again.', 'error');
+        console.error('Referencing poll vote failed:', err);
+      }
+    } finally {
+      _setReferencingPollBusy(false);
+    }
+  };
+
+  _watchReferencingPollSummary();
+  _refreshReferencingPollClosedState();
+  if (window._referencingPollCloseTimer) clearTimeout(window._referencingPollCloseTimer);
+  const delay = new Date(REFERENCING_POLL_CLOSE_AT).getTime() - Date.now();
+  if (delay > 0 && delay < 2147483647) {
+    window._referencingPollCloseTimer = window.setTimeout(_refreshReferencingPollClosedState, delay + 1000);
+  }
+}
+
 // ── Main render ───────────────────────────────
 export function renderStudentDashboard() {
   const user = STATE.user;
-  const name = user.displayName?.split(' [')[0] ?? user.email;
-  const firstName = name.split(' ')[0];
+  const { name, firstName, avatar } = _resolveStudentIdentity(user);
   const adaptive = STATE.adaptive;
   const showReturnToDashboard = Boolean(window._viewAsStudent);
 
@@ -373,14 +796,15 @@ export function renderStudentDashboard() {
 
   if (getAppSurface().isAndroidApp) {
     _renderAndroidStudentDashboard(studentVm);
-    _loadRecommendation();
-    _loadCohortContext();
-    _loadFeaturedGalleryStrip();
-    _initAnnouncementRotator();
-    _initAttendanceQrScanner();
-    _consumeAttendanceQrLink().catch((err) => {
-      console.error('Attendance QR link handling failed:', err);
-    });
+    _runOptionalStudentStartupTask('Student recommendation load', () => _loadRecommendation());
+    _runOptionalStudentStartupTask('Student cohort context load', () => _loadCohortContext());
+    _runOptionalStudentStartupTask('Student featured gallery load', () => _loadFeaturedGalleryStrip());
+    _runOptionalStudentStartupTask('Student tutor-group announcement load', () => _loadTutorGroupAnnouncement(studentVm.profile));
+    _runOptionalStudentStartupTask('Student live session watch', () => _watchLiveSessions());
+    _runOptionalStudentStartupTask('Student announcement rotator init', () => _initAnnouncementRotator());
+    _runOptionalStudentStartupTask('Student referencing poll init', () => _initReferencingPoll());
+    _runOptionalStudentStartupTask('Student attendance scanner init', () => _initAttendanceQrScanner());
+    _runOptionalStudentStartupTask('Student attendance QR link handling', () => _consumeAttendanceQrLink());
     return;
   }
 
@@ -401,14 +825,12 @@ export function renderStudentDashboard() {
     document.documentElement.style.height = 'auto';
   }
 
-  const appRoot = document.getElementById('app');
-  if (appRoot) {
-    appRoot.style.display = 'block';
-    appRoot.style.height = 'auto';
-    appRoot.style.minHeight = '100vh';
-  }
+  const appRoot = _requireAppRoot();
+  appRoot.style.display = 'block';
+  appRoot.style.height = 'auto';
+  appRoot.style.minHeight = '100vh';
 
-  document.getElementById('app').innerHTML = `
+  appRoot.innerHTML = `
     <div class="student-dash anim-fade">
 
       <div class="student-dash-topbar">
@@ -417,10 +839,11 @@ export function renderStudentDashboard() {
           <button class="${tutorialBtnClass}" style="${tutorialBtnStyle}" onclick="window.goToTutorialSection()">${tutorialCheckedIn ? '<span class="tutorial-live-dot" aria-hidden="true"></span>Tutorial Active' : '📝 Tutorial'}</button>
           <button class="btn-prev" style="display:inline-flex;" onclick="window.goToContactNotebook()">🗒️ Contact Notebook</button>
           <button class="btn-prev" style="display:inline-flex;" onclick="window.goToGallery()">🖼 Gallery</button>
+          <button class="btn-prev" style="display:inline-flex;background:#059669;border-color:#059669;color:white;" onclick="window.goToSubmissions()">📤 Submissions</button>
         </div>
         ${showReturnToDashboard ? '<button onclick="window.switchToLecturerView()" style="background:var(--navy);color:white;border:none;padding:10px 18px;border-radius:20px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">← Lecturer Dashboard</button>' : ''}
         <div class="user-pill">
-          <div class="user-avatar">${name[0].toUpperCase()}</div>
+          <div class="user-avatar">${avatar}</div>
           <div class="user-info">
             <div class="user-name">${name}</div>
             <div class="user-role">Student</div>
@@ -476,6 +899,11 @@ export function renderStudentDashboard() {
           </div>
         </section>
 
+        ${_renderReferencingPollCard()}
+
+        <!-- Live session card — shows when a Teams session is active -->
+        <div id="live-session-card" style="display:none;"></div>
+
         <!-- Recommendation card — loads async -->
         <div id="rec-card" class="rec-card rec-card--loading">
           <div class="rec-loading-row">
@@ -483,6 +911,8 @@ export function renderStudentDashboard() {
             <span>Personalising your learning path…</span>
           </div>
         </div>
+
+        ${_renderDailySharpener(adaptive)}
 
         <div id="featured-gallery-strip"></div>
 
@@ -537,6 +967,20 @@ export function renderStudentDashboard() {
                 <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">My spaces</div>
                 <h3 style="margin:8px 0 6px 0;color:var(--navy);">🖼️ Gallery Walk</h3>
                 <p style="font-size:13px;color:var(--muted);line-height:1.6;margin:0;">Browse peer work, upload artefacts, and leave feedback when you are ready.</p>
+              </div>
+            </button>
+            <button class="dash-card" style="text-align:left;cursor:pointer;background:linear-gradient(135deg,#059669 0%,#10b981 50%,#34d399 100%);border:none;" onclick="window.goToSubmissions()">
+              <div class="dash-card-body">
+                <div style="font-size:12px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.08em;">Assessments</div>
+                <h3 style="margin:8px 0 6px 0;color:white;">📤 Submit Assessment Tasks</h3>
+                <p style="font-size:13px;color:rgba(255,255,255,.85);line-height:1.6;margin:0;">Upload your assessment files safely. All submissions are versioned and backed up.</p>
+              </div>
+            </button>
+            <button class="dash-card" style="text-align:left;cursor:pointer;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a855f7 100%);border:none;" onclick="window.goToChallengeArena()">
+              <div class="dash-card-body">
+                <div style="font-size:12px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.08em;">Advanced</div>
+                <h3 style="margin:8px 0 6px 0;color:white;">🏟️ Challenge Arena</h3>
+                <p style="font-size:13px;color:rgba(255,255,255,.85);line-height:1.6;margin:0;">Skill-mapped games with XP scoring. Push yourself beyond the curriculum.</p>
               </div>
             </button>
           </div>
@@ -644,6 +1088,15 @@ export function renderStudentDashboard() {
                     <button class="btn-prev" style="display:inline-flex;" onclick="window.goToGallery()">Open</button>
                   </div>
                 </div>
+                <div style="padding:14px;border:1px solid var(--border);border-radius:12px;background:linear-gradient(135deg,#ecfdf5,#d1fae5);">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-weight:800;color:#065f46;">Submit Assessment Tasks</div>
+                      <div style="font-size:12px;color:#047857;margin-top:4px;">Upload assessment files (PDF, DOCX, etc). All submissions are versioned and safely backed up.</div>
+                    </div>
+                    <button class="btn-prev" style="display:inline-flex;background:#059669;border-color:#059669;color:white;" onclick="window.goToSubmissions()">Upload</button>
+                  </div>
+                </div>
               </div>
             </details>
           </div>
@@ -653,14 +1106,15 @@ export function renderStudentDashboard() {
   `;
 
   // Populate recommendation card and cohort strip after render
-  _loadRecommendation();
-  _loadCohortContext();
-  _loadFeaturedGalleryStrip();
-  _initAnnouncementRotator();
-  _initAttendanceQrScanner();
-  _consumeAttendanceQrLink().catch((err) => {
-    console.error('Attendance QR link handling failed:', err);
-  });
+  _runOptionalStudentStartupTask('Student recommendation load', () => _loadRecommendation());
+  _runOptionalStudentStartupTask('Student cohort context load', () => _loadCohortContext());
+  _runOptionalStudentStartupTask('Student featured gallery load', () => _loadFeaturedGalleryStrip());
+  _runOptionalStudentStartupTask('Student tutor-group announcement load', () => _loadTutorGroupAnnouncement(studentVm.profile));
+  _runOptionalStudentStartupTask('Student live session watch', () => _watchLiveSessions());
+  _runOptionalStudentStartupTask('Student announcement rotator init', () => _initAnnouncementRotator());
+  _runOptionalStudentStartupTask('Student referencing poll init', () => _initReferencingPoll());
+  _runOptionalStudentStartupTask('Student attendance scanner init', () => _initAttendanceQrScanner());
+  _runOptionalStudentStartupTask('Student attendance QR link handling', () => _consumeAttendanceQrLink());
 }
 
 function _renderAndroidStudentDashboard(vm) {
@@ -692,14 +1146,12 @@ function _renderAndroidStudentDashboard(vm) {
     document.documentElement.style.height = 'auto';
   }
 
-  const appRoot = document.getElementById('app');
-  if (appRoot) {
-    appRoot.style.display = 'block';
-    appRoot.style.height = 'auto';
-    appRoot.style.minHeight = '100dvh';
-  }
+  const appRoot = _requireAppRoot();
+  appRoot.style.display = 'block';
+  appRoot.style.height = 'auto';
+  appRoot.style.minHeight = '100dvh';
 
-  document.getElementById('app').innerHTML = `
+  appRoot.innerHTML = `
     <div class="android-student-app anim-fade ${immersive ? 'android-student-app--immersive' : ''}">
       <div class="android-quick-drawer-scrim" id="android-student-drawer-scrim" onclick="window.closeAndroidStudentDrawer()"></div>
       <aside class="android-quick-drawer" id="android-student-drawer">
@@ -788,7 +1240,7 @@ function _renderAndroidStudentTabContent(tab, vm) {
       const complete = Boolean(STATE.progress?.[u.id]?.readingComplete || STATE.progress?.[u.id]?.assessmentSubmitted);
       let isLocked = false;
       let lockedReason = '';
-      if (i > 0) {
+      if (i > 0 && !isOpenByDefault(UNITS, i)) {
         const prevUnit = UNITS[i - 1];
         const prevComplete = STATE.progress?.[prevUnit.id]?.readingComplete || STATE.progress?.[prevUnit.id]?.assessmentSubmitted;
         const isHighAchiever = (STATE.erProgress?.extraMarks || 0) >= 15;
@@ -844,6 +1296,11 @@ function _renderAndroidStudentTabContent(tab, vm) {
             <span class="android-panel-icon">🖼️</span>
             <strong>Gallery walk</strong>
             <span>Move from modules into peer artefacts and reflection.</span>
+          </button>
+          <button class="android-panel android-panel--action" onclick="window.goToSubmissions()" style="background:linear-gradient(135deg,#059669,#34d399);color:white;">
+            <span class="android-panel-icon">📤</span>
+            <strong>Submit assessments</strong>
+            <span>Upload assessment files safely. All submissions versioned and backed up.</span>
           </button>
         </section>
       </section>
@@ -1037,12 +1494,18 @@ function _renderAndroidStudentTabContent(tab, vm) {
         </div>
       </section>
 
+      ${_renderReferencingPollCard({ android: true })}
+
+      <div id="live-session-card" style="display:none;"></div>
+
       <div id="rec-card" class="rec-card rec-card--loading">
         <div class="rec-loading-row">
           <div class="rec-spinner"></div>
           <span>Personalising your learning path…</span>
         </div>
       </div>
+
+      ${_renderDailySharpener(STATE.adaptive)}
 
       ${_renderEscalationNotice(STATE.escalations || [])}
       <div id="featured-gallery-strip"></div>
@@ -1098,17 +1561,251 @@ function _renderAndroidStudentTabContent(tab, vm) {
             <strong>Live Chat</strong>
             <span>Talk to tutors and lecturers when they are online.</span>
           </button>
+          <button class="android-panel android-panel--action" style="background:linear-gradient(135deg,#6366f1,#a855f7);color:white;" onclick="window.goToChallengeArena()">
+            <span class="android-panel-icon">🏟️</span>
+            <strong style="color:white;">Challenge Arena</strong>
+            <span style="color:rgba(255,255,255,.85);">Skill-mapped games with XP. Push beyond the curriculum.</span>
+          </button>
         </div>
       </section>
     </section>
   `;
 }
 
+const _TUTORIAL_TIMETABLE = {
+  K: { day: 'Thursday', start: '11:20 AM', end: '12:10 PM', venue: 'D LES 309' },
+  L: { day: 'Thursday', start: '11:20 AM', end: '12:10 PM', venue: 'D LES 411' },
+  M: { day: 'Monday',   start: '2:40 PM',  end: '3:30 PM',  venue: 'D1 LAB K12' },
+  N: { day: 'Monday',   start: '2:40 PM',  end: '3:30 PM',  venue: 'D LES 407' },
+  O: { day: 'Tuesday',  start: '8:00 AM',  end: '8:50 AM',  venue: 'D1 LAB 405' },
+  P: { day: 'Tuesday',  start: '8:00 AM',  end: '8:50 AM',  venue: 'D1 LAB 416' },
+  Q: { day: 'Tuesday',  start: '8:00 AM',  end: '8:50 AM',  venue: 'D1 LAB 410' },
+  R: { day: 'Tuesday',  start: '12:10 PM', end: '1:00 PM',  venue: 'D LES 306' },
+  S: { day: 'Tuesday',  start: '1:00 PM',  end: '1:50 PM',  venue: 'C LES 301' },
+  T: { day: 'Tuesday',  start: '1:00 PM',  end: '1:50 PM',  venue: 'C LES 302' },
+  U: { day: 'Thursday', start: '1:50 PM',  end: '2:40 PM',  venue: 'C LES 305' },
+  V: { day: 'Thursday', start: '1:50 PM',  end: '2:40 PM',  venue: 'D LES 312' },
+  W: { day: 'Thursday', start: '12:10 PM', end: '1:00 PM',  venue: 'C LES 301' },
+  X: { day: 'Thursday', start: '12:10 PM', end: '1:00 PM',  venue: 'C LES 302' },
+  Y: { day: 'Monday',   start: '10:30 AM', end: '11:20 AM', venue: 'D LES 403' },
+};
+
+const _CLASS_TIMETABLE = [
+  { day: 'Tuesday', start: '1:50 PM', end: '3:30 PM', venue: 'D LAB BASEMENT K01' },
+  { day: 'Friday',  start: '1:50 PM', end: '3:30 PM', venue: 'E LES 100' },
+];
+
+async function _loadTutorGroupAnnouncement(profile = {}) {
+  let groupLetter = String(profile?.tutorialGroup || '').trim().toUpperCase();
+  console.log('[TutorGroupAnnouncement] profile.tutorialGroup =', profile?.tutorialGroup, '→ groupLetter =', groupLetter);
+
+  // If profile doesn't have tutorialGroup, try to find it from the roster
+  if (!groupLetter || !/^[K-Z]$/.test(groupLetter)) {
+    try {
+      const studentEmail = String(profile?.email || profile?.authEmail || profile?.username || STATE.user?.email || '').trim().toLowerCase();
+      console.log('[TutorGroupAnnouncement] Roster fallback lookup for email:', studentEmail);
+      if (studentEmail) {
+        const rosterSnap = await get(ref(db, 'rosters/classList'));
+        if (rosterSnap.exists()) {
+          const rows = Object.values(rosterSnap.val() || {});
+          console.log('[TutorGroupAnnouncement] Roster has', rows.length, 'rows');
+          for (const row of rows) {
+            const rosterEmail = String(row?.email || row?.username || '').trim().toLowerCase();
+            if (rosterEmail === studentEmail) {
+              const g = String(row?.tutorialGroup || row?.group || '').trim().toUpperCase();
+              console.log('[TutorGroupAnnouncement] Found roster match! group =', g);
+              if (/^[K-Z]$/.test(g)) {
+                groupLetter = g;
+                break;
+              }
+            }
+          }
+          if (!groupLetter) {
+            console.log('[TutorGroupAnnouncement] No roster match found for', studentEmail);
+          }
+        } else {
+          console.log('[TutorGroupAnnouncement] rosters/classList is empty');
+        }
+      }
+    } catch (err) {
+      console.warn('Could not look up tutorial group from roster:', err);
+    }
+  }
+
+  const hasGroup = groupLetter && /^[K-Z]$/.test(groupLetter);
+  console.log('[TutorGroupAnnouncement] hasGroup =', hasGroup, ', groupLetter =', groupLetter);
+
+  // Look up timetable info (always available even without tutor assignment)
+  const slot = hasGroup ? (_TUTORIAL_TIMETABLE[groupLetter] || null) : null;
+
+  let tutorName = '';
+  if (hasGroup) {
+    try {
+      const snap = await get(ref(db, `tutorial-groups/groupToTutor/${groupLetter}`));
+      if (snap.exists()) {
+        tutorName = String(snap.val()?.tutorName || '').trim();
+      }
+    } catch (err) {
+      console.warn('Could not load tutor group info:', err);
+    }
+  }
+
+  const track = document.getElementById('student-announcement-track');
+  const dotsContainer = document.getElementById('student-announcement-dots');
+  if (!track) return;
+
+  // Build timetable details
+  const tutorialLine = slot
+    ? `<strong>${_escHtml(slot.day)}</strong> &middot; ${_escHtml(slot.start)} – ${_escHtml(slot.end)} &middot; <strong>${_escHtml(slot.venue)}</strong>`
+    : '';
+  const classLines = _CLASS_TIMETABLE.map((c) =>
+    `${_escHtml(c.day)} ${_escHtml(c.start)} – ${_escHtml(c.end)} &middot; ${_escHtml(c.venue)}`
+  ).join('<br>');
+
+  const slideCount = track.querySelectorAll('[data-announcement-slide]').length;
+  const slide = document.createElement('article');
+  slide.setAttribute('data-announcement-slide', String(slideCount));
+  slide.style.cssText = 'min-width:100%;padding:24px 22px 20px 22px;color:white;';
+  slide.innerHTML = `
+    <div style="display:flex;gap:14px;align-items:flex-start;max-width:900px;">
+      <div style="width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,183,3,.18);font-size:26px;flex-shrink:0;">📌</div>
+      <div style="flex:1;">
+        <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:#ffb703;font-family:var(--font-mono);margin-bottom:8px;">Your Tutorial &amp; Class Schedule</div>
+        <h2 style="margin:0 0 10px 0;font-size:24px;line-height:1.2;color:white;">${hasGroup ? `Group ${_escHtml(groupLetter)}${tutorName ? ` — ${_escHtml(tutorName)}` : ''}` : 'Your Class Schedule'}</h2>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;">
+          <div style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#8ecae6;margin-bottom:6px;">Tutorial Session</div>
+            ${slot ? `
+              <div style="font-size:15px;font-weight:800;color:white;margin-bottom:4px;">${_escHtml(slot.day)}</div>
+              <div style="font-size:14px;color:rgba(255,255,255,.85);">${_escHtml(slot.start)} – ${_escHtml(slot.end)}</div>
+              <div style="font-size:14px;font-weight:700;color:#ffb703;margin-top:4px;">📍 ${_escHtml(slot.venue)}</div>
+              ${tutorName ? `<div style="font-size:13px;color:rgba(255,255,255,.75);margin-top:6px;">Tutor: <strong style="color:white;">${_escHtml(tutorName)}</strong></div>` : ''}
+            ` : '<div style="font-size:13px;color:rgba(255,255,255,.6);">No tutorial slot assigned yet.</div>'}
+          </div>
+
+          <div style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#8ecae6;margin-bottom:6px;">Contact Sessions</div>
+            ${_CLASS_TIMETABLE.map((c) => `
+              <div style="margin-bottom:8px;">
+                <div style="font-size:15px;font-weight:800;color:white;">${_escHtml(c.day)}</div>
+                <div style="font-size:14px;color:rgba(255,255,255,.85);">${_escHtml(c.start)} – ${_escHtml(c.end)}</div>
+                <div style="font-size:14px;font-weight:700;color:#ffb703;margin-top:2px;">📍 ${_escHtml(c.venue)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Prepend the slide (show it first)
+  track.prepend(slide);
+
+  // Re-number all slides
+  track.querySelectorAll('[data-announcement-slide]').forEach((el, i) => {
+    el.setAttribute('data-announcement-slide', String(i));
+  });
+
+  // Rebuild dots
+  if (dotsContainer) {
+    const newTotal = track.querySelectorAll('[data-announcement-slide]').length;
+    dotsContainer.innerHTML = '';
+    for (let i = 0; i < newTotal; i++) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.setAttribute('data-announcement-dot', String(i));
+      dot.setAttribute('aria-label', `Go to announcement ${i + 1}`);
+      dot.style.cssText = `width:10px;height:10px;border-radius:999px;border:none;cursor:pointer;background:${i === 0 ? '#ffb703' : 'rgba(255,255,255,.32)'};`;
+      dotsContainer.appendChild(dot);
+    }
+  }
+
+  // Restart the rotator so it picks up the new slide count and lingers longer
+  if (window._studentAnnouncementRotator?.timer) {
+    clearInterval(window._studentAnnouncementRotator.timer);
+  }
+  // Reset to slide 0 (the tutor group slide)
+  track.style.transform = 'translateX(0%)';
+  const allDots = [...document.querySelectorAll('[data-announcement-dot]')];
+  allDots.forEach((dot, i) => {
+    dot.style.background = i === 0 ? '#ffb703' : 'rgba(255,255,255,.32)';
+  });
+  // Slower rotation: 12 seconds per slide so students can read the schedule
+  let idx = 0;
+  const totalSlides = () => track.querySelectorAll('[data-announcement-slide]').length;
+  window._studentAnnouncementRotator = {
+    timer: setInterval(() => {
+      idx = (idx + 1) % totalSlides();
+      track.style.transform = `translateX(-${idx * 100}%)`;
+      [...document.querySelectorAll('[data-announcement-dot]')].forEach((dot, i) => {
+        dot.style.background = i === idx ? '#ffb703' : 'rgba(255,255,255,.32)';
+        dot.style.transform = i === idx ? 'scale(1.15)' : 'scale(1)';
+      });
+    }, 12000),
+  };
+}
+
+// ── Live Session (Teams) ────────────────────────
+let _liveSessionUnsub = null;
+
+function _watchLiveSessions() {
+  // Clean up previous listener
+  if (_liveSessionUnsub) {
+    _liveSessionUnsub();
+    _liveSessionUnsub = null;
+  }
+
+  const sessionsRef = ref(db, 'sessions/live');
+  _liveSessionUnsub = onValue(sessionsRef, (snap) => {
+    const card = document.getElementById('live-session-card');
+    if (!card) return;
+
+    const data = snap.val() || {};
+    const classSession = data.class;
+    const tutorialSession = data.tutorial;
+    const classActive = classSession?.active === true && classSession?.teamsLink;
+    const tutorialActive = tutorialSession?.active === true && tutorialSession?.teamsLink;
+
+    if (!classActive && !tutorialActive) {
+      card.style.display = 'none';
+      card.innerHTML = '';
+      return;
+    }
+
+    const renderBtn = (label, icon, link) => `
+      <a href="${_escHtml(link)}" target="_blank" rel="noopener noreferrer"
+         style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-radius:14px;background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);color:white;text-decoration:none;font-weight:700;font-size:15px;box-shadow:0 8px 20px rgba(79,70,229,.3);transition:transform .15s ease,box-shadow .15s ease;"
+         onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 12px 28px rgba(79,70,229,.4)'"
+         onmouseout="this.style.transform='';this.style.boxShadow='0 8px 20px rgba(79,70,229,.3)'">
+        <span style="font-size:28px;">${icon}</span>
+        <span>Join ${_escHtml(label)} on Teams</span>
+        <span style="margin-left:auto;font-size:18px;">→</span>
+      </a>`;
+
+    card.style.display = 'block';
+    card.innerHTML = `
+      <div style="background:linear-gradient(135deg,#eef2ff 0%,#faf5ff 100%);border:2px solid #c7d2fe;border-radius:18px;padding:20px;margin-top:8px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <div style="width:12px;height:12px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.5);"></div>
+          <div style="font-size:13px;font-weight:800;color:#4f46e5;text-transform:uppercase;letter-spacing:.1em;">Live Session Available</div>
+        </div>
+        <div style="display:grid;gap:10px;">
+          ${classActive ? renderBtn('Contact Class', '🏫', classSession.teamsLink) : ''}
+          ${tutorialActive ? renderBtn('Tutorial', '👥', tutorialSession.teamsLink) : ''}
+        </div>
+      </div>`;
+  }, (err) => {
+    console.warn('Live sessions listener error:', err);
+  });
+}
+
 function _initAnnouncementRotator() {
   const banner = document.getElementById('student-announcement-banner');
   const track = document.getElementById('student-announcement-track');
-  const dots = [...document.querySelectorAll('[data-announcement-dot]')];
-  const total = DASHBOARD_CONTENT.announcements.length;
+  const getTotal = () => track ? track.querySelectorAll('[data-announcement-slide]').length : 0;
+  const getDots = () => [...document.querySelectorAll('[data-announcement-dot]')];
+  const total = getTotal();
   if (window._studentAnnouncementRotator) {
     clearInterval(window._studentAnnouncementRotator.timer);
     window._studentAnnouncementRotator = null;
@@ -1117,18 +1814,21 @@ function _initAnnouncementRotator() {
 
   let index = 0;
   const render = () => {
+    const currentTotal = getTotal();
+    if (index >= currentTotal) index = 0;
     track.style.transform = `translateX(-${index * 100}%)`;
-    dots.forEach((dot, dotIndex) => {
+    getDots().forEach((dot, dotIndex) => {
       dot.style.background = dotIndex === index ? '#ffb703' : 'rgba(255,255,255,.32)';
       dot.style.transform = dotIndex === index ? 'scale(1.15)' : 'scale(1)';
     });
   };
   const next = () => {
-    index = (index + 1) % total;
+    index = (index + 1) % getTotal();
     render();
   };
   const prev = () => {
-    index = (index - 1 + total) % total;
+    const t = getTotal();
+    index = (index - 1 + t) % t;
     render();
   };
   const resetTimer = () => {
@@ -1146,6 +1846,7 @@ function _initAnnouncementRotator() {
     prev();
     resetTimer();
   });
+  const dots = getDots();
   dots.forEach((dot, dotIndex) => {
     dot.addEventListener('click', () => {
       index = dotIndex;
@@ -1158,6 +1859,9 @@ function _initAnnouncementRotator() {
       const action = String(button.dataset.announcementAction || '').trim();
       if (action === 'governance-rewards') {
         window.goToGovernanceFramework?.();
+      } else if (action === 'assessment-a1') {
+        window.goToCourse?.();
+        setTimeout(() => window.navigateTo?.(3), 200);
       }
     });
   });
@@ -1213,6 +1917,72 @@ function _escHtml(v = '') {
 }
 
 // ── Skill map renderer ────────────────────────
+// ── Daily Sharpener (spaced repetition) ───────
+// Resurfaces the skill most due for review and launches its micro-module.
+function _renderDailySharpener(adaptive) {
+  // Hide entirely for brand-new users with no scored module-backed skills —
+  // don't nag before there's anything to review.
+  const anyScored = Object.keys(SKILL_MODULE_MAP)
+    .some((s) => (adaptive?.skill_scores?.[s] || []).length > 0);
+  if (!anyScored) return '';
+
+  const queue = getReviewQueue(adaptive);
+  const next = queue[0] || null;
+
+  if (!next) {
+    return `
+      <div class="sharpener-card sharpener-card--clear">
+        <div class="sharpener-head">
+          <span class="sharpener-emoji">✅</span>
+          <div class="sharpener-headtext">
+            <h3 class="sharpener-title">All sharp</h3>
+            <p class="sharpener-sub">Nothing due for review today. Come back tomorrow.</p>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  const label = SKILL_LABELS[next.skillId] || next.skillId;
+  const icon = SKILL_ICONS[next.skillId] || '🎯';
+  const cfg = STATUS_CONFIG[next.status] || STATUS_CONFIG.developing;
+  const more = queue.length - 1;
+  const moreNote = more > 0
+    ? `<p class="sharpener-more">+${more} more skill${more === 1 ? '' : 's'} due for review</p>`
+    : '';
+
+  return `
+    <div class="sharpener-card" style="border-left:4px solid ${cfg.color};">
+      <div class="sharpener-head">
+        <span class="sharpener-emoji">🎯</span>
+        <div class="sharpener-headtext">
+          <h3 class="sharpener-title">Daily Sharpener</h3>
+          <p class="sharpener-sub">
+            <span class="sharpener-skill">${icon} ${label}</span> — ${describeDue(next)}
+            <span class="sharpener-hint">A quick refresh keeps it sharp.</span>
+          </p>
+        </div>
+      </div>
+      <button type="button" class="sharpener-btn" style="background:${cfg.color};"
+        onclick="window._startDailySharpener('${next.skillId}','${next.moduleId}')">
+        Start 5-min refresh →
+      </button>
+      ${moreNote}
+    </div>`;
+}
+
+// Launch handler — records a pending outcome (reusing the existing
+// effectiveness loop), then opens the micro-module.
+window._startDailySharpener = function (skillId, moduleId) {
+  try {
+    const scores = STATE.adaptive?.skill_scores?.[skillId] || [];
+    const scoreBefore = scores.length ? scores[scores.length - 1].score : null;
+    recordOutcome(moduleId, skillId, scoreBefore);
+  } catch (err) {
+    console.error('Daily Sharpener outcome tracking failed:', err);
+  }
+  window.goToMicroModule?.(moduleId);
+};
+
 function renderSkillMap(adaptive) {
   return Object.entries(SKILL_LABELS).map(([skillId, label]) => {
     const status = adaptive?.skill_status?.[skillId] || 'untested';
@@ -1433,10 +2203,28 @@ function _initAttendanceQrScanner() {
       return;
     }
 
-    if (!('BarcodeDetector' in window)) {
-      _setScannerStatus('QR scanner not supported here. Enter token manually.', 'This device/browser does not support QR detection.');
-      console.error('BarcodeDetector API not available.');
-      return;
+    // Prefer the native detector only when QR support is actually available.
+    let _jsQR = null;
+    let _useNativeDetector = false;
+    if ('BarcodeDetector' in window) {
+      try {
+        const supportedFormats = typeof window.BarcodeDetector.getSupportedFormats === 'function'
+          ? await window.BarcodeDetector.getSupportedFormats()
+          : [];
+        _useNativeDetector = !Array.isArray(supportedFormats) || supportedFormats.includes('qr_code');
+      } catch {
+        _useNativeDetector = true;
+      }
+    }
+    try {
+      const mod = await import('jsqr');
+      _jsQR = mod.default || mod;
+    } catch (e) {
+      if (!_useNativeDetector) {
+        console.error('Could not load jsQR fallback:', e);
+        _setScannerStatus('QR scanner not available. Enter token manually.', 'QR library failed to load.');
+        return;
+      }
     }
 
     const permission = await _cameraPermissionState();
@@ -1458,6 +2246,7 @@ function _initAttendanceQrScanner() {
             <button id="attendance-qr-close" class="btn-prev" style="display:inline-flex;">Close</button>
           </div>
           <video id="attendance-qr-video" autoplay playsinline muted style="width:100%;max-height:60vh;border:1px solid var(--border);border-radius:10px;background:#111;"></video>
+          <canvas id="attendance-qr-canvas" style="display:none;"></canvas>
           <div id="attendance-qr-modal-status" style="font-size:12px;color:var(--muted);margin-top:8px;">Point camera at the lecturer QR code…</div>
         </div>
       `;
@@ -1477,6 +2266,7 @@ function _initAttendanceQrScanner() {
 
     const modal = document.getElementById('attendance-qr-modal');
     const video = document.getElementById('attendance-qr-video');
+    const canvas = document.getElementById('attendance-qr-canvas');
     const modalStatus = document.getElementById('attendance-qr-modal-status');
     if (!modal || !video) return;
 
@@ -1486,60 +2276,85 @@ function _initAttendanceQrScanner() {
     _setScannerStatus('Opening camera…', 'Requesting camera access…');
 
     try {
-      state.detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-      state.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-        audio: false,
-      });
+      state.useNativeDetector = _useNativeDetector;
+      if (state.useNativeDetector) {
+        state.detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      }
+
+      // Try rear camera first, fall back to any camera
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+      state.stream = stream;
 
       video.srcObject = state.stream;
       await video.play();
       state.running = true;
 
+      const _processQrResult = async (raw) => {
+        _setScannerStatus('QR detected. Verifying…', 'QR detected. Verifying…');
+        if (typeof window.verifyAttendanceQrPayload !== 'function') {
+          _setScannerStatus('QR detected, but verification function missing.', 'Verification function not found.');
+          return;
+        }
+        try {
+          const result = await window.verifyAttendanceQrPayload(raw, true);
+          if (result?.ok) {
+            _setScannerStatus(`✅ Attendance confirmed for ${result.sessionLabel || _attendanceSessionLabel(result.sessionType)}.`, 'Attendance confirmed. Closing scanner…');
+            await _finalizeAttendanceCheckin(result, result.token || _extractAttendanceToken(raw), 'student-attendance-qr');
+            setTimeout(() => window.closeAttendanceQrScanner?.(), 500);
+            return;
+          }
+          console.warn('QR validation failed:', { scannedToken: raw, result });
+          _setScannerStatus(result?.message || 'QR code found but token is invalid or expired.', 'Invalid/expired token. Try scanning the latest QR code.');
+          state.lastHintAt = Date.now();
+        } catch (err) {
+          _setScannerStatus('Error verifying QR code.', 'Verification error.');
+          console.error('Error in verifyAttendanceQrPayload:', err);
+        }
+      };
+
       const scanLoop = async () => {
         if (!state.running) return;
         try {
           if (video.readyState >= 2) {
-            const codes = await state.detector.detect(video);
-            if (codes?.length) {
-              const raw = String(codes[0]?.rawValue || '').trim();
-              if (raw) {
-                _setScannerStatus('QR detected. Verifying…', 'QR detected. Verifying…');
-                if (typeof window.verifyAttendanceQrPayload !== 'function') {
-                  _setScannerStatus('QR detected, but verification function missing.', 'Verification function not found.');
-                  console.error('window.verifyAttendanceQrPayload is not defined or not a function.');
-                  return;
-                }
-                try {
-                  const result = await window.verifyAttendanceQrPayload(raw, true);
-                  if (result?.ok) {
-                    _setScannerStatus(`✅ Attendance confirmed for ${result.sessionType}.`, 'Attendance confirmed. Closing scanner…');
-                    await _recordAttendanceAnalytics(result, result.token || _extractAttendanceToken(raw));
-                    // Save attendance to Firebase
-                    try {
-                      if (!window.saveState) {
-                        const mod = await import('../state.js');
-                        window.saveState = mod.saveState;
-                      }
-                      await window.saveState();
-                    } catch (err) {
-                      console.error('Attendance save failed:', err);
-                    }
-                    setTimeout(() => window.closeAttendanceQrScanner?.(), 500);
-                    return;
-                  }
-                  // Debug output for token validation failure
-                  console.warn('QR validation failed:', {
-                    scannedToken: raw,
-                    result,
-                  });
-                  _setScannerStatus(result?.message || 'QR code found but token is invalid or expired.', 'Invalid/expired token. Try scanning the latest QR code.');
-                  state.lastHintAt = Date.now();
-                } catch (err) {
-                  _setScannerStatus('Error verifying QR code.', 'Verification error.');
-                  console.error('Error in verifyAttendanceQrPayload:', err);
-                }
+            let raw = null;
+
+            if (state.useNativeDetector && state.detector) {
+              try {
+                const codes = await state.detector.detect(video);
+                if (codes?.length) raw = String(codes[0]?.rawValue || '').trim();
+              } catch (err) {
+                console.warn('Native QR detector failed, switching to compatibility mode:', err);
+                state.useNativeDetector = false;
+                state.detector = null;
+                _setScannerStatus(
+                  'Switching scanner to compatibility mode…',
+                  'Native scan mode unavailable. Trying compatibility mode…'
+                );
               }
+            }
+
+            if (!raw && _jsQR && canvas) {
+              // Use jsQR fallback — draw video frame to canvas and scan
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = _jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+              if (code?.data) raw = String(code.data).trim();
+            }
+
+            if (raw) {
+              await _processQrResult(raw);
+              if (!state.running) return;
             } else if (!state.lastHintAt || Date.now() - state.lastHintAt > 15000) {
               if (modalStatus) modalStatus.textContent = 'Still scanning… keep the QR fully in frame and well lit.';
               state.lastHintAt = Date.now();
@@ -1547,9 +2362,14 @@ function _initAttendanceQrScanner() {
           }
         } catch (err) {
           console.error('Error during QR scan loop:', err);
-          // keep scanning
         }
-        state.rafId = window.requestAnimationFrame(scanLoop);
+        // Throttle jsQR to ~10fps to reduce CPU, native detector handles its own rate
+        const delay = state.useNativeDetector ? 0 : 100;
+        if (delay) {
+          state.rafId = setTimeout(() => { state.rafId = window.requestAnimationFrame(scanLoop); }, delay);
+        } else {
+          state.rafId = window.requestAnimationFrame(scanLoop);
+        }
       };
 
       state.rafId = window.requestAnimationFrame(scanLoop);
@@ -1565,6 +2385,7 @@ function _initAttendanceQrScanner() {
     const state = window._attendanceScannerState;
     if (state?.rafId) {
       window.cancelAnimationFrame(state.rafId);
+      clearTimeout(state.rafId);
       state.rafId = null;
     }
     state.running = false;
