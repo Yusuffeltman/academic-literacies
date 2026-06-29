@@ -76,15 +76,15 @@
 
 | | Reviewed | Decision (approve / edit / reject) | Notes |
 |---|---|---|---|
-| U7 Q1 | ☐ | | |
-| U7 Q2 | ☐ | | |
-| U7 Q3 | ☐ | | |
-| U7 Q4 | ☐ | | |
-| U8 Q1 | ☐ | | |
-| U8 Q2 | ☐ | | |
-| U8 Q3 | ☐ | | |
-| U8 Q4 | ☐ | | |
+| U7 Q1 | ☑ | Approved | |
+| U7 Q2 | ☑ | Approved | |
+| U7 Q3 | ☑ | Approved | |
+| U7 Q4 | ☑ | Approved | |
+| U8 Q1 | ☑ | Approved | |
+| U8 Q2 | ☑ | Approved | |
+| U8 Q3 | ☑ | Approved | |
+| U8 Q4 | ☑ | Approved | |
 
-**Reviewer:** ________________   **Date:** ____________   **Overall:** ☐ Approved to run ☐ Approved with edits ☐ Hold
+**Reviewer:** Yusuf Feltman   **Date:** 2026-06-27   **Overall:** ☑ Approved to run ☐ Approved with edits ☐ Hold
 
 Edits should be made directly in `COMPREHENSION_ITEMS` in `src/lesson-experiment.js` (keep `answer` pointing at the correct option). Items are matched 1:1 between the two units to keep the measure comparable across arms — if you add/remove an item in one unit, mirror it in the other.
