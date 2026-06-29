@@ -6,7 +6,7 @@ import { VIDEOS, VIDEO_CONFIG } from '../content/videos.js';
 import { InteractiveVideoPlayer } from './components/video-player.js';
 import { initAllReadingTasks } from './components/reading-task.js';
 import { paginateUnit } from './components/unit-reader.js';
-import { isTestUnit, resolveArmForUser, getAuthoredChunks } from './lesson-experiment.js';
+import { isTestUnit, resolveArmForUser, getAuthoredChunks, isExperimentEnabled } from './lesson-experiment.js';
 import { renderLessonMeasurePanel } from './components/lesson-measure.js';
 import { markLessonOpened } from './lesson-measurement.js';
 import { isParticipating, maybeShowExperimentNotice } from './components/experiment-notice.js';
@@ -1207,7 +1207,7 @@ export function navigateTo(index) {
   // Lesson-presentation A/B: append the end-of-unit measurement panel to test
   // units (arm-independent), before boot/pagination so Arm B can chunk it.
   // Skipped for students who have opted out of the trial.
-  const inExperiment = isParticipating(unit.id, isTestUnit(unit.id));
+  const inExperiment = isExperimentEnabled() && isParticipating(unit.id, isTestUnit(unit.id));
   if (inExperiment) {
     area.insertAdjacentHTML('beforeend', renderLessonMeasurePanel(unit.id));
     markLessonOpened(unit.id);

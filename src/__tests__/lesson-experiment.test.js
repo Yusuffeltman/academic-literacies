@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   TEST_UNIT_IDS,
   isTestUnit,
+  isExperimentEnabled,
   getAuthoredChunks,
   getComprehensionItems,
   assignArm,
@@ -15,6 +16,10 @@ import {
   aggregateExperimentBySubgroup,
   priorKnowledgeBand,
 } from '../lesson-measurement.js';
+
+test('experiment master switch defaults OFF (safe to deploy un-activated)', () => {
+  assert.equal(isExperimentEnabled(), false);
+});
 
 test('test units are u7 and u8', () => {
   assert.deepEqual(TEST_UNIT_IDS, ['u7', 'u8']);

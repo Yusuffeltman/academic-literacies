@@ -12,6 +12,17 @@
 // without any persisted state.
 // ─────────────────────────────────────────────
 
+// MASTER SWITCH — the experiment is OFF until institutional sign-off.
+// While false, no unit activates the A/B: no arm assignment, no measurement
+// panel, no notice, no logging — units render normally. Flip to true ONLY
+// after the comprehension items are signed off and the ethics/equity notice
+// is approved (see docs/lesson-experiment-ethics-notice.md §8), then redeploy.
+export const EXPERIMENT_ENABLED = false;
+
+export function isExperimentEnabled() {
+  return EXPERIMENT_ENABLED;
+}
+
 export const TEST_UNIT_IDS = ['u7', 'u8'];
 
 // Authored chunk boundaries for Arm B. Each unit is segmented ONLY at
