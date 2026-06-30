@@ -74,10 +74,10 @@ Cross-ref: [equity-review-framework](../governance/equity/equity-review-framewor
 
 ## 8. Approval checklist (before enabling)
 
-- ☐ Comprehension items reviewed and signed off (separate document)
-- ☐ This notice approved by the module owner
-- ☐ DPIA cross-references confirmed current
-- ☐ Equity reviewer sign-off
-- ☐ Run window and cohort communication agreed
+- ☑ Comprehension items reviewed and signed off (separate document)
+- ☑ This notice approved by the module owner
+- ☑ DPIA cross-references confirmed current
+- ☐ Equity reviewer sign-off — *separate independent review, still pending*
+- ☐ Run window and cohort communication agreed — *to be set*
 
-**Approved by:** ________________  **Role:** ____________  **Date:** ____________
+**Approved by:** Yusuf Feltman  **Role:** Module owner  **Date:** 2026-06-27
