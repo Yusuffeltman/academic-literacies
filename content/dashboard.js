@@ -2,6 +2,20 @@
 export const DASHBOARD_CONTENT = {
   announcements: [
     {
+      id: 4,
+      icon: '🚨',
+      title: 'Group Restructure & Assessment Notice',
+      content: 'Groups with fewer than 5 members have been dissolved and affected members randomly reassigned. You are at risk of failing if you have not joined a group or your group has not started the assessment tasks. Act immediately. Live Q&A today at 3:00 PM on Microsoft Teams — log in and click the Teams link on your dashboard.',
+      ctaLabel: 'Open Assessment 1',
+      ctaAction: 'assessment-a1',
+    },
+    {
+      id: 5,
+      icon: '📋',
+      title: 'Helping us improve Units 7 & 8',
+      content: 'Until 4 July, Units 7 and 8 trial two ways of laying out the same lesson, to learn which helps students most. A short, anonymous quick-check at the end takes about two minutes. It is completely voluntary and does not affect your marks — and you can switch to the standard layout at any time. Thank you for helping us make the course better.',
+    },
+    {
       id: 1,
       icon: '📢',
       title: 'Welcome to the Academic Literacies Module!',

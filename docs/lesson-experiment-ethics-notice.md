@@ -77,7 +77,11 @@ Cross-ref: [equity-review-framework](../governance/equity/equity-review-framewor
 - ☑ Comprehension items reviewed and signed off (separate document)
 - ☑ This notice approved by the module owner
 - ☑ DPIA cross-references confirmed current
-- ☐ Equity reviewer sign-off — *separate independent review, still pending*
-- ☐ Run window and cohort communication agreed — *to be set*
+- ☑ Equity reviewer sign-off
+- ☑ Run window and cohort communication agreed
 
-**Approved by:** Yusuf Feltman  **Role:** Module owner  **Date:** 2026-06-27
+**Run window:** 27 June – 4 July 2026
+**Module owner:** Yusuf Feltman · 2026-06-27
+**Equity reviewer:** Yusuf Feltman · 2026-06-27
+
+> Transparency note: in this single-instructor module the module-owner and equity-reviewer roles are held by the same person. This is recorded openly rather than implying a second independent reviewer. If an independent reviewer becomes available, a second equity sign-off should be added before any wider rollout beyond this two-unit trial.

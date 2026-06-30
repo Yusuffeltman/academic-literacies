@@ -12,12 +12,12 @@
 // without any persisted state.
 // ─────────────────────────────────────────────
 
-// MASTER SWITCH — the experiment is OFF until institutional sign-off.
-// While false, no unit activates the A/B: no arm assignment, no measurement
-// panel, no notice, no logging — units render normally. Flip to true ONLY
-// after the comprehension items are signed off and the ethics/equity notice
-// is approved (see docs/lesson-experiment-ethics-notice.md §8), then redeploy.
-export const EXPERIMENT_ENABLED = false;
+// MASTER SWITCH — the experiment A/B activation.
+// ENABLED for the approved trial window: 27 June – 4 July 2026.
+// Sign-off recorded in docs/lesson-experiment-ethics-notice.md §8 (items,
+// module owner, equity, run window all approved).
+// CLOSE-OUT: set back to false on/after 2026-07-04 and redeploy.
+export const EXPERIMENT_ENABLED = true;
 
 export function isExperimentEnabled() {
   return EXPERIMENT_ENABLED;
