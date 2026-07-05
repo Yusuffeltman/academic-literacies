@@ -13,11 +13,11 @@
 // ─────────────────────────────────────────────
 
 // MASTER SWITCH — the experiment A/B activation.
-// ENABLED for the approved trial window: 27 June – 4 July 2026.
-// Sign-off recorded in docs/lesson-experiment-ethics-notice.md §8 (items,
-// module owner, equity, run window all approved).
-// CLOSE-OUT: set back to false on/after 2026-07-04 and redeploy.
-export const EXPERIMENT_ENABLED = true;
+// CLOSED OUT 2026-07-05: the approved trial window (27 June – 4 July 2026)
+// has ended. Sign-off and window recorded in
+// docs/lesson-experiment-ethics-notice.md §8. Do not re-enable without a
+// newly approved window.
+export const EXPERIMENT_ENABLED = false;
 
 export function isExperimentEnabled() {
   return EXPERIMENT_ENABLED;

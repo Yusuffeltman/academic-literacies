@@ -17,10 +17,10 @@ import {
   priorKnowledgeBand,
 } from '../lesson-measurement.js';
 
-test('experiment master switch is ON for the approved trial window (27 Jun–4 Jul 2026)', () => {
-  // Tripwire: flip back to false at close-out (on/after 2026-07-04) and this
-  // assertion flips with it. Guards against the flag being left in a stale state.
-  assert.equal(isExperimentEnabled(), true);
+test('experiment master switch is OFF after close-out (trial window ended 2026-07-04)', () => {
+  // Tripwire: only flip to true together with a newly approved run window,
+  // and flip back at close-out. Guards against the flag being left stale.
+  assert.equal(isExperimentEnabled(), false);
 });
 
 test('test units are u7 and u8', () => {
