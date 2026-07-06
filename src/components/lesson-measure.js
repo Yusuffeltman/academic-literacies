@@ -5,7 +5,8 @@
 // Paas mental-effort rating (subjective load). On submit it scores, records,
 // and emits the lesson_completed event via the measurement module.
 //
-// Formative and anonymous by design — see the equity section of
+// Formative and confidential (responses used only in aggregate; stored
+// pseudonymously) — see the equity section of
 // docs/lesson-presentation-redesign-spec.md.
 // ─────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ export function renderLessonMeasurePanel(unitId) {
       <div class="lm-head">
         <div class="lm-kicker">Quick check</div>
         <h2 class="lm-title">Before you move on</h2>
-        <p class="lm-note">A few quick questions to help us improve how this unit is presented. This is <strong>anonymous and not graded</strong> — answer honestly.</p>
+        <p class="lm-note">A few quick questions to help us improve how this unit is presented. Your answers are <strong>not graded</strong> and are used <strong>only in aggregate</strong> — answer honestly.</p>
       </div>
 
       <div class="lm-section">${questions}</div>

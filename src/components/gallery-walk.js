@@ -1,5 +1,6 @@
 import { STATE } from '../state.js';
 import { getGalleryPosts, createGalleryPost, addGalleryReaction, addGalleryComment, setGalleryPinned, hideGalleryPost, setGalleryStaffAssessment, uploadGalleryAsset, seedGalleryWalkDemoPosts } from '../gallery.js';
+import { writeUploadSuccessEvent } from '../analytics.js';
 
 function esc(v = '') {
   return String(v)
@@ -18,6 +19,16 @@ function me() {
 
 function role() {
   return STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1]?.toLowerCase() || 'student';
+}
+
+function analyticsProfile() {
+  return STATE.user?._studentProfileContext?.profile || {
+    uid: STATE.user?.uid || '',
+    role: 'student',
+    authEmail: STATE.user?.email || '',
+    username: STATE.user?.email || '',
+    displayName: STATE.user?.displayName || '',
+  };
 }
 
 function isStaff() {
@@ -622,6 +633,15 @@ export function renderGalleryWalk() {
         if (msg) msg.textContent = 'File upload failed. Please try again or submit without a file.';
         return;
       }
+      await writeUploadSuccessEvent({
+        user: STATE.user || {},
+        profile: analyticsProfile(),
+        scope: 'gallery-walk',
+        sessionId: instance?.sessionId || '',
+        unitId: instance?.unitId || instance?.id || '',
+        asset,
+        source: 'gallery-walk-upload',
+      }).catch(() => {});
     }
     const created = await createGalleryPost({
       mode: mode === 'group' ? 'group' : 'individual',
@@ -885,6 +905,15 @@ export function renderGalleryWalk() {
         if (msg) msg.textContent = 'Upload failed. Try again or post without a file.';
         return;
       }
+      await writeUploadSuccessEvent({
+        user: STATE.user || {},
+        profile: analyticsProfile(),
+        scope: 'gallery-feed',
+        sessionId: instance?.sessionId || '',
+        unitId: instance?.unitId || instance?.id || '',
+        asset,
+        source: 'gallery-feed-upload',
+      }).catch(() => {});
     }
     const postId = await createGalleryPost({
       channel: 'feed',

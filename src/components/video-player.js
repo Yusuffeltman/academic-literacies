@@ -19,6 +19,7 @@ window._ivpRegistry = window._ivpRegistry || {}; // {cid: {cfg, meta, key}}
 window._ivpHistory  = window._ivpHistory  || {}; // {cid: [{role,content}]}
 
 const IVP_REFL_STORAGE_PREFIX = 'acadlit-ivp-refl-v1';
+const IVP_SCREEN_OVERLAYS_ENABLED = false;
 
 function _ivpReflectionStorageKey(cid, xid) {
   return `${IVP_REFL_STORAGE_PREFIX}:${cid}:${xid}`;
@@ -334,9 +335,11 @@ export class InteractiveVideoPlayer {
     const el = document.getElementById(this.cid);
     if (!el) return;
 
-    const markers  = this.cfg.ix.map(x =>
-      `<div class="ivp-marker" style="left:0%" data-t="${x.t}"></div>`
-    ).join('');
+    const markers = IVP_SCREEN_OVERLAYS_ENABLED
+      ? this.cfg.ix.map(x =>
+          `<div class="ivp-marker" style="left:0%" data-t="${x.t}"></div>`
+        ).join('')
+      : '';
 
     const chapters = this.cfg.chapters.map((c, i) =>
       `<span class="ivp-ch-l" onclick="seekChapter('${this.cid}',${i})">${c.n}</span>`
@@ -474,6 +477,8 @@ export class InteractiveVideoPlayer {
     const dur  = this.player.getDuration();
     const fill = document.getElementById(`fill-${this.cid}`);
     if (fill && dur > 0) fill.style.width = (this.t / dur * 100) + '%';
+
+    if (!IVP_SCREEN_OVERLAYS_ENABLED) return;
 
     this.cfg.ix.forEach(x => {
       if (this.t === x.t && !this.done.has(x.id)) {

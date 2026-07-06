@@ -269,6 +269,44 @@ export async function createGroupRoom(name, memberUids, tutorialGroupId = null) 
   return roomId;
 }
 
+export async function createCollaborationGroupRoom({
+  name,
+  collaborationGroupId,
+  collaborationScopeId,
+  memberUids = [],
+} = {}) {
+  const uid = _uid();
+  if (!uid) return null;
+
+  const roomRef = push(ref(db, 'chat/rooms'));
+  const roomId = roomRef.key;
+  const now = _nowIso();
+
+  const roomData = {
+    type: 'group',
+    subtype: 'collaboration',
+    name: name || 'Group Chat',
+    createdAt: now,
+    createdBy: uid,
+    lastMessage: null,
+    tutorialGroupId: null,
+    tutorUid: null,
+    collaborationGroupId: collaborationGroupId || null,
+    collaborationScopeId: collaborationScopeId || null,
+  };
+
+  await set(ref(db, `chat/rooms/${roomId}`), roomData);
+  await addMemberToRoom(roomId, uid, _role(), roomData);
+
+  const otherMembers = new Set((Array.isArray(memberUids) ? memberUids : []).filter((memberUid) => memberUid && memberUid !== uid));
+  for (const memberUid of otherMembers) {
+    await addMemberToRoom(roomId, memberUid, 'student', roomData);
+  }
+
+  await _sendSystemMessage(roomId, `${_displayName()} opened the collaboration space "${roomData.name}"`);
+  return roomId;
+}
+
 export async function createDirectRoom(studentUid, studentName) {
   const uid = _uid();
   const role = _role();
@@ -361,6 +399,42 @@ export async function sendMessage(roomId, text) {
   }
 }
 
+export async function sendAssetMessage(roomId, asset, caption = '') {
+  const uid = _uid();
+  if (!uid || !roomId || !asset) return null;
+
+  const role = _role();
+  const senderName = _displayName();
+  const now = _nowIso();
+  const safeCaption = String(caption || '').trim();
+  const assetLabel = String(asset?.name || asset?.url || 'shared artefact').trim();
+
+  const messageData = {
+    sender: uid,
+    senderName,
+    senderRole: role,
+    text: safeCaption || `Shared ${assetLabel}`,
+    timestamp: now,
+    type: 'asset',
+    deleted: false,
+    asset: {
+      id: asset?.id || null,
+      kind: asset?.kind || 'file',
+      name: asset?.name || assetLabel,
+      url: asset?.url || '',
+      type: asset?.type || 'application/octet-stream',
+      size: Number(asset?.size || 0) || 0,
+      caption: safeCaption,
+      embedUrl: asset?.embedUrl || '',
+    },
+  };
+
+  const msgRef = push(ref(db, `chat/messages/${roomId}`));
+  await set(msgRef, messageData);
+  await _updateRoomLastMessage(roomId, messageData);
+  return { ...messageData, id: msgRef.key };
+}
+
 async function _sendSystemMessage(roomId, text) {
   const uid = _uid();
   if (!uid || !roomId) return;
@@ -380,8 +454,11 @@ async function _sendSystemMessage(roomId, text) {
 }
 
 async function _updateRoomLastMessage(roomId, messageData) {
+  const previewText = messageData.type === 'asset'
+    ? (messageData.text || `Shared ${messageData?.asset?.name || 'an artefact'}`)
+    : messageData.text;
   const lastMessage = {
-    text: messageData.text.length > 80 ? messageData.text.slice(0, 80) + '…' : messageData.text,
+    text: previewText.length > 80 ? previewText.slice(0, 80) + '…' : previewText,
     sender: messageData.sender,
     senderName: messageData.senderName,
     timestamp: messageData.timestamp,
@@ -533,10 +610,13 @@ export async function getRoomMembers(roomId) {
   return snap.val() || {};
 }
 
-export async function addMemberToRoom(roomId, memberUid, memberRole = 'student') {
+export async function addMemberToRoom(roomId, memberUid, memberRole = 'student', roomSummary = null) {
   const now = _nowIso();
-  const roomSnap = await get(ref(db, `chat/rooms/${roomId}`));
-  const room = roomSnap.val();
+  let room = roomSummary;
+  if (!room) {
+    const roomSnap = await get(ref(db, `chat/rooms/${roomId}`));
+    room = roomSnap.val();
+  }
   if (!room) return;
 
   const updates = {};
@@ -544,13 +624,21 @@ export async function addMemberToRoom(roomId, memberUid, memberRole = 'student')
     role: memberRole, joinedAt: now, lastRead: now, muted: false,
   };
   updates[`chat/user-rooms/${memberUid}/${roomId}`] = {
-    type: room.type,
+    type: room.type || 'group',
     otherUid: room.type === 'direct' ? _uid() : null,
     name: room.name || _displayName(),
     unreadCount: 0,
     lastMessageAt: now,
   };
 
+  await update(ref(db), updates);
+}
+
+export async function removeMemberFromRoom(roomId, memberUid) {
+  if (!roomId || !memberUid) return;
+  const updates = {};
+  updates[`chat/members/${roomId}/${memberUid}`] = null;
+  updates[`chat/user-rooms/${memberUid}/${roomId}`] = null;
   await update(ref(db), updates);
 }
 

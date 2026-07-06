@@ -13,7 +13,6 @@
     href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
   <script type="module" src="/src/main.js"></script>
-
   <style>
     :root {
       --navy: #122033;
@@ -43,357 +42,68 @@
 
     body {
       font-family: 'Lora', Georgia, serif;
-      background:
-        radial-gradient(circle at top left, rgba(33, 158, 188, 0.18), transparent 28%),
-        radial-gradient(circle at bottom right, rgba(255, 183, 3, 0.18), transparent 24%),
-        linear-gradient(135deg, #0d1b2a 0%, #10213a 42%, #1f3b5b 100%);
+      background: var(--navy, #0f172a);
       min-height: 100vh;
+      margin: 0;
+    }
+
+    /* Auth styles are in main.css — only minimal pre-render rules here
+       to avoid FOUC before the stylesheet loads */
+    #auth-screen {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 18px;
-      position: relative;
-      overflow: auto;
-      overflow-x: hidden;
     }
 
-    body::before,
-    body::after {
-      content: "";
-      position: fixed;
-      border-radius: 999px;
-      filter: blur(18px);
-      pointer-events: none;
-      opacity: .72;
-    }
-
-    body::before {
-      width: 280px;
-      height: 280px;
-      top: -40px;
-      left: -40px;
-      background: radial-gradient(circle, rgba(142, 202, 230, .34) 0%, rgba(142, 202, 230, 0) 70%);
-    }
-
-    body::after {
-      width: 320px;
-      height: 320px;
-      right: -60px;
-      bottom: -60px;
-      background: radial-gradient(circle, rgba(255, 183, 3, .28) 0%, rgba(255, 183, 3, 0) 72%);
-    }
-
-    #auth-screen {
-      width: min(100%, 720px);
-      margin: 0 auto;
-    }
-
-    .auth-box {
-      background: rgba(255, 255, 255, 0.12);
-      border-radius: 34px;
-      overflow: hidden;
-      box-shadow: 0 28px 90px rgba(0, 0, 0, .28);
-      border: 1px solid rgba(255, 255, 255, .12);
-      backdrop-filter: blur(18px);
-      display: block;
-      width: 100%;
-      max-width: 720px;
-      margin: 0 auto;
-    }
-
-    .auth-tabs {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      border-bottom: 1px solid rgba(16, 33, 58, .08);
-      gap: 10px;
-      padding: 12px 12px 0 12px;
-      background: rgba(255,255,255,.72);
-    }
-
-    .auth-tab {
-      padding: 16px 18px;
-      text-align: center;
-      cursor: pointer;
-      color: var(--muted);
-      font-weight: 700;
-      font-size: 14px;
-      transition: var(--transition);
-      border: 1px solid transparent;
-      background: transparent;
-      font-family: 'Inter', sans-serif;
-      border-top-left-radius: 16px;
-      border-top-right-radius: 16px;
-    }
-
-    .auth-tab.on {
-      color: var(--ink);
-      background: white;
-      border-color: rgba(16, 33, 58, .08);
-      box-shadow: 0 -8px 16px rgba(16, 33, 58, .05);
-    }
-
-    .auth-body {
-      padding: 30px 28px 32px 28px;
-      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.98));
-    }
-
-    .auth-form {
-      display: none;
-    }
-
-    .auth-form.on {
-      display: block;
-    }
-
-    .auth-field {
-      margin-bottom: 22px;
-    }
-
-    .auth-field label {
-      display: block;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1.2px;
-      color: var(--muted);
-      font-weight: 700;
-      margin-bottom: 8px;
-      font-family: 'DM Mono', monospace;
-    }
-
-    .auth-field input {
-      width: 100%;
-      padding: 13px 16px;
-      border: 1px solid rgba(16, 33, 58, .12);
-      border-radius: var(--radius-sm);
-      font-size: 15px;
-      background: rgba(247, 244, 238, .8);
-      transition: var(--transition);
-      font-family: 'Inter', sans-serif;
-      color: var(--ink);
-    }
-
-    .auth-field input:focus {
-      outline: none;
-      border-color: var(--teal);
-      box-shadow: 0 0 0 4px rgba(33, 158, 188, .14);
-      background: #fff;
-    }
-
-    .auth-pass-wrap {
-      position: relative;
-    }
-
-    .auth-pass-wrap input {
-      padding-right: 48px;
-    }
-
-    .auth-pass-toggle {
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      font-size: 18px;
-      line-height: 1;
-      padding: 6px;
-      opacity: .8;
-    }
-
-    .auth-submit {
-      width: 100%;
-      padding: 15px 18px;
-      background: linear-gradient(135deg, var(--amber) 0%, var(--amber2) 100%);
-      color: #10213a;
-      border: none;
-      border-radius: 16px;
-      font-size: 16px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: var(--transition);
-      font-family: 'Inter', sans-serif;
-      box-shadow: 0 12px 24px rgba(251, 133, 0, .2);
-    }
-
-    .auth-submit:hover {
-      transform: translateY(-2px) scale(1.01);
-      box-shadow: 0 18px 30px rgba(251, 133, 0, .26);
-    }
-
-    .auth-note {
-      font-size: 12.5px;
-      color: var(--muted);
-      line-height: 1.7;
-      margin: -8px 0 18px 0;
-    }
-
-    .role-selector {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-bottom: 22px;
-    }
-
-    .role-opt {
-      border: 1px solid var(--border);
-      padding: 14px 12px;
-      text-align: center;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      background: rgba(247, 244, 238, .65);
-      transition: var(--transition);
-      color: var(--ink);
-    }
-
-    .role-opt.active {
-      border-color: rgba(33, 158, 188, .35);
-      background: rgba(33, 158, 188, .12);
-      color: #0f4c5c;
-    }
-
-    .auth-err {
-      color: #ef4444;
-      font-size: 13px;
-      margin-bottom: 12px;
-      min-height: 18px;
-    }
-
-    #app {
-      display: none;
-    }
-
-    .auth-panel {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      min-width: 0;
-    }
-
-    .auth-kicker {
-      font-family: 'DM Mono', monospace;
-      font-size: 11px;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      color: var(--teal);
-      margin-bottom: 12px;
-    }
-
-    .auth-title {
-      font-family: 'Playfair Display', serif;
-      font-size: 32px;
-      line-height: 1.15;
-      color: var(--ink);
-      margin-bottom: 10px;
-    }
-
-    .auth-copy {
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.7;
-      margin-bottom: 24px;
-    }
-
-    .auth-forgot {
-      margin-top: 12px;
-      background: transparent;
-      border: none;
-      color: var(--teal);
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .auth-success {
-      color: #166534;
-      font-size: 13px;
-      margin-bottom: 12px;
-      min-height: 18px;
-    }
-
-    @media (max-width: 640px) {
-      body {
-        padding: 12px;
-      }
-
-      .auth-box {
-        border-radius: 22px;
-      }
-
-      .auth-tabs {
-        padding: 10px 10px 0 10px;
-        gap: 8px;
-      }
-
-      .auth-tab {
-        padding: 14px 10px;
-        font-size: 13px;
-      }
-
-      .auth-body {
-        padding: 22px 14px 24px 14px;
-      }
-    }
+    .auth-form { display: none; }
+    .auth-form.on { display: block; }
+    #app { display: none; }
   </style>
 </head>
 
 <body>
   <div id="auth-screen">
     <div class="auth-box">
+      <div class="auth-hero">
+        <img src="/logo-icon.png" alt="LitApp AI" class="auth-hero-icon" width="110" height="110" />
+        <div class="auth-hero-title">Academic Literacies</div>
+        <div class="auth-hero-sub">in the Age of AI</div>
+      </div>
       <div class="auth-panel">
         <div class="auth-tabs">
-          <button class="auth-tab on" id="tab-login" onclick="switchTab('login')">Sign In</button>
-          <button class="auth-tab" id="tab-reg" onclick="switchTab('reg')">Register</button>
+          <button class="auth-tab on" id="tab-login" onclick="switchTab('login')">Student</button>
+          <button class="auth-tab" id="tab-reg" onclick="switchTab('reg')" style="display:none;" aria-hidden="true">Staff</button>
         </div>
         <div class="auth-body">
-        <div class="auth-hero-logo" style="color:var(--teal);margin-bottom:14px;">ACADLIT · AI</div>
-        <div class="auth-kicker">UJ Account Access</div>
-        <div class="auth-title">Access your student space</div>
-        <div class="auth-copy">Use your UJ student username to enter the platform. If your profile needs attention, the system will guide you through it before you continue.</div>
-        <div class="auth-form on" id="form-login">
-          <div class="auth-field"><label>Username (Student number or UJ Email)</label><input type="text" id="login-email"
-              placeholder="e.g. 222000000 or 222000000@student.uj.za" /></div>
-          <div style="margin-top:-6px;font-size:12px;color:var(--muted);line-height:1.5;">If you enter only your student number, the password reset link will be sent to your UJ email address.</div>
-          <div class="auth-field">
-            <label>Password</label>
-            <div class="auth-pass-wrap">
-              <input type="password" id="login-pass" placeholder="••••••••"
-                onkeypress="if(event.key==='Enter') document.getElementById('btn-login').click()" />
-              <button type="button" class="auth-pass-toggle" onclick="togglePassword('login-pass', this)" aria-label="Show password" title="Show password">👁️</button>
+          <div class="auth-form on" id="form-login">
+            <div class="auth-field"><label>Personal Email Address</label><input type="text" id="login-email"
+                placeholder="e.g. student@gmail.com" /></div>
+            <div id="otp-wrap" style="display:none;">
+              <div class="auth-field"><label>Sign-in Code</label><input type="text" id="login-otp" inputmode="numeric" autocomplete="one-time-code"
+                  placeholder="Enter 6-digit code" maxlength="6" style="text-align:center;font-size:22px;font-weight:700;letter-spacing:6px;" /></div>
             </div>
+            <p class="auth-err" id="login-err"></p>
+            <p class="auth-success" id="login-success"></p>
+            <button class="auth-submit" id="btn-login-link">Send me a sign-in code</button>
+            <button class="auth-submit" id="btn-verify-otp" style="display:none;margin-top:8px;">Verify code & sign in</button>
           </div>
-          <p class="auth-note" style="margin:-10px 0 14px 0;">Use the password already linked to your student account. If you do not have one yet, register with a strong new password and keep it safe.</p>
-          <p class="auth-err" id="login-err"></p>
-          <p class="auth-success" id="login-success"></p>
-          <button class="auth-submit" id="btn-login">Sign In</button>
-          <button type="button" class="auth-forgot" id="btn-forgot">Forgot password?</button>
+          <div class="auth-form" id="form-reg">
+            <div class="auth-field"><label>Staff Email Address</label><input type="email" id="reg-username"
+                placeholder="e.g. lecturer@domain.com" autocapitalize="none" autocomplete="username" inputmode="email" spellcheck="false" /></div>
+            <div class="auth-field">
+              <label>Password</label>
+              <div class="auth-pass-wrap">
+                <input type="password" id="login-pass" placeholder="••••••••"
+                  onkeypress="if(event.key==='Enter') document.getElementById('btn-login').click()" />
+                <button type="button" class="auth-pass-toggle" onclick="togglePassword('login-pass', this)" aria-label="Show password" title="Show password">👁️</button>
+              </div>
+            </div>
+            <p class="auth-err" id="reg-err"></p>
+            <p class="auth-success" id="reg-success"></p>
+            <button class="auth-submit" id="btn-login">Sign In</button>
+            <button type="button" class="auth-forgot" id="btn-forgot">Forgot password / send reset?</button>
+          </div>
         </div>
-        <div class="auth-form" id="form-reg">
-          <div class="auth-field"><label>Username (Student number or UJ Email)</label><input type="text" id="reg-username"
-              placeholder="e.g. 222000000 or 222000000@student.uj.za" /></div>
-          <div class="auth-field">
-            <label>Password</label>
-            <div class="auth-pass-wrap">
-              <input type="password" id="reg-pass" placeholder="At least 6 characters" />
-              <button type="button" class="auth-pass-toggle" onclick="togglePassword('reg-pass', this)" aria-label="Show password" title="Show password">👁️</button>
-            </div>
-          </div>
-          <p class="auth-note">If you already have an account, use your existing password to sign in instead of registering again. If you do not have one yet, create the account with your UJ student username and a strong new password. After sign-in you will be asked to complete any missing roster fields.</p>
-          <div class="auth-field">
-            <label>Role</label>
-            <div class="role-selector">
-              <div class="role-opt active" data-role="student" onclick="selectRole(this)">Student</div>
-            </div>
-            <div style="font-size:12px;color:var(--muted);margin-top:8px;">Tutor, Lecturer, and Moderator accounts are
-              created in Lecturer Management.</div>
-          </div>
-          <p class="auth-err" id="reg-err"></p>
-          <button class="auth-submit" id="btn-reg">Create Account</button>
-        </div>
-      </div>
       </div>
     </div>
   </div>
@@ -425,50 +135,31 @@
     /*
     if ('serviceWorker' in navigator) { ... }
     */
-    // --- DEEP DIAGNOSTICS FOR MOODLE/IFRAME ---
-    const debugBox = document.createElement('div');
-    debugBox.id = 'debug-console';
-    debugBox.style.cssText = 'position:fixed; bottom:0; left:0; right:0; height:150px; background:rgba(0,0,0,0.9); color:#00ff00; font-family:monospace; font-size:10px; padding:10px; overflow-y:auto; z-index:999999; border-top:2px solid #333; display:none;';
-    document.body.appendChild(debugBox);
 
-    const toggle = document.createElement('button');
-    toggle.textContent = 'DEBUG LOG';
-    toggle.style.cssText = 'position:fixed; bottom:155px; right:10px; background:#333; color:#fff; border:none; padding:5px 10px; border-radius:5px; font-size:10px; z-index:999999; opacity:0.5;';
-    toggle.onclick = () => debugBox.style.display = debugBox.style.display === 'none' ? 'block' : 'none';
-    document.body.appendChild(toggle);
-
-    function logToScreen(msg, type = 'log') {
-      const line = document.createElement('div');
-      line.style.color = type === 'error' ? '#ff5555' : (type === 'warn' ? '#ffff55' : '#00ff00');
-      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      debugBox.appendChild(line);
-      debugBox.scrollTop = debugBox.scrollHeight;
-      if (type === 'error') toggle.style.background = '#ff0000', toggle.style.opacity = '1';
-    }
-
-    // Intercept console
-    const _log = console.log, _err = console.error, _warn = console.warn;
-    console.log = (...args) => { _log(...args); logToScreen(args.join(' ')); };
-    console.error = (...args) => { _err(...args); logToScreen(args.join(' '), 'error'); };
-    console.warn = (...args) => { _warn(...args); logToScreen(args.join(' '), 'warn'); };
-
-    window.onerror = (msg, url, line, col, error) => {
-      console.error(`GLOBAL ERROR: ${msg} @ ${line}:${col}`);
-      return false;
-    };
-
-    // Environment Check
-    console.log(`User Agent: ${navigator.userAgent}`);
-    console.log(`Inside IFrame: ${window.self !== window.top}`);
-    try {
-      localStorage.setItem('test', '1'); localStorage.removeItem('test');
-      console.log('LocalStorage: WORKING');
-    } catch (e) { console.warn('LocalStorage: BLOCKED'); }
-
-    try {
-      const db = indexedDB.open('test');
-      console.log('IndexedDB: AVAILABLE');
-    } catch (e) { console.warn('IndexedDB: BLOCKED'); }
+    // Safety net: if the app hasn't loaded after 30 seconds, show a retry prompt
+    // so students don't stare at a blank screen once boot has actually started.
+    window._authScreenReady = true;
+    window.__ACADEMIC_BOOT_MONITOR = window.__ACADEMIC_BOOT_MONITOR || { pending: false };
+    setTimeout(function () {
+      var auth = document.getElementById('auth-screen');
+      var app = document.getElementById('app');
+      var bootPending = Boolean(window.__ACADEMIC_BOOT_MONITOR && window.__ACADEMIC_BOOT_MONITOR.pending);
+      // Only show the auth-screen timeout after a real sign-in/bootstrap handoff has started.
+      if (bootPending && auth && auth.style.display !== 'none' && auth.style.opacity !== '0') {
+        var err = document.getElementById('login-err');
+        if (err && !err.textContent) {
+          err.textContent = 'The app is taking longer than expected to load. Check your connection and refresh.';
+        }
+      }
+      // If app is showing but empty (loading spinner stuck), offer refresh
+      if (app && app.style.display === 'block' && app.querySelector('[style*="spin"]')) {
+        app.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f172a;padding:24px;">' +
+          '<div style="text-align:center;max-width:400px;">' +
+          '<p style="color:rgba(255,255,255,.6);font-size:14px;font-family:Inter,sans-serif;margin:0 0 16px;">Loading is taking longer than expected.</p>' +
+          '<button onclick="location.reload()" style="background:#0d9488;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer;font-family:Inter,sans-serif;">Refresh</button>' +
+          '</div></div>';
+      }
+    }, 30000);
   </script>
 </body>
 

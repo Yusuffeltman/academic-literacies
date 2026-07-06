@@ -6,7 +6,8 @@
 
 import { STATE, recordSkillScore, getScaffoldLevel } from '../state.js';
 
-window._atState = { activeTool: 'writing', currentUnit: null };
+// AI Tools widget state — separate from assessment _atState to avoid collision
+const _aiToolsState = { activeTool: 'writing', currentUnit: null };
 
 let toolsIsOpen = false;
 
@@ -108,7 +109,7 @@ function toggleTools() {
 }
 
 function switchTab(tool) {
-  window._atState.activeTool = tool;
+  _aiToolsState.activeTool = tool;
 
   document.querySelectorAll('.ai-tools-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.tool === tool);
@@ -130,7 +131,7 @@ export function updateAIToolsContext(unit) {
 
   if (!unit || unit.isAssessment) {
     widget.style.display = 'none';
-    window._atState.currentUnit = null;
+    _aiToolsState.currentUnit = null;
     return;
   }
 
@@ -142,7 +143,7 @@ export function updateAIToolsContext(unit) {
   }
 
   widget.style.display = 'block';
-  window._atState.currentUnit = { id: unit.id, title: unit.title, phase: unit.phase };
+  _aiToolsState.currentUnit = { id: unit.id, title: unit.title, phase: unit.phase };
 
   // Auto-activate the most relevant tab based on unit number
   const unitNum = parseInt((unit.id || '').replace(/[^0-9]/g, ''), 10) || 0;
@@ -167,7 +168,7 @@ async function runTool(tool) {
   outputEl.classList.remove('hidden');
   outputEl.innerHTML = '<p class="at-loading">Analysing...</p>';
 
-  const unitTitle = window._atState.currentUnit?.title || 'Academic Literacies';
+  const unitTitle = _aiToolsState.currentUnit?.title || 'Academic Literacies';
   let system, prompt;
 
   if (tool === 'writing') {

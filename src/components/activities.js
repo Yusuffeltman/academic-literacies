@@ -5,7 +5,36 @@
 // Called from unit content files — return HTML strings.
 // ─────────────────────────────────────────────
 import { _aiChat } from '../ai.js';
-import { STATE, saveState } from '../state.js';
+import { STATE, persistLocalStateSoon, saveState } from '../state.js';
+
+const _activitySaveTimers = new Map();
+
+function _savedExerciseValue(id) {
+  const unitId = _unitIdFromState();
+  return STATE.progress?.[unitId]?.exercises?.[id] || '';
+}
+
+function _queueActivityDraftSave(scope = 'default') {
+  const key = String(scope || 'default');
+  const existing = _activitySaveTimers.get(key);
+  if (existing) clearTimeout(existing);
+  try {
+    syncActivitiesToState();
+    persistLocalStateSoon('activities');
+  } catch (err) {
+    console.error('Activity local draft save failed:', err);
+  }
+  _activitySaveTimers.set(key, setTimeout(async () => {
+    try {
+      syncActivitiesToState();
+      await saveState();
+    } catch (err) {
+      console.error('Activity draft save failed:', err);
+    } finally {
+      _activitySaveTimers.delete(key);
+    }
+  }, 600));
+}
 
 // ── MCQ Quiz ─────────────────────────────────
 // Returns an HTML string for a multiple-choice question.
@@ -64,6 +93,7 @@ window.checkQuiz = (id, chosen, correct, feedback) => {
 // prompt  : instruction shown to student
 // context : passed to Gemini for informed feedback
 export function exercise(id, title, placeholder, prompt, context) {
+  const savedValue = _savedExerciseValue(id);
   return `
     <div class="ex-block">
       <label class="ex-lbl">${title}</label>
@@ -73,7 +103,8 @@ export function exercise(id, title, placeholder, prompt, context) {
         class="ex-ta"
         placeholder="${placeholder}"
         rows="5"
-      ></textarea>
+        oninput="queueActivityDraftSave('exercise-${id}')"
+      >${_escapeHtml(savedValue)}</textarea>
       <button class="btn-feedback" onclick="getAIFeedback('ex-${id}', \`${context.replace(/`/g, '\\`')}\`)">
         ✨ Get Tutor Feedback
       </button>
@@ -168,10 +199,10 @@ export function portfolioEvidence(id, config = {}) {
         <p style="font-size:14px;margin-bottom:10px;">${_escapeHtml(target)}</p>
         
         <label class="ex-lbl" style="font-size:12px;">Artifact Link/Description</label>
-        <textarea id="port-link-${id}" class="ex-ta" rows="2" placeholder="Paste a link to your evidence or describe the artifact...">${_escapeHtml(existing.link || '')}</textarea>
+        <textarea id="port-link-${id}" class="ex-ta" rows="2" placeholder="Paste a link to your evidence or describe the artifact..." oninput="queueActivityDraftSave('portfolio-${id}')">${_escapeHtml(existing.link || '')}</textarea>
 
         <label class="ex-lbl" style="font-size:12px;">Transfer Justification</label>
-        <textarea id="port-just-${id}" class="ex-ta" rows="3" placeholder="How does this artifact show transfer of the academic literacy skill?">${_escapeHtml(existing.justification || '')}</textarea>
+        <textarea id="port-just-${id}" class="ex-ta" rows="3" placeholder="How does this artifact show transfer of the academic literacy skill?" oninput="queueActivityDraftSave('portfolio-${id}')">${_escapeHtml(existing.justification || '')}</textarea>
 
         <button class="btn-feedback" onclick="savePortfolioEvidence('${id}')">📁 Save to Portfolio</button>
 
@@ -268,19 +299,19 @@ export function heutagogyCycle(id, config = {}) {
         <p style="font-size:14px;margin-bottom:12px;">${_escapeHtml(prompt)}</p>
 
         <label class="ex-lbl" style="font-size:12px;">Learning Contract Goal</label>
-        <textarea id="hc-goal-${id}" class="ex-ta" rows="3" placeholder="Write your specific goal for this unit (what you will improve and by when).">${_escapeHtml(existing.goal || '')}</textarea>
+        <textarea id="hc-goal-${id}" class="ex-ta" rows="3" placeholder="Write your specific goal for this unit (what you will improve and by when)." oninput="queueActivityDraftSave('heutagogy-${id}')">${_escapeHtml(existing.goal || '')}</textarea>
 
         <label class="ex-lbl" style="font-size:12px;">Pathway Choice</label>
-        <select id="hc-pathway-${id}" class="ex-ta" style="height:50px; padding:0 16px; margin-bottom:12px;">
+        <select id="hc-pathway-${id}" class="ex-ta" style="height:50px; padding:0 16px; margin-bottom:12px;" onchange="queueActivityDraftSave('heutagogy-${id}')">
           <option value="">Select your challenge level</option>
           ${optionHtml}
         </select>
 
         <label class="ex-lbl" style="font-size:12px;">Double-Loop Reflection</label>
-        <textarea id="hc-reflect-${id}" class="ex-ta" rows="3" placeholder="What assumption did you revise while learning this unit? What changed in your thinking?">${_escapeHtml(existing.reflection || '')}</textarea>
+        <textarea id="hc-reflect-${id}" class="ex-ta" rows="3" placeholder="What assumption did you revise while learning this unit? What changed in your thinking?" oninput="queueActivityDraftSave('heutagogy-${id}')">${_escapeHtml(existing.reflection || '')}</textarea>
 
         <label class="ex-lbl" style="font-size:12px;">Evidence Note</label>
-        <textarea id="hc-evidence-${id}" class="ex-ta" rows="3" placeholder="${_escapeAttr(evidenceHint)}">${_escapeHtml(existing.evidence || '')}</textarea>
+        <textarea id="hc-evidence-${id}" class="ex-ta" rows="3" placeholder="${_escapeAttr(evidenceHint)}" oninput="queueActivityDraftSave('heutagogy-${id}')">${_escapeHtml(existing.evidence || '')}</textarea>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-feedback" onclick="saveHeutagogyCycle('${id}')">💾 Save Learning Cycle</button>
@@ -458,3 +489,4 @@ export function syncActivitiesToState() {
 }
 
 window.syncActivitiesToState = syncActivitiesToState;
+window.queueActivityDraftSave = _queueActivityDraftSave;

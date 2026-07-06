@@ -1,9 +1,15 @@
 import { STATE, saveState, logFrustration, logStudyTopic, createEscalation } from '../state.js';
 import { _aiChatMultiTurn, studyBuddyDistressCheck } from '../ai.js';
+import { getAppSurface } from '../platform.js';
 
 let tutorIsOpen = false;
 let _lastDistressCheck = 0;
 let currentUnitContext = null;
+
+function _activeTutorRole() {
+  if (window._viewAsStudent || getAppSurface().isAndroidApp) return 'student';
+  return STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student';
+}
 
 /**
  * Initializes the AI Tutor widget in the DOM.
@@ -72,7 +78,7 @@ export function updateAITutorContext(unit) {
   
   document.getElementById('ai-tutor-widget').style.display = 'block';
 
-  const role = window._viewAsStudent ? 'student' : (STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student');
+  const role = _activeTutorRole();
 
   // Update toggle label based on role
   const toggleLabel = document.querySelector('#ai-tutor-toggle .ai-tutor-label');
@@ -108,7 +114,7 @@ function renderSuggestions() {
   if (!currentUnitContext) return;
   const container = document.getElementById('ai-tutor-suggestions');
   
-  const role = window._viewAsStudent ? 'student' : (STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student');
+  const role = _activeTutorRole();
   let suggestions = [];
 
   if (role === 'lecturer' || role === 'tutor') {
@@ -186,7 +192,7 @@ async function handleSend() {
   container.insertAdjacentHTML('beforeend', `<div class="ai-tutor-msg assistant loading"><div class="ai-tutor-msg-content">Thinking...</div></div>`);
   scrollToBottom();
 
-  const role = window._viewAsStudent ? 'student' : (STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student');
+  const role = _activeTutorRole();
 
   let systemPrompt;
   

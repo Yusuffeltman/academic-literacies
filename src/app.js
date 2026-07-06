@@ -271,6 +271,7 @@ export function initApp(user) {
     window.addEventListener('beforeunload', (e) => {
       if (syncStatus.dirty) {
         e.preventDefault();
+        e.returnValue = ''; // required for the prompt to trigger in modern browsers
         return '';
       }
     });

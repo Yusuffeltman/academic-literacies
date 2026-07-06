@@ -2,8 +2,10 @@
 // ─────────────────────────────────────────────
 // Ethics notice + opt-out for the lesson-presentation A/B.
 // Shows a one-time, dismissible notice on test units informing the student
-// that the layout is being trialled — voluntary, anonymous, no effect on
-// marks — with a one-click opt-out to the standard layout.
+// that the layout is being trialled — voluntary, confidential (used only in
+// aggregate), no effect on marks — with a one-click opt-out to the standard
+// layout. Note: responses are stored pseudonymously (under the existing
+// student key), so the copy says "confidential", not "anonymous".
 //
 // Aligns with docs/lesson-experiment-ethics-notice.md and the project's
 // DPIA / equity-review framework.
@@ -38,7 +40,7 @@ export function maybeShowExperimentNotice(participating) {
       <div style="flex:1;min-width:0;">
         <div style="font-weight:800;color:var(--navy);font-size:14px;margin-bottom:4px;">We're trialling how this unit is laid out</div>
         <p style="margin:0 0 12px;font-size:13px;color:var(--muted);line-height:1.6;">
-          A short, anonymous quick-check at the end helps us learn which layout supports learning best. It's <strong>voluntary</strong> and <strong>does not affect your marks</strong>. You can use the standard layout instead at any time.
+          A short quick-check at the end helps us learn which layout supports learning best. It's <strong>voluntary</strong>, it <strong>does not affect your marks</strong>, and your answers are used <strong>only in aggregate</strong> to improve the course. You can use the standard layout instead at any time.
         </p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" class="btn-next" style="display:inline-flex;font-size:13px;padding:7px 16px;" onclick="window._ackExperimentNotice()">Got it</button>

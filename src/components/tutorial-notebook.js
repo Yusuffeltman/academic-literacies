@@ -3,12 +3,13 @@
 // Tutorial Notebook — student-facing
 // Provides unit tabs, prompts, note fields, search, and uploads.
 // ─────────────────────────────────────────────
-import { STATE, saveState } from '../state.js';
+import { STATE, persistLocalStateSoon, saveState } from '../state.js';
 import { UNITS } from '../../content/units/index.js';
 import { SESSIONS } from '../../content/sessions/sessions.js';
-import { uploadGalleryAsset } from '../gallery.js';
+import { writeNotebookSaveEvent, writeUploadSuccessEvent } from '../analytics.js';
 import { _aiChat } from '../ai.js';
 import { showToast } from './toaster.js';
+import { queueNotebookAttachment } from '../sync-engine.js';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB limit for tutorial notebook uploads
 
@@ -22,6 +23,16 @@ const UNIT_BY_ID = new Map(UNITS.map((u) => [u.id, u]));
 
 let _activeUnitId = null;
 let _searchQuery = '';
+
+function _analyticsProfile() {
+  return STATE.user?._studentProfileContext?.profile || {
+    uid: STATE.user?.uid || '',
+    role: 'student',
+    authEmail: STATE.user?.email || '',
+    username: STATE.user?.email || '',
+    displayName: STATE.user?.displayName || '',
+  };
+}
 const _saveTimers = new Map();
 
 export function renderTutorialNotebook(opts = {}) {
@@ -284,7 +295,7 @@ function _bindEvents(area) {
       _ensureState();
       STATE.tutorialNotebook.lastUnitId = unitId;
       STATE.tutorialNotebook.lastSessionId = TUTORIAL_BY_UNIT.get(unitId)?.id || null;
-      saveState().catch(() => {});
+      saveState();
       _renderPage(area);
       _bindEvents(area);
     });
@@ -313,7 +324,7 @@ function _bindEvents(area) {
     archiveBtn.addEventListener('click', async () => {
       if (_isUnitArchived(session.unit)) {
         _unarchiveUnit(session.unit);
-        await saveState().catch(() => {});
+        await saveState();
         _renderPage(area);
         _bindEvents(area);
         return;
@@ -321,7 +332,7 @@ function _bindEvents(area) {
       const ok = confirm(`Archive ${UNIT_BY_ID.get(session.unit)?.badge || session.unit.toUpperCase()}? You can unarchive it later.`);
       if (!ok) return;
       _archiveUnit(session.unit);
-      await saveState().catch(() => {});
+      await saveState();
       _renderPage(area);
       _bindEvents(area);
     });
@@ -345,6 +356,22 @@ function _bindEvents(area) {
       if (e.key !== 'Enter') return;
       e.preventDefault();
       _handleVideoLink(session.id);
+    });
+  }
+
+  if (!window._tutorialNotebookUploadSyncBound) {
+    window._tutorialNotebookUploadSyncBound = true;
+    window.addEventListener('notebook-upload-complete', (event) => {
+      const detail = event?.detail || {};
+      if (detail.notebookType !== 'tutorial') return;
+      const activeSession = TUTORIAL_BY_UNIT.get(_activeUnitId);
+      if (!activeSession || detail.sessionId !== activeSession.id) return;
+      const list = document.getElementById('cn-attachments-list');
+      const entry = _getEntry(activeSession.id);
+      if (list && entry) list.innerHTML = _attachmentsHTML(entry.attachments || []);
+      const msg = document.getElementById('cn-upload-msg');
+      if (msg) msg.textContent = 'Upload synced.';
+      _updateMeta();
     });
   }
 
@@ -383,7 +410,7 @@ function _bindEvents(area) {
       _activeUnitId = unitId;
       STATE.tutorialNotebook.lastUnitId = unitId;
       STATE.tutorialNotebook.lastSessionId = TUTORIAL_BY_UNIT.get(unitId)?.id || null;
-      saveState().catch(() => {});
+      saveState();
       _renderPage(area);
       _bindEvents(area);
     });
@@ -401,6 +428,7 @@ function _handleFieldChange(session, field, value) {
   STATE.tutorialNotebook.lastUnitId = session.unit;
   STATE.tutorialNotebook.lastSessionId = session.id;
   _refreshNotebookAnalytics();
+  persistLocalStateSoon('tutorial-notebook-input');
 
   _scheduleSave(session.id);
   _updateMeta();
@@ -410,9 +438,22 @@ function _scheduleSave(sessionId) {
   const existing = _saveTimers.get(sessionId);
   if (existing) clearTimeout(existing);
   _saveTimers.set(sessionId, setTimeout(async () => {
-    try {
-      await saveState();
-    } catch {}
+    const synced = await saveState();
+    if (!synced) return;
+    const session = TUTORIAL_BY_ID.get(sessionId);
+    const entry = session ? _getEntry(session.id) : null;
+    if (session && entry) {
+      writeNotebookSaveEvent({
+        user: STATE.user || {},
+        profile: _analyticsProfile(),
+        notebookType: 'tutorial',
+        sessionId: session.id,
+        unitId: session.unit,
+        entry,
+        wordCount: _wordCount(`${entry.response || ''}\n${entry.notes || ''}\n${entry.searchLog || ''}`),
+        source: 'tutorial-notebook-autosave',
+      }).catch(() => {});
+    }
   }, 700));
 }
 
@@ -475,7 +516,7 @@ async function _handleUpload(sessionId) {
     }
   };
 
-  if (msg) msg.textContent = 'Uploading…';
+  if (msg) msg.textContent = 'Saving file locally…';
   setProgress(8);
 
   if (_isUnitArchived(_activeUnitId)) {
@@ -485,34 +526,13 @@ async function _handleUpload(sessionId) {
   }
 
   try {
-    const who = STATE.user?.uid || 'anonymous';
     const previewMeta = await _buildAttachmentPreviewMeta(file);
-    const asset = await uploadGalleryAsset(file, who, {
-      maxBytes: MAX_UPLOAD_BYTES,
-      timeoutMs: 60000,
-      onProgress: (pct, err) => {
-        if (err) {
-          resetProgress();
-          const friendly = typeof err === 'string' ? err : err?.message || 'Upload failed. Try again.';
-          if (msg) msg.textContent = friendly;
-          showToast(friendly, 'error');
-          return;
-        }
-        if (typeof pct === 'number') {
-          setProgress(Math.max(8, pct));
-          if (msg) msg.textContent = `Uploading… ${pct}%`;
-        }
-      },
+    const asset = await queueNotebookAttachment({
+      notebookType: 'tutorial',
+      sessionId,
+      file,
     });
-
-    if (!asset) {
-      resetProgress();
-      if (msg) msg.textContent = 'Upload failed. Try again.';
-      showToast('Upload failed. Check your connection and try again.', 'error');
-      return;
-    }
     Object.assign(asset, previewMeta);
-
     _ensureState();
     const session = TUTORIAL_BY_ID.get(sessionId);
     if (!session) {
@@ -526,15 +546,24 @@ async function _handleUpload(sessionId) {
     _refreshNotebookAnalytics();
 
     if (fileInput) fileInput.value = '';
-    if (msg) msg.textContent = 'Upload complete.';
+    if (msg) msg.textContent = navigator.onLine ? 'Saved locally. Uploading in the background…' : 'Saved locally. Will upload when you are back online.';
     setProgress(100);
     setTimeout(resetProgress, 600);
-    await saveState().catch(() => {});
+    await saveState({ localOnly: true });
+    await writeUploadSuccessEvent({
+      user: STATE.user || {},
+      profile: _analyticsProfile(),
+      scope: 'tutorial-notebook',
+      unitId: session.unit,
+      sessionId: session.id,
+      asset,
+      source: 'tutorial-notebook-upload',
+    }).catch(() => {});
 
     const list = document.getElementById('cn-attachments-list');
     if (list) list.innerHTML = _attachmentsHTML(entry.attachments);
     _updateMeta();
-    showToast('File uploaded successfully.', 'success');
+    showToast(navigator.onLine ? 'File saved locally and queued for upload.' : 'File saved locally for later upload.', 'success');
   } catch (err) {
     resetProgress();
     if (msg) msg.textContent = `Upload failed: ${err?.message || 'Try again.'}`;
@@ -571,7 +600,7 @@ function _handleVideoLink(sessionId) {
   entry.attachments.push(asset);
   entry.updatedAt = new Date().toISOString();
   _refreshNotebookAnalytics();
-  saveState().catch(() => {});
+  saveState();
 
   if (input) input.value = '';
   if (msg) msg.textContent = 'Video link added.';
@@ -605,7 +634,7 @@ async function _handleAiFeedback(session) {
     entry.aiFeedback = feedback;
     entry.aiFeedbackAt = new Date().toISOString();
     entry.updatedAt = new Date().toISOString();
-    await saveState().catch(() => {});
+    await saveState();
 
     if (feedbackBody) feedbackBody.textContent = feedback;
     if (msg) msg.textContent = 'Feedback ready.';
@@ -621,7 +650,7 @@ function _clearAiFeedback(sessionId) {
   entry.aiFeedback = '';
   entry.aiFeedbackAt = null;
   entry.updatedAt = new Date().toISOString();
-  saveState().catch(() => {});
+  saveState();
   const feedbackBody = document.getElementById('cn-ai-feedback-body');
   const feedbackBox = document.getElementById('cn-ai-feedback');
   const msg = document.getElementById('cn-ai-msg');
@@ -643,7 +672,7 @@ function _removeAttachment(sessionId, idx) {
   entry.attachments.splice(idx, 1);
   entry.updatedAt = new Date().toISOString();
   _refreshNotebookAnalytics();
-  saveState().catch(() => {});
+  saveState();
   const list = document.getElementById('cn-attachments-list');
   if (list) list.innerHTML = _attachmentsHTML(entry.attachments);
   _updateMeta();
@@ -661,7 +690,7 @@ function _moveAttachment(sessionId, idx, delta) {
   entry.attachments.splice(nextIdx, 0, moved);
   entry.updatedAt = new Date().toISOString();
   _refreshNotebookAnalytics();
-  saveState().catch(() => {});
+  saveState();
 
   const list = document.getElementById('cn-attachments-list');
   if (list) list.innerHTML = _attachmentsHTML(entry.attachments);
@@ -715,7 +744,7 @@ function _renderSearchResults() {
       _ensureState();
       STATE.tutorialNotebook.lastUnitId = unitId;
       STATE.tutorialNotebook.lastSessionId = TUTORIAL_BY_UNIT.get(unitId)?.id || null;
-      saveState().catch(() => {});
+      saveState();
       const area = document.getElementById('content-area');
       if (!area) return;
       _renderPage(area);
@@ -1141,4 +1170,3 @@ function _escAttr(v = '') {
 function _escText(v = '') {
   return String(v ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-

@@ -1187,8 +1187,11 @@ window._rtDownloadReadingPdf = (id) => {
   const cfg = window._rtCfg[id];
   if (!cfg) return;
 
-  const sourceLine = cfg.source ? `<div class="rt-print-source">Source: ${cfg.source}</div>` : '';
-  const titleText = cfg.title || 'Reading';
+  // Escape config-supplied strings before interpolating into innerHTML.
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const titleHtml = esc(cfg.title || 'Reading');
+  const titleText = String(cfg.title || 'Reading');
+  const sourceLine = cfg.source ? `<div class="rt-print-source">Source: ${esc(cfg.source)}</div>` : '';
 
   document.getElementById('rt-print-root')?.remove();
   const root = document.createElement('div');
@@ -1196,8 +1199,8 @@ window._rtDownloadReadingPdf = (id) => {
   root.innerHTML = `
     <article class="rt-print-doc">
       <header class="rt-print-head">
-        <div class="rt-print-kicker">Academic Literacies${cfg.unitNum ? ` · Unit ${cfg.unitNum}` : ''} — Reading</div>
-        <h1 class="rt-print-title">${titleText}</h1>
+        <div class="rt-print-kicker">Academic Literacies${cfg.unitNum ? ` · Unit ${esc(cfg.unitNum)}` : ''} — Reading</div>
+        <h1 class="rt-print-title">${titleHtml}</h1>
         ${sourceLine}
       </header>
       <div class="rt-print-body">${cfg.text || ''}</div>
