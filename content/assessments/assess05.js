@@ -10,6 +10,12 @@ const CFG = {
   icon: '✍️', color: 'linear-gradient(135deg,#7c1d0f,#dc2626)',
   marks: 100,
   skills: ['Academic register', 'Genre awareness', 'Visual argument', 'Peer review', 'Audience adaptation'],
+  courseOutcomes: [
+    'Translate a research finding accurately for different audiences without distorting the underlying evidence.',
+    'Make deliberate genre, register, structure, and design choices appropriate to purpose and audience.',
+    'Give and use rigorous peer feedback to improve the accuracy and effectiveness of professional communication.',
+    'Reflect critically on what is gained, lost, or reshaped when knowledge moves across genres and audiences.',
+  ],
 
   scenario: `The Wits School of Education is building an open-access Professional Learning Resource Hub for South African teachers. The hub needs resources in multiple formats because different teachers engage differently: some read academic papers, some watch short explainers, some want infographics, some need community forum posts, and some need formal policy-facing summaries. Your group has been given one peer-reviewed research finding to translate across five different genres for five different audiences.`,
 

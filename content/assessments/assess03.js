@@ -10,6 +10,12 @@ const CFG = {
   icon: '🔎', color: 'linear-gradient(135deg,#3b0764,#7c3aed)',
   marks: 100,
   skills: ['SIFT framework', 'Lateral reading', 'APA 7th citation', 'Analytical writing'],
+  courseOutcomes: [
+    'Apply the full SIFT framework and lateral reading practices to investigate contested educational claims rigorously.',
+    'Trace claims to upstream sources and evaluate the credibility, limitations, and relevance of available evidence.',
+    'Construct justified analytical verdicts and explain their implications for teachers in South African education contexts.',
+    'Synthesize multiple investigations into a coherent professional dossier using accurate APA 7th citation and evidence-based reasoning.',
+  ],
 
   scenario: `Africa Check — South Africa's leading independent fact-checking organisation — has issued an open call for teacher researchers to help audit five widely-circulated education claims. These claims appear in school WhatsApp groups, social media, and parent meetings. Some may be accurate. Some may be misleading. Some may be outright false. A thorough fact-check requires both subject expertise and rigorous source verification. Your group has been commissioned to produce a Verification Dossier that schools can use.`,
 

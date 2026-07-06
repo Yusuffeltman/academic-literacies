@@ -10,6 +10,12 @@ const CFG = {
   icon: '🔬', color: 'linear-gradient(135deg,#0c1a2e,#0369a1)',
   marks: 100,
   skills: ['Strategic reading', 'Analytical writing', 'Argument construction', 'PEEL paragraphs'],
+  courseOutcomes: [
+    'Read complex research texts strategically using layered reading methods and role-specific analytical lenses.',
+    'Analyse argument, methodology, assumptions, scholarly conversation, and classroom relevance with precision.',
+    'Integrate multiple analytical perspectives into a coherent, evidence-based interpretation of a research paper.',
+    'Write disciplined academic analysis using PEEL structure, precise citation, and sustained analytical reasoning.',
+  ],
 
   scenario: `A new lecturer at your university is preparing a first-year academic literacy workshop. She wants a resource that shows student teachers exactly what a skilled reader does to a research paper — not just what the paper says, but how it works: its argument structure, its evidence, its assumptions, its methodology, and its real-world implications for South African classrooms. She has selected one landmark paper and needs five specialist readings of it.`,
 

@@ -10,6 +10,12 @@ const CFG = {
   icon: '⚖️', color: 'linear-gradient(135deg,#1c1917,#92400e)',
   marks: 100,
   skills: ['Prompt engineering', 'AI ethics', 'Persuasive academic writing', 'Evidence synthesis', 'Position paper'],
+  courseOutcomes: [
+    'Construct an evidence-based stakeholder argument about AI use in higher education using credible academic and policy sources.',
+    'Evaluate ethical, pedagogical, integrity, access, and institutional risk dimensions of generative AI in assessment and teaching.',
+    'Engage the strongest counter-arguments with intellectual honesty and evidence-based rebuttal.',
+    'Synthesize competing stakeholder positions into a nuanced policy recommendation with practical, defensible provisions.',
+  ],
 
   scenario: `The Senate of a South African university is deliberating on a new AI Use Policy — one that will govern how students, lecturers, and administrators can use generative AI tools in assessment, teaching, and research. The policy will set the standard for other institutions. The Senate has convened an AI Ethics Tribunal and invited five stakeholder representatives to submit formal Position Papers and attend a structured deliberation. The policy will draw on all five positions.`,
 

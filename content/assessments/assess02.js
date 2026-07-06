@@ -9,7 +9,14 @@ const CFG = {
   subtitle: 'Tracing how a field of knowledge evolved across time',
   icon: '🏺', color: 'linear-gradient(135deg,#1a3a2a,#15803d)',
   marks: 100,
+  deadline: '2026-05-24T21:59:00Z', // 24 May 2026, 23:59 Africa/Johannesburg
   skills: ['Scopus searching', 'Annotated bibliography', 'Source evaluation', 'Synthesis writing'],
+  courseOutcomes: [
+    'Locate, verify, and evaluate scholarly sources using Scopus, Google Scholar, and disciplined search strategies.',
+    'Trace how educational knowledge develops across time and identify major shifts, continuities, and turning points in a field.',
+    'Synthesize distributed group research into a coherent account of research trajectory for a professional teaching audience.',
+    'Communicate research history and classroom implications in a clear professional guide using accurate APA 7th conventions.',
+  ],
 
   scenario: `You have been appointed as a Research Support Mentor in your school's emerging Professional Learning Community (PLC). The HOD has asked your PLC to produce a research orientation guide for newly qualified teachers who have never engaged with academic literature. The guide needs to show — using real sources — how understanding of a specific education topic has developed over time, so that new teachers can situate current practice in its research history.`,
 
@@ -35,6 +42,17 @@ const CFG = {
       { icon: '🌍', title: 'Recent Scholarship Researcher (2016–2020)', description: 'Focus on the 2016–2020 window. How did global events (COVID, #FeesMustFall, decolonisation debates) shape the scholarship? What debates remained unresolved?', contributes: '5 annotated sources + 200-word synthesis of 2016–2020 context' },
       { icon: '🚀', title: 'Current Frontiers Researcher (2021–Present + Grey Literature)', description: 'Search for the most current peer-reviewed work AND relevant grey literature (DBE reports, HSRC publications). What are the live debates? What does emerging research suggest?', contributes: '5 annotated sources (mix of peer-reviewed and grey literature) + 200-word synthesis of current state' },
     ],
+  },
+
+  groupFormation: {
+    enabled: true,
+    size: 5,
+    scopeType: 'assessment',
+    scopeId: 'assessment-a2',
+    scopeLabel: 'Assessment 2 Collaboration Space',
+    legacyAssessmentId: 'a2',
+    label: 'Assessment 2 Group Platform',
+    intro: 'Create or join a named PLC research team of exactly five students. Each team should eventually include one student per time-period role before you move into the full field trajectory work.',
   },
 
   weeks: [
@@ -101,6 +119,7 @@ registerAssessment(CFG);
 
 export const assess02 = {
   id: 'a2', badge: 'Assessment 2', title: 'The Research Archaeology Report',
+  deadline: CFG.deadline,
   phase: 'Major Assessment — 2 weeks', isAssessment: true,
   html: () => {
     window._atState = window._atState || {};
