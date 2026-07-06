@@ -8,7 +8,9 @@ import {
 } from '../profile.js';
 import { renderSubmissionReviewer } from '../components/submission-reviewer.js';
 import {
+  applyModeratedMarkChange,
   postFinalisedSubmissionFeedback,
+  recordBorderlineFailConfirmation,
   returnSubmissionToTutor,
   saveModerationDecision,
 } from '../submissions.js';
@@ -6977,6 +6979,32 @@ window._loadGradebookManager = async () => {
     const completedMarks = _gradebookRows.reduce((sum, row) => sum + assessments.filter((assessment) => row.assessments[assessment.id]?.resolved?.mark != null).length, 0);
     const finalisedMarks = _gradebookRows.reduce((sum, row) => sum + assessments.filter((assessment) => row.assessments[assessment.id]?.statusLabel === 'Finalised').length, 0);
 
+    // Borderline fails (45–49): every one must either be adjusted with a
+    // justification or confirmed as a fail with a written outcomes-based
+    // justification. Matches _isBorderlineFailMark in the submission reviewer.
+    const borderlineRows = [];
+    _gradebookRows.forEach((row) => {
+      assessments.forEach((assessment) => {
+        const cell = row.assessments[assessment.id];
+        const mark = Number(cell?.resolved?.mark);
+        if (!Number.isFinite(mark) || mark < 45 || mark >= 50) return;
+        if (!cell?.latestSubmissionId) return;
+        borderlineRows.push({
+          uid: row.uid,
+          name: row.name,
+          studentNumber: row.studentNumber,
+          assessmentId: assessment.id,
+          assessmentBadge: assessment.badge,
+          submissionId: cell.latestSubmissionId,
+          mark,
+          statusLabel: cell.statusLabel || '',
+          confirmed: Boolean(cell.record?.moderation?.borderlineFailJustification),
+          confirmedBy: cell.record?.moderation?.borderlineFailConfirmedByName || '',
+        });
+      });
+    });
+    const unresolvedBorderline = borderlineRows.filter((item) => !item.confirmed).length;
+
     mount.innerHTML = `
       <div style="display:grid;gap:20px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
@@ -7022,6 +7050,60 @@ window._loadGradebookManager = async () => {
           </div>
         </div>
 
+        ${borderlineRows.length ? `
+        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:16px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+              <h2 style="margin:0;color:#92400e;font-size:18px;">Borderline Fails (45–49) — Review Required</h2>
+              <div style="font-size:12px;color:#78350f;margin-top:6px;max-width:760px;line-height:1.6;">
+                Each mark below must be resolved by a human decision: open the script and either <strong>adjust the mark</strong> (if the work does meet the learning objectives) or <strong>confirm the fail</strong> with a written justification naming the outcomes that were not met. Both actions are recorded in the moderation audit trail.
+              </div>
+            </div>
+            <div style="font-size:12px;font-weight:800;color:${unresolvedBorderline ? '#92400e' : '#047857'};padding:6px 12px;border-radius:999px;background:${unresolvedBorderline ? '#fef3c7' : '#ecfdf5'};border:1px solid ${unresolvedBorderline ? '#fcd34d' : '#a7f3d0'};white-space:nowrap;">
+              ${unresolvedBorderline ? `${unresolvedBorderline} awaiting review` : 'All reviewed'}
+            </div>
+          </div>
+          <div style="overflow:auto;border:1px solid #fcd34d;border-radius:12px;background:white;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#fef3c7;color:#92400e;text-transform:uppercase;letter-spacing:.08em;">
+                  <th style="padding:10px 14px;text-align:left;">Student</th>
+                  <th style="padding:10px 14px;text-align:left;">Assessment</th>
+                  <th style="padding:10px 14px;text-align:left;">Mark</th>
+                  <th style="padding:10px 14px;text-align:left;">Status</th>
+                  <th style="padding:10px 14px;text-align:left;">Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${borderlineRows.map((item) => `
+                  <tr>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;">
+                      <div style="font-weight:800;color:var(--navy);">${_esc(item.name)}</div>
+                      <div style="font-size:11px;color:var(--muted);">${_esc(item.studentNumber || '')}</div>
+                    </td>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;font-weight:700;color:var(--navy);">${_esc(item.assessmentBadge)}</td>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;font-weight:900;color:#b45309;">${_esc(String(item.mark))}%</td>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;">${_esc(item.statusLabel)}</td>
+                    <td style="padding:8px 14px;border-top:1px solid #fde68a;">
+                      ${item.confirmed
+                        ? `<span style="font-size:11px;font-weight:800;color:#047857;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:999px;padding:3px 10px;white-space:nowrap;">✓ Fail confirmed${item.confirmedBy ? ` · ${_esc(item.confirmedBy)}` : ''}</span>`
+                        : `<div style="display:flex;gap:5px;flex-wrap:wrap;">
+                            <button type="button" class="btn-prev" style="font-size:10px;padding:3px 9px;display:inline-flex;"
+                              onclick="window._gradebookOpenMarkingPlatform(${_esc(JSON.stringify(item.assessmentId))},${_esc(JSON.stringify(item.uid))},${_esc(JSON.stringify(item.submissionId))})">Open Script</button>
+                            <button type="button" style="font-size:10px;padding:3px 9px;border:1px solid #059669;border-radius:5px;background:white;color:#047857;cursor:pointer;white-space:nowrap;"
+                              onclick="window._gbBorderlineAdjust(${_esc(JSON.stringify(item.uid))},${_esc(JSON.stringify(item.assessmentId))},${_esc(JSON.stringify(item.submissionId))},${item.mark})">Adjust Mark…</button>
+                            <button type="button" style="font-size:10px;padding:3px 9px;border:1px solid #dc2626;border-radius:5px;background:white;color:#991b1b;cursor:pointer;white-space:nowrap;"
+                              onclick="window._gbBorderlineConfirmFail(${_esc(JSON.stringify(item.uid))},${_esc(JSON.stringify(item.assessmentId))},${_esc(JSON.stringify(item.submissionId))})">Confirm Fail…</button>
+                          </div>`
+                      }
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
+
         <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
             <div>
@@ -7058,8 +7140,10 @@ window._loadGradebookManager = async () => {
                       const mark = cell?.resolved?.mark;
                       const status = cell?.statusLabel || 'Not submitted';
                       const source = cell?.resolved?.source || '';
-                      const bg = mark == null ? '#f8fafc' : (Number(mark) < 50 ? '#fef2f2' : '#ecfdf5');
-                      const color = mark == null ? 'var(--muted)' : (Number(mark) < 50 ? '#991b1b' : '#166534');
+                      const numericMark = Number(mark);
+                      const isBorderlineFail = Number.isFinite(numericMark) && numericMark >= 45 && numericMark < 50;
+                      const bg = mark == null ? '#f8fafc' : (isBorderlineFail ? '#fffbeb' : (numericMark < 50 ? '#fef2f2' : '#ecfdf5'));
+                      const color = mark == null ? 'var(--muted)' : (isBorderlineFail ? '#b45309' : (numericMark < 50 ? '#991b1b' : '#166534'));
                       const editKey = `${_esc(row.uid)}__${_esc(assessment.id)}`;
                       const hasSubmission = Boolean(cell?.latestSubmissionId);
                       const fileUrl = cell?.submissionFileUrl || '';
@@ -7197,11 +7281,16 @@ window._gradebookRecordEdit = (input) => {
   if (!key || !uid || !assessmentId) return;
   if (val === '') {
     delete _gradebookMarkEdits[key];
+    input.style.borderColor = 'var(--border)';
+    return;
+  }
+  const num = Number(val);
+  if (Number.isFinite(num) && num >= 0 && num <= 100) {
+    _gradebookMarkEdits[key] = { uid, assessmentId, mark: num };
+    input.style.borderColor = '#059669';
   } else {
-    const num = Number(val);
-    if (Number.isFinite(num) && num >= 0 && num <= 100) {
-      _gradebookMarkEdits[key] = { uid, assessmentId, mark: num };
-    }
+    delete _gradebookMarkEdits[key];
+    input.style.borderColor = '#dc2626';
   }
 };
 
@@ -7211,39 +7300,35 @@ window._gradebookSaveMarkChanges = async () => {
     _showLecturerToast('No mark changes to save.', 'warn', 2400);
     return;
   }
-  if (!confirm(`Save ${edits.length} mark change${edits.length === 1 ? '' : 's'}? This will write a moderation-level mark override for each selected student.`)) return;
+  const reason = (prompt(
+    `Saving ${edits.length} mark change${edits.length === 1 ? '' : 's'}.\n\nEnter a justification for this change (recorded in the moderation audit trail):`
+  ) || '').trim();
+  if (!reason) {
+    _showLecturerToast('Mark changes need a justification — nothing was saved.', 'warn', 3200);
+    return;
+  }
 
   _showLecturerProcessing?.('Saving mark changes…');
-  let saved = 0;
-  let failed = 0;
-  const now = new Date().toISOString();
-  const user = STATE?.user;
-  const moderatorName = user?.displayName || user?.email || 'Lecturer';
-  const moderatorUid = user?.uid || '';
-
-  for (const edit of edits) {
+  const results = await Promise.allSettled(edits.map((edit) => {
     const row = _gradebookRows.find((r) => r.uid === edit.uid);
     const cell = row?.assessments?.[edit.assessmentId];
     const submissionId = cell?.latestSubmissionId;
-    if (!row || !submissionId) { failed++; continue; }
-    try {
-      await update(ref(db, `grading-records/${edit.assessmentId}/${edit.uid}/${submissionId}`), {
-        'moderation/mark': edit.mark,
-        'moderation/moderatorUid': moderatorUid,
-        'moderation/moderatorName': moderatorName,
-        'moderation/moderatedAt': now,
-        'moderation/source': 'gradebook-edit',
-        moderatedAt: now,
-        moderatedByUid: moderatorUid,
-        moderatedByName: moderatorName,
-        updatedAt: now,
-      });
-      saved++;
-    } catch (err) {
-      console.error('Gradebook mark save failed for', edit.uid, err);
-      failed++;
+    if (!row || !submissionId) return Promise.resolve({ ok: false, error: 'No submission found for this cell.' });
+    return applyModeratedMarkChange(edit.assessmentId, edit.uid, submissionId, {
+      mark: edit.mark,
+      reason,
+      source: 'gradebook-edit',
+    });
+  }));
+
+  const saved = results.filter((r) => r.status === 'fulfilled' && r.value?.ok).length;
+  const failed = results.length - saved;
+  const amended = results.filter((r) => r.status === 'fulfilled' && r.value?.amendedReleasedFeedback).length;
+  results.forEach((r, idx) => {
+    if (r.status === 'rejected' || !r.value?.ok) {
+      console.error('Gradebook mark save failed for', edits[idx]?.uid, r.status === 'rejected' ? r.reason : r.value?.error);
     }
-  }
+  });
 
   _gradebookEditMode = false;
   _gradebookMarkEdits = {};
@@ -7251,7 +7336,57 @@ window._gradebookSaveMarkChanges = async () => {
   if (failed) {
     _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved; ${failed} failed.`, 'warn', 3500);
   } else {
-    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved.`, 'success', 2800);
+    const amendedNote = amended ? ` ${amended} released mark${amended === 1 ? ' was' : 's were'} updated for the student view too.` : '';
+    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved with audit trail.${amendedNote}`, 'success', 3200);
+  }
+};
+
+window._gbBorderlineAdjust = async (studentUid, assessmentId, submissionId, currentMark) => {
+  const markInput = (prompt(
+    `Current mark: ${currentMark}%.\n\nEnter the corrected mark (0–100). Only change it if the work shows the learning objectives were met:`
+  ) || '').trim();
+  if (!markInput) return;
+  const mark = Number(markInput);
+  if (!Number.isFinite(mark) || mark < 0 || mark > 100) {
+    _showLecturerToast('Enter a mark between 0 and 100.', 'warn', 2800);
+    return;
+  }
+  const reason = (prompt(
+    'Justification for this mark change (recorded in the moderation audit trail). Refer to the evidence in the script:'
+  ) || '').trim();
+  if (!reason) {
+    _showLecturerToast('A justification is required — the mark was not changed.', 'warn', 3000);
+    return;
+  }
+  _showLecturerProcessing?.('Saving mark change…');
+  const result = await applyModeratedMarkChange(assessmentId, studentUid, submissionId, {
+    mark,
+    reason,
+    source: 'borderline-review',
+  });
+  await window._loadGradebookManager?.();
+  if (result.ok) {
+    _showLecturerToast(`Mark updated to ${mark}% with audit trail.${result.amendedReleasedFeedback ? ' Released feedback was updated too.' : ''}`, 'success', 3200);
+  } else {
+    _showLecturerToast(result.error || 'Mark change failed.', 'warn', 3200);
+  }
+};
+
+window._gbBorderlineConfirmFail = async (studentUid, assessmentId, submissionId) => {
+  const reason = (prompt(
+    'Confirming this fail: state which learning objectives the work did not meet and the evidence for that (recorded in the moderation audit trail):'
+  ) || '').trim();
+  if (!reason) {
+    _showLecturerToast('A written justification is required to confirm a borderline fail.', 'warn', 3200);
+    return;
+  }
+  _showLecturerProcessing?.('Recording fail confirmation…');
+  const result = await recordBorderlineFailConfirmation(assessmentId, studentUid, submissionId, { reason });
+  await window._loadGradebookManager?.();
+  if (result.ok) {
+    _showLecturerToast('Fail confirmed with justification on record.', 'success', 2800);
+  } else {
+    _showLecturerToast(result.error || 'Failed to record the confirmation.', 'warn', 3200);
   }
 };
 
