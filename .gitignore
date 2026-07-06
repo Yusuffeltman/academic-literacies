@@ -21,3 +21,8 @@ android/distribution/
 # Signing keys
 keys/
 *.jks
+
+# Env files anywhere, any suffix
+.env.*
+**/.env
+**/.env.*
