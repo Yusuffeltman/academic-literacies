@@ -43,7 +43,7 @@ Cross-ref: DPIA [03-risk-assessment](../governance/dpia/03-risk-assessment.md), 
 
 ## 4. Voluntary participation & opt-out (data-subject rights)
 
-- **Notice:** on first reaching a test unit, students see a one-time, dismissible notice explaining the trial is voluntary, anonymous for analysis, and has no effect on marks.
+- **Notice:** on first reaching a test unit, students see a one-time, dismissible notice explaining the trial is voluntary, confidential (responses used only in aggregate; stored pseudonymously under the existing student key, **not** strictly anonymous), and has no effect on marks.
 - **Opt-out:** one click ("Use the standard layout") sets a persisted `experiment.optOut` flag. Opted-out students are **never assigned an arm, never segmented, and never logged** — they get the standard scroll with no quick-check. The current unit re-renders immediately in the control layout.
 - **Reversible:** the preference is stored in the student's state; `setLessonExperimentOptOut(false)` re-enables participation (a settings toggle can expose this).
 - **No detriment:** because the design is within-subjects and the check is ungraded, neither participating nor opting out advantages or disadvantages any student.
@@ -69,7 +69,7 @@ Cross-ref: [equity-review-framework](../governance/equity/equity-review-framewor
 ## 7. Participant notice text (as shown in-app)
 
 > **We're trialling how this unit is laid out.**
-> A short, anonymous quick-check at the end helps us learn which layout supports learning best. It's **voluntary** and **does not affect your marks**. You can use the standard layout instead at any time.
+> A short quick-check at the end helps us learn which layout supports learning best. It's **voluntary**, it **does not affect your marks**, and your answers are used **only in aggregate** to improve the course. You can use the standard layout instead at any time.
 > [ Got it ] [ Use the standard layout ]
 
 ## 8. Approval checklist (before enabling)
