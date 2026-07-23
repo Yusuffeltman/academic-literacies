@@ -4342,7 +4342,7 @@ function _renderStudentRow(student, sampledByMarker) {
     ? `<div style="display:flex;align-items:flex-start;gap:10px;">
         <label style="padding-top:18px;cursor:pointer;" title="Select ${_esc(student.name)}">
           <input type="checkbox" data-bulk-sub-id="${_esc(sub.id)}" ${isSelected ? 'checked' : ''}
-            onchange="window._bulkToggleSubmission(${_jsArg(sub.id)},${_jsArg(student.uid)},${_jsArg(sub.assessmentId)},this.checked)" />
+            onchange="window._bulkToggleSubmission(${_esc(_jsArg(sub.id))},${_esc(_jsArg(student.uid))},${_esc(_jsArg(sub.assessmentId))},this.checked)" />
         </label>
         <div style="flex:1;min-width:0;">`
     : '';
