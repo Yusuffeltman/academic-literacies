@@ -4341,7 +4341,7 @@ function _renderStudentRow(student, sampledByMarker) {
   const selectionWrapOpen = _bulkSelectionMode
     ? `<div style="display:flex;align-items:flex-start;gap:10px;">
         <label style="padding-top:18px;cursor:pointer;" title="Select ${_esc(student.name)}">
-          <input type="checkbox" data-bulk-sub-id="${_esc(sub.id)}" ${isSelected ? 'checked' : ''}
+          <input type="checkbox" data-bulk-sub-id="${_esc(sub.id)}" data-bulk-uid="${_esc(student.uid)}" data-bulk-assessment="${_esc(sub.assessmentId)}" ${isSelected ? 'checked' : ''}
             onchange="window._bulkToggleSubmission(${_esc(_jsArg(sub.id))},${_esc(_jsArg(student.uid))},${_esc(_jsArg(sub.assessmentId))},this.checked)" />
         </label>
         <div style="flex:1;min-width:0;">`
@@ -4970,15 +4970,12 @@ window._bulkSelectAllVisible = function (checked) {
   rows.forEach((cb) => {
     const subId = cb.dataset.bulkSubId;
     if (!subId) return;
-    const existing = _bulkSelectedSubmissions.get(subId);
-    if (checked && existing) { cb.checked = true; return; }
     if (!checked) { _bulkSelectedSubmissions.delete(subId); cb.checked = false; return; }
-    // parse uid/assessmentId from the onchange attribute encoded values
-    const onchange = cb.getAttribute('onchange') || '';
-    const m = onchange.match(/_bulkToggleSubmission\("([^"]+)","([^"]+)","([^"]+)"/);
-    if (m) {
-      _bulkSelectedSubmissions.set(subId, { submissionId: m[1], studentUid: m[2], assessmentId: m[3] });
-    }
+    // Read identifiers straight from data attributes — no fragile parsing of the
+    // onchange string, which broke when the arguments were HTML-escaped.
+    const studentUid = cb.dataset.bulkUid || '';
+    const assessmentId = cb.dataset.bulkAssessment || '';
+    _bulkSelectedSubmissions.set(subId, { submissionId: subId, studentUid, assessmentId });
     cb.checked = true;
   });
   _refreshReviewer();
