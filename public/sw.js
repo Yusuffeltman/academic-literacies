@@ -1,67 +1,54 @@
-const CACHE_NAME = 'acadlit-v2';
+// Kill-switch service worker.
+//
+// An earlier version of the app registered a cache-FIRST service worker
+// (cache name "acadlit-v2") that permanently served a cached index.html and
+// hashed JS bundles. Vite renames hashed assets on every build and deletes the
+// previous ones, so after each deploy that stale shell pointed browsers at
+// files that no longer exist — the app failed to boot and students' work
+// (which is stored server-side in Firebase, and is intact) appeared to
+// "disappear". App-side registration has since been disabled, but service
+// workers already installed in browsers keep running independently.
+//
+// This replacement does the opposite of caching: on activation it deletes every
+// cache, unregisters itself, and reloads any open tabs so each affected browser
+// self-heals to the current, uncached app. It is a no-op for browsers that
+// never had the old worker. Once every client has picked this up, the worker
+// removes itself entirely.
 
-// Add any static files you want cached
-const urlsToCache = [
-  './',
-  './index.html',
-  './icon.svg',
-  './manifest.json'
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
-  );
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached response if found
-        if (response) {
-          return response;
-        }
-        // Else fetch from network
-        return fetch(event.request).then(
-          function(response) {
-            // Check if we received a valid response
-            if(!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-
-            // Clone the response
-            var responseToCache = response.clone();
-
-            caches.open(CACHE_NAME)
-              .then(function(cache) {
-                // Ignore API/dynamic requests from being cached by URL patterns if necessary
-                if (!event.request.url.includes('googleapis.com')) {
-                   cache.put(event.request, responseToCache);
-                }
-              });
-
-            return response;
-          }
-        );
-      })
-  );
-});
-
 self.addEventListener('activate', (event) => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    } catch (err) {
+      // Ignore cache cleanup failures — unregister below still removes the SW.
+    }
+    try {
+      await self.clients.claim();
+    } catch (err) {
+      // Ignore claim failures.
+    }
+    try {
+      await self.registration.unregister();
+    } catch (err) {
+      // Ignore unregister failures.
+    }
+    try {
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((client) => {
+        // Reload each open tab so it drops the old controller and fetches the
+        // live app straight from the network.
+        client.navigate(client.url).catch(() => {});
+      });
+    } catch (err) {
+      // Ignore navigation failures — tabs recover on their next manual reload.
+    }
+  })());
 });
+
+// Deliberately NO fetch handler: while this worker is briefly active, all
+// requests go straight to the network (no stale cache is ever served).
