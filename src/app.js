@@ -1101,12 +1101,35 @@ function renderShell() {
   window.nextUnit = () => navigateTo(Math.min(STATE.activeUnit + 1, UNITS.length - 1));
   window.prevUnit = () => navigateTo(Math.max(STATE.activeUnit - 1, 0));
   window.appSignOut = signOut;
-  window.toggleFocus = () => {
-    document.querySelector('.shell').classList.toggle('focus-mode');
-    const isFocus = document.querySelector('.shell').classList.contains('focus-mode');
-    const icon = isFocus ? '<path d="M4 14h6v6M20 10h-6V4M4 10h6V4M20 14h-6v6"></path>' : '<path d="M4 14v6h6M20 10V4h-6M4 10V4h6M20 14v6h-6"></path>';
-    document.querySelector('.btn-focus svg').innerHTML = icon;
+  const FOCUS_PREF_KEY = 'acadlit-focus-web';
+  const _focusIcon = (on) => (on
+    ? '<path d="M4 14h6v6M20 10h-6V4M4 10h6V4M20 14h-6v6"></path>'
+    : '<path d="M4 14v6h6M20 10V4h-6M4 10V4h6M20 14v6h-6"></path>');
+  const _applyFocus = (on, persist = true) => {
+    const shell = document.querySelector('.shell');
+    if (!shell) return;
+    shell.classList.toggle('focus-mode', on);
+    const svg = document.querySelector('.btn-focus svg');
+    if (svg) svg.innerHTML = _focusIcon(on);
+    const fb = document.querySelector('.btn-focus');
+    if (fb) fb.title = on ? 'Exit focus mode — show menus' : 'Focus mode — maximise & declutter';
+    if (persist) {
+      try { localStorage.setItem(FOCUS_PREF_KEY, on ? '1' : '0'); } catch { /* ignore storage failures */ }
+    }
   };
+  window.toggleFocus = () => {
+    const shell = document.querySelector('.shell');
+    _applyFocus(!(shell && shell.classList.contains('focus-mode')));
+    // Tidy up: close the module overlay if it was open.
+    document.querySelector('.sidebar')?.classList.remove('mobile-open');
+  };
+  // Default to the maximised, decluttered reading view while working through
+  // content, unless the student has explicitly turned it off before.
+  (() => {
+    let on = true;
+    try { if (localStorage.getItem(FOCUS_PREF_KEY) === '0') on = false; } catch { /* ignore */ }
+    _applyFocus(on, false);
+  })();
 
   window.toggleSidebar = () => {
     document.querySelector('.sidebar').classList.toggle('mobile-open');
