@@ -763,13 +763,10 @@ a:hover {
   pointer-events: none;
 }
 
+/* Single floating control in focus mode is the ☰ menu button; exiting focus
+   lives inside that menu, so the standalone focus button is hidden here. */
 .shell.focus-mode .btn-focus {
-  pointer-events: auto;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  display: none;
 }
 
 /* Keep an on-demand way back to the module menu without leaving focus mode:
@@ -799,6 +796,49 @@ a:hover {
   z-index: 1000;
   transform: translateX(0);
   box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+}
+
+/* Scrim behind the on-demand module overlay — tap to dismiss and return to the
+   maximised reading view. */
+.sidebar-scrim {
+  display: none;
+}
+.shell.focus-mode .sidebar-scrim.open {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 999;
+}
+
+/* Close (✕) affordance inside the sidebar, shown only while it is an overlay. */
+.sidebar-close {
+  display: none;
+}
+.shell.focus-mode .sidebar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* "Exit focus mode" lives in the menu, not as a competing floating button. */
+.nav-exit-focus {
+  display: none;
+}
+.shell.focus-mode .nav-exit-focus {
+  display: flex;
 }
 
 .shell.focus-mode .unit-badge,

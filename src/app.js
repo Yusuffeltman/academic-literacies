@@ -954,8 +954,10 @@ function renderShell() {
 
   document.getElementById('app').innerHTML = `
     <div class="shell">
+      <div class="sidebar-scrim" id="sidebar-scrim" onclick="window.closeFocusMenu()"></div>
       <aside class="sidebar">
         <div class="sidebar-header">
+          <button class="sidebar-close" onclick="window.closeFocusMenu()" aria-label="Close menu">✕</button>
           <div class="sidebar-logo">ACADLIT · AI</div>
           <div class="sidebar-title">Academic Literacies</div>
           <div class="sidebar-sub">in the Age of AI</div>
@@ -972,6 +974,13 @@ function renderShell() {
         </div>
 
         <nav class="nav-list">
+          <div class="nav-item nav-exit-focus" onclick="window.toggleFocus()">
+            <div class="nav-num">⛶</div>
+            <div class="nav-info">
+              <div class="nav-badge">View</div>
+              <div class="nav-lbl">Exit focus mode</div>
+            </div>
+          </div>
           <div class="nav-item nav-item--dashboard" id="nav-dashboard" onclick="window.renderStudentDashboard()">
             <div class="nav-num">🏠</div>
             <div class="nav-info">
@@ -1117,11 +1126,14 @@ function renderShell() {
       try { localStorage.setItem(FOCUS_PREF_KEY, on ? '1' : '0'); } catch { /* ignore storage failures */ }
     }
   };
+  window.closeFocusMenu = () => {
+    document.querySelector('.sidebar')?.classList.remove('mobile-open');
+    document.getElementById('sidebar-scrim')?.classList.remove('open');
+  };
   window.toggleFocus = () => {
     const shell = document.querySelector('.shell');
     _applyFocus(!(shell && shell.classList.contains('focus-mode')));
-    // Tidy up: close the module overlay if it was open.
-    document.querySelector('.sidebar')?.classList.remove('mobile-open');
+    window.closeFocusMenu();
   };
   // Default to the maximised, decluttered reading view while working through
   // content, unless the student has explicitly turned it off before.
@@ -1132,8 +1144,15 @@ function renderShell() {
   })();
 
   window.toggleSidebar = () => {
-    document.querySelector('.sidebar').classList.toggle('mobile-open');
+    const sb = document.querySelector('.sidebar');
+    const open = sb?.classList.toggle('mobile-open');
+    document.getElementById('sidebar-scrim')?.classList.toggle('open', !!open);
   };
+  // In focus mode, selecting anything from the module overlay closes it and
+  // returns to the maximised reading view.
+  document.querySelector('.nav-list')?.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-item')) window.closeFocusMenu();
+  });
 
   // Font size control — zoom steps for the entire shell
   const ZOOM_STEPS = [0.85, 1, 1.1, 1.2, 1.35];
