@@ -202,6 +202,7 @@ function _atContext(cfg) {
 
 function _atCollab(cfg) {
   const c = cfg.collaboration;
+  if (!c) return ''; // individual assessment — no collaboration protocol
   return `
     <div class="at-section">
       <div class="at-section-label">Collaboration Protocol — ${c.type}</div>
@@ -280,6 +281,7 @@ function _atWeeks(id, cfg, st) {
 }
 
 function _atContributions(id, cfg) {
+  if (!cfg.collaboration) return ''; // individual assessment — no group panel
   return `
     <div class="at-section">
       <div class="at-section-label">Group Contributions Panel</div>
