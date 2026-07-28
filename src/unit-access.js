@@ -1,5 +1,5 @@
-export const DEFAULT_UNLOCKED_UNIT_LIMIT = 7;
-export const DEFAULT_OPEN_ASSESSMENTS = Object.freeze(['a1', 'a2']);
+export const DEFAULT_UNLOCKED_UNIT_LIMIT = 10;
+export const DEFAULT_OPEN_ASSESSMENTS = Object.freeze(['a1', 'a2', 'a3']);
 
 function _unitNumber(unit = {}) {
   const match = String(unit?.id || '').match(/^u(\d+)$/i);
