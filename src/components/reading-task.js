@@ -12,15 +12,278 @@
 
 import { _aiChat } from '../ai.js';
 import { scoreSubmissionForAI, getStudentBaselineProfile } from '../ai-detection.js';
+import { writeLearningEvent } from '../analytics.js';
+import { db } from '../firebase.js';
+import { persistLocalStateSoon } from '../state.js';
+import { ref, set, remove } from 'firebase/database';
 
 window._rtCfg = window._rtCfg || {};
 window._rtState = window._rtState || {};
+window._rtSaveTimers = window._rtSaveTimers || {};
+
+// Host mode: when a reading task is driven by an outer linear navigator
+// (see unit-reader.js), it hides its own step indicator + per-step nav
+// buttons and exposes a navigation contract on window._stepperNav so the
+// outer Back/Next can drive it as part of one continuous flow.
+window._rtHost = window._rtHost || {};
+window._stepperNav = window._stepperNav || {};
+
+const RT_STEPS = ['vocab', 'reading', 'questions', 'survey', 'writing', 'feedback'];
+const RT_STEP_LABELS = ['Vocabulary', 'Reading', 'Questions', 'Survey', 'Writing', 'Feedback'];
+const RT_MIN_ANSWER_CHARS = 15;
+const RT_MIN_WRITING_WORDS = 30;
+
+function _rtLiveWritingWords(id) {
+  const ta = document.getElementById(`rt-writing-${id}`);
+  const text = (ta ? ta.value : (window._rtState[id]?.writing || '')).trim();
+  return text ? text.split(/\s+/).filter(Boolean).length : 0;
+}
+
+function _rtLiveAnswersComplete(id) {
+  const cfg = window._rtCfg[id];
+  const st = window._rtState[id];
+  if (!cfg || !st) return false;
+  return cfg.questions.every((_, i) => {
+    const ta = document.getElementById(`rt-ans-${id}-${i}`);
+    const val = (ta ? ta.value : (st.answers[i] || '')).trim();
+    return val.length >= RT_MIN_ANSWER_CHARS;
+  });
+}
+
+// Notify any outer navigator that this task's step or gate state changed.
+function _rtEmitNav(id) {
+  try {
+    document.dispatchEvent(new CustomEvent('rt:stepchange', { detail: { id } }));
+  } catch { /* no-op */ }
+}
+
+// Register the navigation contract the outer reader delegates to.
+function _rtRegisterNav(id) {
+  window._stepperNav[id] = {
+    steps: RT_STEPS.slice(),
+    labels: RT_STEP_LABELS.slice(),
+    index: () => RT_STEPS.indexOf(window._rtState[id]?.step || 'vocab'),
+    count: () => RT_STEPS.length,
+    current: () => window._rtState[id]?.step || 'vocab',
+    canPrev: () => RT_STEPS.indexOf(window._rtState[id]?.step || 'vocab') > 0,
+    canNext: () => {
+      const step = window._rtState[id]?.step || 'vocab';
+      if (step === 'questions') return _rtLiveAnswersComplete(id);
+      if (step === 'writing') return _rtLiveWritingWords(id) >= RT_MIN_WRITING_WORDS;
+      return true; // vocab, reading, survey, feedback
+    },
+    nextLabel: () => {
+      const step = window._rtState[id]?.step || 'vocab';
+      switch (step) {
+        case 'vocab': return 'Start reading →';
+        case 'writing': return '✨ Submit for feedback';
+        case 'feedback': return 'Next →';
+        default: return 'Continue →';
+      }
+    },
+    // Performs the primary action for the current step. Returns 'exit' when
+    // the task is complete (outer navigator should advance to the next screen).
+    next: () => {
+      const step = window._rtState[id]?.step || 'vocab';
+      switch (step) {
+        case 'vocab': window._rtAdvance(id, 'reading'); return;
+        case 'reading': window._rtAdvance(id, 'questions'); return;
+        case 'questions': window._rtSubmitComprehension(id); return;
+        case 'survey': window._rtAdvance(id, 'writing'); return;
+        case 'writing': window._rtSubmitWriting(id); return;
+        case 'feedback': return 'exit';
+        default: return;
+      }
+    },
+    prev: () => {
+      const i = RT_STEPS.indexOf(window._rtState[id]?.step || 'vocab');
+      if (i > 0) window._rtAdvance(id, RT_STEPS[i - 1]);
+    },
+    goTo: (step) => { if (RT_STEPS.includes(step)) window._rtAdvance(id, step); },
+  };
+}
 
 const RT_STORAGE_PREFIX = 'acadlit-rt-v1';
 
 function _rtStorageKey(id) {
   const cfg = window._rtCfg[id] || {};
   return `${RT_STORAGE_PREFIX}:${cfg.unitId || 'nouid'}:${id}`;
+}
+
+function _rtCloudState(id) {
+  const cfg = window._rtCfg[id] || {};
+  const unitId = cfg.unitId || '';
+  if (!unitId || !window.STATE?.progress?.[unitId]?.readingTaskState) return null;
+  return window.STATE.progress[unitId].readingTaskState[id] || null;
+}
+
+function _rtSubmissionPath(id) {
+  const cfg = window._rtCfg[id] || {};
+  const unitId = String(cfg.unitId || '').trim();
+  const uid = String(window.STATE?.user?.uid || '').trim();
+  if (!unitId || !uid) return '';
+  return `analytics/reading-task-submissions/${unitId}/${uid}/${id}`;
+}
+
+function _rtSubmissionPayload(id) {
+  const st = window._rtState[id];
+  const cfg = window._rtCfg[id] || {};
+  const user = window.STATE?.user || {};
+  const unitId = String(cfg.unitId || '').trim();
+  const uid = String(user.uid || '').trim();
+  if (!st || !unitId || !uid) return null;
+
+  const writing = String(st.writing || '').trim();
+  const answers = st.answers || {};
+  const annotations = Array.isArray(st.annotations) ? st.annotations : [];
+  const answerCount = Object.values(answers).filter((value) => String(value || '').trim().length > 0).length;
+  const writingWordCount = writing ? writing.split(/\s+/).filter(Boolean).length : 0;
+  const hasWork = Boolean(answerCount || writingWordCount || st.feedback || st.survey || annotations.length);
+
+  return {
+    uid,
+    email: String(user.email || '').trim(),
+    displayName: String(user.displayName || '').trim(),
+    unitId,
+    unitNum: Number(cfg.unitNum || 0) || null,
+    taskId: id,
+    title: String(cfg.title || '').trim(),
+    source: String(cfg.source || '').trim(),
+    step: String(st.step || 'vocab').trim(),
+    answers,
+    answerCount,
+    writing,
+    writingWordCount,
+    feedback: st.feedback || null,
+    survey: st.survey || null,
+    surveySubmittedAt: st.surveySubmittedAt || null,
+    annotations,
+    annotationCount: annotations.length,
+    aiDetection: st.aiDetection || null,
+    savedAt: st.savedAt || Date.now(),
+    updatedAt: new Date().toISOString(),
+    status: st.feedback ? 'reviewed' : (hasWork ? 'in_progress' : 'empty'),
+  };
+}
+
+async function _rtSyncDedicatedSubmission(id, { cleared = false } = {}) {
+  const path = _rtSubmissionPath(id);
+  if (!path) return false;
+
+  try {
+    if (cleared) {
+      await remove(ref(db, path));
+      return true;
+    }
+
+    const payload = _rtSubmissionPayload(id);
+    if (!payload) return false;
+    await set(ref(db, path), payload);
+    return true;
+  } catch (err) {
+    console.error('Reading task Firebase submission sync failed:', err);
+    return false;
+  }
+}
+
+function _rtSaveMeta(st = {}) {
+  return st._saveMeta || {
+    status: 'idle',
+    savedAt: st.savedAt || 0,
+  };
+}
+
+function _rtFormatSavedAt(savedAt = 0) {
+  const dateObj = new Date(savedAt || 0);
+  if (Number.isNaN(dateObj.getTime()) || !savedAt) return '';
+  const h = String(dateObj.getHours()).padStart(2, '0');
+  const m = String(dateObj.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function _rtSetSaveIndicator(id) {
+  const el = document.getElementById(`rt-save-${id}`);
+  const st = window._rtState[id];
+  if (!el || !st) return;
+
+  const meta = _rtSaveMeta(st);
+  const labelTime = _rtFormatSavedAt(meta.savedAt || st.savedAt || 0);
+
+  if (meta.status === 'saving') {
+    el.textContent = labelTime ? `Saving… last local save ${labelTime}` : 'Saving…';
+    el.style.color = 'var(--amber2)';
+    return;
+  }
+
+  if (meta.status === 'cloud') {
+    el.textContent = labelTime ? `Saved to app at ${labelTime}` : 'Saved to app';
+    el.style.color = 'var(--green)';
+    return;
+  }
+
+  if (meta.status === 'error' || meta.status === 'local') {
+    el.textContent = labelTime ? `Saved locally at ${labelTime}` : 'Saved locally';
+    el.style.color = meta.status === 'error' ? 'var(--orange)' : 'var(--muted)';
+    return;
+  }
+
+  el.textContent = labelTime ? `Last saved at ${labelTime}` : 'Autosave ready';
+  el.style.color = 'var(--muted)';
+}
+
+async function _rtSyncToCloud(id, { immediate = false } = {}) {
+  const st = window._rtState[id];
+  if (!st || typeof window.saveState !== 'function') return false;
+
+  if (window._rtSaveTimers[id]) {
+    clearTimeout(window._rtSaveTimers[id]);
+    delete window._rtSaveTimers[id];
+  }
+
+  const run = async () => {
+    const latest = window._rtState[id];
+    if (!latest) return false;
+
+    latest._saveMeta = {
+      ..._rtSaveMeta(latest),
+      status: 'saving',
+      savedAt: latest.savedAt || Date.now(),
+    };
+    _rtSetSaveIndicator(id);
+
+    try {
+      const [stateOk, submissionOk] = await Promise.all([
+        window.saveState(),
+        _rtSyncDedicatedSubmission(id),
+      ]);
+      const ok = Boolean(stateOk && submissionOk);
+      if (stateOk && !submissionOk) console.warn('Reading task: state saved but submission sync failed for', id);
+      if (!stateOk && submissionOk) console.warn('Reading task: submission saved but state sync failed for', id);
+      latest._saveMeta = {
+        ..._rtSaveMeta(latest),
+        status: ok ? 'cloud' : 'error',
+        savedAt: latest.savedAt || Date.now(),
+      };
+      _rtSetSaveIndicator(id);
+      return Boolean(ok);
+    } catch {
+      latest._saveMeta = {
+        ..._rtSaveMeta(latest),
+        status: 'error',
+        savedAt: latest.savedAt || Date.now(),
+      };
+      _rtSetSaveIndicator(id);
+      return false;
+    }
+  };
+
+  if (immediate) return run();
+
+  window._rtSaveTimers[id] = window.setTimeout(() => {
+    delete window._rtSaveTimers[id];
+    void run();
+  }, 900);
+  return true;
 }
 
 function _rtPersist(id) {
@@ -36,8 +299,15 @@ function _rtPersist(id) {
       feedback: st.feedback || null,
       annotations: st.annotations || [],
       survey: st.survey || null,
+      surveySubmittedAt: st.surveySubmittedAt || null,
       aiDetection: st.aiDetection || null,
       savedAt: now.getTime(),
+    };
+    st.savedAt = data.savedAt;
+    st._saveMeta = {
+      ..._rtSaveMeta(st),
+      status: 'local',
+      savedAt: data.savedAt,
     };
     localStorage.setItem(_rtStorageKey(id), JSON.stringify(data));
 
@@ -46,27 +316,25 @@ function _rtPersist(id) {
       if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
       window.STATE.progress[cfg.unitId].readingTaskState = window.STATE.progress[cfg.unitId].readingTaskState || {};
       window.STATE.progress[cfg.unitId].readingTaskState[id] = data;
+      persistLocalStateSoon('reading-task');
     }
 
-    _rtSetSaveIndicator(id, now);
-  } catch { }
-}
-
-function _rtSetSaveIndicator(id, dateObj = null) {
-  const el = document.getElementById(`rt-save-${id}`);
-  if (!el) return;
-  if (!dateObj) dateObj = new Date();
-  const h = String(dateObj.getHours()).padStart(2, '0');
-  const m = String(dateObj.getMinutes()).padStart(2, '0');
-  el.textContent = `Last saved at ${h}:${m}`;
-  el.style.color = 'var(--green)';
+    _rtSetSaveIndicator(id);
+    void _rtSyncToCloud(id);
+  } catch (err) {
+    console.error('Reading task persist failed for', id, err);
+  }
 }
 
 function _rtRestore(id, baseState) {
   try {
     const raw = localStorage.getItem(_rtStorageKey(id));
-    if (!raw) return baseState;
-    const saved = JSON.parse(raw);
+    const localSaved = raw ? JSON.parse(raw) : null;
+    const cloudSaved = _rtCloudState(id);
+    const saved = Number(localSaved?.savedAt || 0) >= Number(cloudSaved?.savedAt || 0)
+      ? (localSaved || cloudSaved)
+      : (cloudSaved || localSaved);
+    if (!saved) return baseState;
     return {
       ...baseState,
       step: saved.step || baseState.step,
@@ -75,10 +343,27 @@ function _rtRestore(id, baseState) {
       feedback: saved.feedback ?? baseState.feedback,
       annotations: saved.annotations || baseState.annotations,
       survey: saved.survey || baseState.survey,
+      surveySubmittedAt: saved.surveySubmittedAt || baseState.surveySubmittedAt || null,
+      aiDetection: saved.aiDetection || baseState.aiDetection || null,
+      savedAt: saved.savedAt || 0,
+      _saveMeta: {
+        status: cloudSaved && saved === cloudSaved ? 'cloud' : 'local',
+        savedAt: saved.savedAt || 0,
+      },
     };
   } catch {
     return baseState;
   }
+}
+
+function _rtAnalyticsProfile() {
+  return window.STATE?.user?._studentProfileContext?.profile || {
+    uid: window.STATE?.user?.uid || '',
+    role: 'student',
+    authEmail: window.STATE?.user?.email || '',
+    username: window.STATE?.user?.email || '',
+    displayName: window.STATE?.user?.displayName || '',
+  };
 }
 
 export function readingTask(id, config) {
@@ -97,11 +382,18 @@ export function initAllReadingTasks() {
       savedAnnotations = window.STATE.progress[cfg.unitId].annotations;
     }
 
-    const baseState = { step: 'vocab', answers: {}, writing: '', feedback: null, annotations: savedAnnotations, survey: null };
+    const baseState = { step: 'vocab', answers: {}, writing: '', feedback: null, annotations: savedAnnotations, survey: null, aiDetection: null, savedAt: 0 };
     window._rtState[el.id] = _rtRestore(el.id, baseState);
+    _rtRegisterNav(el.id);
     _render(el.id);
   });
 }
+
+// Allow an outer navigator to toggle host mode and force a re-render.
+window._rtSetHostMode = (id, on) => {
+  window._rtHost[id] = !!on;
+  if (window._rtState[id]) _render(id);
+};
 
 function _render(id) {
   const el = document.getElementById(id);
@@ -109,12 +401,13 @@ function _render(id) {
   const st = window._rtState[id];
   if (!el || !cfg || !st) return;
 
-  const STEPS = ['vocab', 'reading', 'questions', 'survey', 'writing', 'feedback'];
-  const LABELS = ['Vocabulary', 'Reading', 'Questions', 'Survey', 'Writing', 'Feedback'];
+  const STEPS = RT_STEPS;
+  const LABELS = RT_STEP_LABELS;
   const idx = STEPS.indexOf(st.step);
+  const host = !!window._rtHost[id];
 
   el.innerHTML = `
-    <div class="rt-wrapper">
+    <div class="rt-wrapper ${host ? 'rt-host' : ''}">
       <div class="rt-header">
         <div class="rt-header-icon">📖</div>
         <div>
@@ -137,6 +430,20 @@ function _render(id) {
         ${_renderStep(id, cfg, st)}
       </div>
     </div>`;
+
+  _rtSetSaveIndicator(id);
+
+  if (st.step === 'writing') {
+    const wc = document.getElementById(`rt-wc-${id}`);
+    if (wc) {
+      const count = String(st.writing || '').trim().split(/\s+/).filter(Boolean).length;
+      wc.textContent = `${count} words`;
+      wc.style.color = count >= Number(cfg.wordTarget || 0) ? 'var(--green)' : 'var(--muted)';
+    }
+  }
+
+  // Tell any outer linear navigator that the step (and gate state) changed.
+  _rtEmitNav(id);
 }
 
 function _renderStep(id, cfg, st) {
@@ -190,6 +497,7 @@ function _readingStep(id, cfg) {
         <span class="rt-source-label">Source</span>
         <span class="rt-source-name">${cfg.source}</span>
         ${cfg.sourceUrl ? `<a href="${cfg.sourceUrl}" target="_blank" rel="noopener" class="rt-source-link">↗ Visit</a>` : ''}
+        <button type="button" class="rt-source-pdf" onclick="_rtDownloadReadingPdf('${id}')" title="Save this reading as a PDF">⬇ Download PDF</button>
       </div>
 
       <div class="rt-reading-layout">
@@ -365,7 +673,7 @@ function _writingStep(id, cfg, st) {
       <div class="rt-writing-footer">
         <span class="rt-word-count" id="rt-wc-${id}">0 words</span>
         <span class="rt-word-target">Target: ${cfg.wordTarget} words</span>
-        <span id="rt-save-${id}" style="font-size:12px;color:var(--green);">Saved locally</span>
+        <span id="rt-save-${id}" style="font-size:12px;color:var(--muted);">Autosave ready</span>
       </div>
 
       <p id="rt-w-err-${id}" class="rt-err" style="display:none;">Please write at least 30 words before submitting.</p>
@@ -520,7 +828,7 @@ function _feedbackStep(id, cfg, st) {
           ← ${canRevise ? '⚠️ Revise and resubmit' : 'Revise my writing'}
         </button>
         <button class="rt-btn-secondary" onclick="_rtClearWork('${id}')">Clear response</button>
-        <div id="rt-save-${id}" style="font-size:12px;color:var(--green);align-self:center;">Saved locally</div>
+        <div id="rt-save-${id}" style="font-size:12px;color:var(--muted);align-self:center;">Autosave ready</div>
         ${canRevise
       ? `<div class="rt-revise-nudge">Your tutor recommends revising before moving on.</div>`
       : `<div style="font-size:13px;color:var(--muted);align-self:center;">✅ Activity complete</div>`}
@@ -566,7 +874,7 @@ window._rtSaveAnnotation = (id) => {
   if (window.STATE && window.STATE.progress && cfg.unitId) {
     if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
     window.STATE.progress[cfg.unitId].annotations = st.annotations;
-    if (window.saveState) window.saveState();
+    if (window.saveState) void _rtSyncToCloud(id, { immediate: true });
   }
 
   _rtPersist(id);
@@ -583,7 +891,7 @@ window._rtDeleteAnnotation = (id, idx) => {
 
   if (window.STATE && window.STATE.progress && cfg.unitId) {
     window.STATE.progress[cfg.unitId].annotations = st.annotations;
-    if (window.saveState) window.saveState();
+    if (window.saveState) void _rtSyncToCloud(id, { immediate: true });
   }
 
   _rtPersist(id);
@@ -615,6 +923,7 @@ window._rtCheckAnswers = (id) => {
     if (ta) window._rtState[id].answers[i] = ta.value;
   });
   _rtPersist(id);
+  _rtEmitNav(id); // refresh outer Next gate as the student types
 };
 
 window._rtSubmitComprehension = (id) => {
@@ -633,6 +942,7 @@ window._rtSubmitComprehension = (id) => {
 };
 
 window._rtUpdateSurvey = (id) => {
+  void (async () => {
   const st = window._rtState[id];
   const cfg = window._rtCfg[id];
   if (!st) return;
@@ -648,8 +958,32 @@ window._rtUpdateSurvey = (id) => {
   if (window.STATE && window.STATE.progress && cfg.unitId) {
     if (!window.STATE.progress[cfg.unitId]) window.STATE.progress[cfg.unitId] = {};
     window.STATE.progress[cfg.unitId].readingSurvey = st.survey;
-    if (window.saveState) window.saveState();
+    if (window.saveState) void _rtSyncToCloud(id, { immediate: true });
   }
+  if (!st.surveySubmittedAt && window.STATE?.user && cfg?.unitId) {
+    st.surveySubmittedAt = new Date().toISOString();
+    _rtPersist(id);
+    try {
+      await writeLearningEvent('survey_submit', {
+        user: window.STATE.user || {},
+        profile: _rtAnalyticsProfile(),
+        unitId: cfg.unitId,
+        timestamp: st.surveySubmittedAt,
+        eventId: `survey__${cfg.unitId || 'nouid'}__${id}__${window.STATE.user.uid || 'unknown'}`,
+        source: 'reading-task-survey',
+        meta: {
+          taskId: id,
+          surveyType: 'reading-experience',
+          difficulty: st.survey.difficulty,
+          interest: st.survey.interest,
+          strategyCount: Array.isArray(st.survey.strategies) ? st.survey.strategies.length : 0,
+        },
+      });
+    } catch (err) {
+      console.error('Survey analytics write failed:', err);
+    }
+  }
+  })();
 };
 
 window._rtWordCount = (id) => {
@@ -662,6 +996,7 @@ window._rtWordCount = (id) => {
   _rtPersist(id);
   wc.textContent = `${count} words`;
   wc.style.color = count >= cfg.wordTarget ? 'var(--green)' : 'var(--muted)';
+  _rtEmitNav(id); // refresh outer Submit gate live
 };
 
 window._rtSubmitWriting = async (id) => {
@@ -791,7 +1126,7 @@ Respond ONLY with valid JSON — no markdown fences, no preamble, no trailing te
     if (!window.STATE.progress[unitId]) window.STATE.progress[unitId] = {};
     window.STATE.progress[unitId].readingComplete = true;
     window.STATE.progress[unitId].readingAiDetection = st.aiDetection || null;
-    if (window.saveState) window.saveState();
+    if (window.saveState) await _rtSyncToCloud(id, { immediate: true });
   }
 
   _rtPersist(id);
@@ -810,6 +1145,7 @@ window._rtSubmitVoiceChallenge = async (id) => {
     st.feedback.register += ` Your additional reflection shows personal thinking — this kind of specificity is exactly what university writing requires.`;
   }
   _rtPersist(id);
+  await _rtSyncToCloud(id, { immediate: true });
   _render(id);
 };
 
@@ -822,10 +1158,69 @@ window._rtClearWork = (id) => {
   st.writing = '';
   st.feedback = null;
   st.survey = null;
+  st.surveySubmittedAt = null;
+  st.aiDetection = null;
   st.step = st.step === 'feedback' ? 'writing' : st.step;
 
   try { localStorage.removeItem(_rtStorageKey(id)); } catch { }
+  const cfg = window._rtCfg[id] || {};
+  if (cfg.unitId && window.STATE?.progress?.[cfg.unitId]?.readingTaskState) {
+    delete window.STATE.progress[cfg.unitId].readingTaskState[id];
+  }
+  if (window._rtSaveTimers[id]) {
+    clearTimeout(window._rtSaveTimers[id]);
+    delete window._rtSaveTimers[id];
+  }
+  if (typeof window.saveState === 'function') {
+    void window.saveState();
+  }
+  void _rtSyncDedicatedSubmission(id, { cleared: true });
   _render(id);
   const el = document.getElementById(`rt-save-${id}`);
   if (el) { el.textContent = 'Cleared'; el.style.color = 'var(--muted)'; }
+};
+
+// Download the reading as a PDF via the browser's print-to-PDF, using a
+// clean reading-only document. No popup (avoids blockers / WebView limits):
+// it injects a print root, isolates it with @media print rules, and prints.
+window._rtDownloadReadingPdf = (id) => {
+  const cfg = window._rtCfg[id];
+  if (!cfg) return;
+
+  // Escape config-supplied strings before interpolating into innerHTML.
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const titleHtml = esc(cfg.title || 'Reading');
+  const titleText = String(cfg.title || 'Reading');
+  const sourceLine = cfg.source ? `<div class="rt-print-source">Source: ${esc(cfg.source)}</div>` : '';
+
+  document.getElementById('rt-print-root')?.remove();
+  const root = document.createElement('div');
+  root.id = 'rt-print-root';
+  root.innerHTML = `
+    <article class="rt-print-doc">
+      <header class="rt-print-head">
+        <div class="rt-print-kicker">Academic Literacies${cfg.unitNum ? ` · Unit ${esc(cfg.unitNum)}` : ''} — Reading</div>
+        <h1 class="rt-print-title">${titleHtml}</h1>
+        ${sourceLine}
+      </header>
+      <div class="rt-print-body">${cfg.text || ''}</div>
+    </article>`;
+  document.body.appendChild(root);
+
+  // Use the reading title as the default PDF filename.
+  const prevTitle = document.title;
+  document.title = titleText;
+  document.body.classList.add('rt-printing');
+
+  const cleanup = () => {
+    document.body.classList.remove('rt-printing');
+    document.title = prevTitle;
+    document.getElementById('rt-print-root')?.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  // Fallback cleanup in case afterprint never fires (some WebViews).
+  setTimeout(() => { if (document.getElementById('rt-print-root')) cleanup(); }, 60000);
+
+  window.print();
 };

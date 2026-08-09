@@ -21,6 +21,10 @@ function cleanLower(value = '') {
   return cleanText(value).toLowerCase();
 }
 
+function normalizeIdentityEmail(value = '') {
+  return cleanLower(value).replace(/\s+/g, '');
+}
+
 function stripRole(displayName = '') {
   return cleanText(displayName).replace(/\s*\[[^\]]+\]\s*$/, '').trim();
 }
@@ -81,14 +85,16 @@ export function findRosterEntry(rows = [], identifiers = {}) {
 
 export function buildStudentProfileDraft(user, existingProfile = {}, rosterEntry = {}, overrides = {}) {
   const role = 'student';
-  const authEmail = normalizeStudentUsername(firstNonEmpty(overrides.authEmail, user?.email, existingProfile.authEmail, existingProfile.username, rosterEntry.username));
-  const username = normalizeStudentUsername(firstNonEmpty(overrides.username, existingProfile.username, rosterEntry.username, authEmail));
+  const rosterStudentEmail = normalizeStudentUsername(firstNonEmpty(rosterEntry.username, rosterStudentId(rosterEntry)));
+  const authEmail = normalizeIdentityEmail(firstNonEmpty(overrides.authEmail, user?.email, existingProfile.authEmail, existingProfile.loginEmail));
+  const username = normalizeStudentUsername(firstNonEmpty(overrides.username, existingProfile.username, rosterStudentEmail, rosterStudentId(rosterEntry)));
   const personalEmail = cleanLower(firstNonEmpty(
     overrides.personalEmail,
     overrides.email,
     existingProfile.personalEmail,
     existingProfile.email !== authEmail ? existingProfile.email : '',
-    rosterEntry.email
+    rosterEntry.email,
+    authEmail !== username ? authEmail : ''
   ));
   const firstName = firstNonEmpty(overrides.firstName, existingProfile.firstName, rosterEntry.firstName);
   const surname = firstNonEmpty(
@@ -123,6 +129,7 @@ export function buildStudentProfileDraft(user, existingProfile = {}, rosterEntry
     role,
     username,
     authEmail,
+    loginEmail: authEmail,
     email: personalEmail,
     personalEmail,
     studentId,
@@ -152,17 +159,27 @@ export function getIncompleteStudentFields(profile = {}) {
 }
 
 export async function loadStudentProfileContext(user) {
-  const [profileSnap, rosterSnap] = await Promise.all([
-    get(ref(db, `users/${user.uid}/profile`)),
-    get(ref(db, 'rosters/classList')),
-  ]);
+  const profileSnap = await get(ref(db, `users/${user.uid}/profile`));
   const existingProfile = profileSnap.exists() ? (profileSnap.val() || {}) : {};
-  const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+  const existingMissingFields = getIncompleteStudentFields(existingProfile);
+  const needsRosterLookup = !existingProfile?.uid
+    || existingMissingFields.length > 0
+    || Boolean(existingProfile?.needsProfileReview);
+
+  let rosterRows = [];
+  if (needsRosterLookup) {
+    try {
+      const rosterSnap = await get(ref(db, 'rosters/classList'));
+      rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
+    } catch (err) {
+      console.warn('Roster lookup failed during student profile load; continuing with existing profile only:', err);
+    }
+  }
   const rosterEntry = findRosterEntry(rosterRows, {
     authEmail: user?.email,
     username: existingProfile?.username,
-    email: existingProfile?.email,
-    personalEmail: existingProfile?.personalEmail,
+    email: existingProfile?.email || user?.email,
+    personalEmail: existingProfile?.personalEmail || existingProfile?.email || user?.email,
     studentId: existingProfile?.studentId || existingProfile?.studentNumber || existingProfile?.studentNo,
   });
   const profile = buildStudentProfileDraft(user, existingProfile, rosterEntry || {});

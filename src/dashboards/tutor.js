@@ -10,8 +10,11 @@ import { STATE } from '../state.js';
 import { db } from '../firebase.js';
 import { ref, get, set, remove } from 'firebase/database';
 import { TUTOR_GROUP_ASSIGNMENTS } from '../../content/tutorial-groups/assignments.js';
+import * as assessments from '../../content/assessments/index.js';
 import { generateQrDataUrl } from '../qr.js';
 import { renderGoLiveToggle } from '../components/chat-panel.js';
+import { renderSubmissionReviewer } from '../components/submission-reviewer.js';
+import { autoCloseDashboardSidebar, initDashboardFocusChrome } from './dashboard-focus.js';
 
 function _esc(v = '') {
   return String(v)
@@ -26,6 +29,10 @@ function _displayName(raw = '') {
   return String(raw || '').split(' [')[0].trim();
 }
 
+function _jsArg(value) {
+  return JSON.stringify(value ?? '');
+}
+
 function _maskEmail(email = '') {
   const value = String(email || '').trim().toLowerCase();
   const [local, domain] = value.split('@');
@@ -35,7 +42,80 @@ function _maskEmail(email = '') {
 }
 
 function _currentRole() {
+  if (_isTutorPreviewMode()) return 'tutor';
   return String(STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student').toLowerCase();
+}
+
+function _previewTutorUser() {
+  if (window._dashboardRolePreview !== 'tutor') return null;
+  const preview = window._dashboardTutorPreview;
+  if (!preview || typeof preview !== 'object') return null;
+  if (!preview.uid && !preview.email && !preview.displayName) return null;
+  return preview;
+}
+
+function _isTutorPreviewMode() {
+  return Boolean(_previewTutorUser());
+}
+
+function _activeTutorUser() {
+  return _previewTutorUser() || STATE.user || {};
+}
+
+function _safeGroupId(value = '') {
+  return String(value || '').trim().toUpperCase();
+}
+
+function _getAssessmentList() {
+  const source = window._atConfigs && typeof window._atConfigs === 'object'
+    ? Object.values(window._atConfigs)
+    : Object.values(assessments);
+  return source
+    .filter((cfg) => cfg && typeof cfg === 'object' && cfg.id)
+    .map((cfg) => ({
+      id: String(cfg.id || '').trim(),
+      badge: cfg.badge || cfg.id,
+      icon: cfg.icon || '📋',
+      title: cfg.title || cfg.badge || cfg.id,
+    }))
+    .filter((cfg) => cfg.id)
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function _loadTutorGradingAllocations() {
+  const tutorUid = String(_activeTutorUser()?.uid || '').trim();
+  if (!tutorUid) return [];
+  try {
+    const snap = await get(ref(db, 'grading-assignments'));
+    const raw = snap.exists() ? (snap.val() || {}) : {};
+    const metaById = Object.fromEntries(_getAssessmentList().map((cfg) => [cfg.id, cfg]));
+    return Object.entries(raw || {})
+      .map(([assessmentId, payload]) => {
+        const safeAssessmentId = String(assessmentId || '').trim();
+        if (!safeAssessmentId) return null;
+        const groupAssignments = Object.entries(payload?.groupAssignments || {})
+          .filter(([, entry]) => String(entry?.markerUid || '').trim() === tutorUid)
+          .map(([groupId]) => _safeGroupId(groupId))
+          .filter(Boolean);
+        const overrideCount = Object.values(payload?.submissionOverrides || {})
+          .filter((entry) => String(entry?.markerUid || '').trim() === tutorUid)
+          .length;
+        if (!groupAssignments.length && !overrideCount) return null;
+        const meta = metaById[safeAssessmentId] || {};
+        return {
+          id: safeAssessmentId,
+          badge: meta.badge || safeAssessmentId.toUpperCase(),
+          icon: meta.icon || '📋',
+          title: meta.title || meta.badge || safeAssessmentId.toUpperCase(),
+          groups: Array.from(new Set(groupAssignments)).sort(),
+          overrideCount,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  } catch {
+    return [];
+  }
 }
 
 let _tutorQrAttendanceState = null;
@@ -51,6 +131,7 @@ async function _publishTutorTutorialToken(state) {
   const now = Date.now();
   const token = _attendanceToken();
   const expiresAt = now + 60_000;
+  const activeTutor = _activeTutorUser();
   state.token = token;
   state.expiresAt = expiresAt;
 
@@ -61,7 +142,7 @@ async function _publishTutorTutorialToken(state) {
     sessionId: state.sessionId,
     updatedAt: new Date(now).toISOString(),
     expiresAt: new Date(expiresAt).toISOString(),
-    issuedByUid: STATE.user?.uid || null,
+    issuedByUid: activeTutor?.uid || null,
     issuedByRole: 'tutor',
   });
 
@@ -95,10 +176,14 @@ async function _stopTutorQrAttendance(state, closeOverlay = false) {
 }
 
 export function renderTutorDashboard(container) {
+  const previewTutor = _previewTutorUser();
   container.innerHTML = `
     <div class="dash-wrapper">
       ${_buildSidebar()}
+      <div class="dash-sidebar-scrim" onclick="window._closeDashSidebar?.()"></div>
+      ${_buildMobileDashboardBar()}
       <div class="dash-content" id="dash-content">
+        ${previewTutor ? `<div style="margin:0 0 16px 0;padding:14px 16px;border:1px solid #a7f3d0;border-radius:14px;background:#ecfdf5;color:#065f46;font-size:13px;line-height:1.6;"><strong>Preview Mode:</strong> You are viewing the tutor dashboard as <strong>${_esc(previewTutor.displayName || previewTutor.email || previewTutor.uid || 'Tutor')}</strong>. Interactive tutor actions are read-only in this preview.</div>` : ''}
         ${_buildWelcome()}
       </div>
     </div>`;
@@ -109,13 +194,62 @@ export function renderTutorDashboard(container) {
       _loadSession(sid);
       document.querySelectorAll('.dash-nav-item').forEach(e => e.classList.remove('active'));
       el.classList.add('active');
+      autoCloseDashboardSidebar();
     });
   });
 
   window._dashLoadSession = _loadSession;
   window._openTutorGroupInsights = _openTutorGroupInsights;
+  window._openTutorSubmissionReviewer = async function (preferredAssessmentId = '') {
+    const content = document.getElementById('dash-content');
+    if (!content) return;
+    content.innerHTML = '<div id="submission-reviewer-mount" style="height:100%;overflow-y:auto;"></div>';
+    await renderSubmissionReviewer(document.getElementById('submission-reviewer-mount'));
+    const preferredId = String(preferredAssessmentId || '').trim();
+    if (preferredId && typeof window._loadStaffSubmissions === 'function') {
+      await window._loadStaffSubmissions(preferredId);
+      autoCloseDashboardSidebar();
+      return;
+    }
+    const gradingAllocations = await _loadTutorGradingAllocations();
+    const firstAssigned = gradingAllocations[0]?.id || '';
+    if (firstAssigned && typeof window._loadStaffSubmissions === 'function') {
+      await window._loadStaffSubmissions(firstAssigned);
+    }
+    document.querySelectorAll('.dash-nav-item').forEach((e) => e.classList.remove('active'));
+    autoCloseDashboardSidebar();
+  };
+  window._openTutorAllocatedAssessment = function (assessmentId) {
+    window._openTutorSubmissionReviewer(String(assessmentId || ''));
+  };
   _renderTutorGroupSummary();
-  renderGoLiveToggle('tutor-go-live-mount');
+  if (_isTutorPreviewMode()) {
+    const mount = document.getElementById('tutor-go-live-mount');
+    if (mount) mount.innerHTML = '<div style="font-size:11px;color:#065f46;padding:8px 10px;border:1px solid #a7f3d0;border-radius:10px;background:#ecfdf5;">Tutor preview mode: live controls disabled.</div>';
+  } else {
+    renderGoLiveToggle('tutor-go-live-mount');
+  }
+  initDashboardFocusChrome();
+}
+
+function _buildMobileDashboardBar() {
+  return `
+    <div class="dash-mobile-bar">
+      <button class="dash-mobile-menu-btn" onclick="window._toggleDashSidebar?.()">Menu</button>
+      <button class="dash-focus-toggle" onclick="window._toggleDashFocusMode?.()">
+        <span data-dash-focus-label>Focus view</span>
+      </button>
+    </div>`;
+}
+
+function _buildSidebarActions() {
+  return `
+    <div class="dash-sidebar-actions">
+      <button class="dash-sidebar-focus-btn" onclick="window._toggleDashFocusMode?.()">
+        <span data-dash-focus-label>Focus view</span>
+      </button>
+      <button class="dash-sidebar-close-btn" onclick="window._closeDashSidebar?.()" aria-label="Close sidebar">Close</button>
+    </div>`;
 }
 
 function _buildSidebar() {
@@ -137,6 +271,7 @@ function _buildSidebar() {
         <div class="dash-role-badge tutor-badge">👥 Tutor</div>
         <div class="dash-sidebar-title">Tutorial Sessions</div>
         <div class="dash-sidebar-sub">45 minutes · Targeted support</div>
+        ${_buildSidebarActions()}
       </div>
 
       <div class="dash-session-type-bar">
@@ -163,6 +298,7 @@ function _buildSidebar() {
           <button class="dash-qt-btn" onclick="_diagnosticBuilder()">📊 Diagnostic</button>
           <button class="dash-qt-btn" onclick="_openTutorTutorialQrTool()">📲 Tutorial QR Check-in</button>
           <button class="dash-qt-btn" onclick="_openTutorGroupInsights()">👥 My Student Data</button>
+          <button class="dash-qt-btn" onclick="window._openTutorSubmissionReviewer()" style="background:#059669;color:white;border-color:#059669;">📤 My Grading Queue</button>
         </div>
       </div>
     </aside>`;
@@ -183,8 +319,9 @@ function _activeAttendanceDateKey() {
 }
 
 function _resolveTutorAssignmentLocal() {
-  const email = String(STATE.user?.email || '').toLowerCase();
-  const displayName = String(STATE.user?.displayName || '').split(' [')[0].trim().toLowerCase();
+  const activeTutor = _activeTutorUser();
+  const email = String(activeTutor?.email || '').toLowerCase();
+  const displayName = String(activeTutor?.displayName || activeTutor?.name || '').split(' [')[0].trim().toLowerCase();
   return TUTOR_GROUP_ASSIGNMENTS.find((row) => {
     const cfgEmail = String(row?.tutor?.email || '').toLowerCase();
     const cfgName = String(row?.tutor?.displayName || '').trim().toLowerCase();
@@ -193,7 +330,7 @@ function _resolveTutorAssignmentLocal() {
 }
 
 async function _resolveTutorAssignment() {
-  const tutorUid = STATE.user?.uid;
+  const tutorUid = _activeTutorUser()?.uid;
   if (tutorUid) {
     try {
       const snap = await get(ref(db, `tutorial-groups/assignmentsByTutor/${tutorUid}`));
@@ -241,21 +378,41 @@ function _summariseHeutagogy(progressObj = {}) {
 async function _renderTutorGroupSummary() {
   const content = document.getElementById('dash-content');
   if (!content) return;
-  const assignment = await _resolveTutorAssignment();
+  const [assignment, gradingAllocations] = await Promise.all([
+    _resolveTutorAssignment(),
+    _loadTutorGradingAllocations(),
+  ]);
   const groups = assignment?.groups || [];
   const studentCount = groups.reduce((sum, g) => sum + _groupStudentCount(g), 0);
 
   const host = document.createElement('div');
   host.style.cssText = 'margin-top:16px;background:white;border:1px solid var(--border);border-radius:12px;padding:12px;';
-  host.innerHTML = assignment
-    ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-         <div>
-           <div style="font-size:12px;color:var(--muted);">Assigned tutorial groups</div>
-           <div style="font-size:14px;color:var(--navy);font-weight:700;">${groups.length} group${groups.length === 1 ? '' : 's'} · ${studentCount} student${studentCount === 1 ? '' : 's'}</div>
-         </div>
-         <button class="btn-prev" style="display:inline-flex;" onclick="_openTutorGroupInsights()">Open My Student Data</button>
-       </div>`
-    : `<div style="font-size:13px;color:var(--muted);line-height:1.6;">No tutor-group allocation found yet. Add your mappings in <strong>content/tutorial-groups/assignments.js</strong> and reload this dashboard.</div>`;
+  host.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:#f8fafc;">
+        ${assignment
+          ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+               <div>
+                 <div style="font-size:12px;color:var(--muted);">Assigned tutorial groups</div>
+                 <div style="font-size:14px;color:var(--navy);font-weight:700;">${groups.length} group${groups.length === 1 ? '' : 's'} · ${studentCount} student${studentCount === 1 ? '' : 's'}</div>
+               </div>
+               <button class="btn-prev" style="display:inline-flex;" onclick="_openTutorGroupInsights()">Open My Student Data</button>
+             </div>`
+          : `<div style="font-size:13px;color:var(--muted);line-height:1.6;">No tutor-group allocation found yet. Add your mappings in <strong>content/tutorial-groups/assignments.js</strong> and reload this dashboard.</div>`}
+      </div>
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px;background:#f0fdf4;">
+        <div style="font-size:12px;color:#166534;">My grading queue</div>
+        <div style="font-size:14px;color:var(--navy);font-weight:700;margin-top:2px;">Open the assigned marking queue without lecturer setup or allocation controls.</div>
+        ${gradingAllocations.length
+          ? `<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
+               ${gradingAllocations.map((item) => `<button class="btn-prev" style="display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;padding:10px 12px;border-color:#bbf7d0;background:white;" onclick="window._openTutorAllocatedAssessment(${_jsArg(item.id)})">
+                 <span style="font-weight:700;color:var(--navy);">${_esc(item.icon)} ${_esc(item.badge)}</span>
+                 <span style="font-size:12px;color:#166534;">Open queue</span>
+               </button>`).join('')}
+             </div>`
+          : '<div style="font-size:13px;color:var(--muted);line-height:1.6;margin-top:8px;">No submission queue is assigned to this tutor yet.</div>'}
+      </div>
+    </div>`;
 
   content.appendChild(host);
 }
@@ -573,6 +730,10 @@ window._setTutorAttendanceDate = (dateKey) => {
 };
 
 window._openTutorTutorialQrTool = async () => {
+  if (_isTutorPreviewMode()) {
+    alert('Tutor dashboard preview is read-only. Return to lecturer view or sign in as the tutor to start tutorial QR check-in.');
+    return;
+  }
   if (_tutorQrAttendanceState) {
     await _stopTutorQrAttendance(_tutorQrAttendanceState, true);
   }
@@ -705,6 +866,7 @@ function _loadSession(sid) {
   content.innerHTML = `<div id="sp-mount-${sid}"></div>`;
   renderSessionPlan(session, `sp-mount-${sid}`);
   content.scrollTop = 0;
+  autoCloseDashboardSidebar();
 }
 
 function _buildWelcome() {

@@ -4,6 +4,7 @@
 // Go to: Firebase Console → Project Settings → Your Apps → SDK setup
 // ─────────────────────────────────────────────
 import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import {
   initializeAuth,
   getAuth,
@@ -13,6 +14,7 @@ import {
   indexedDBLocalPersistence,
   inMemoryPersistence,
 } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 import { getDatabase } from 'firebase/database';
 import { getStorage } from 'firebase/storage';
 
@@ -26,8 +28,37 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-console.log('Firebase Config Loaded (Sanitized):', { ...firebaseConfig, apiKey: '***' });
-console.log('Initializing Firebase App...');
+const REQUIRED_FIREBASE_CONFIG_KEYS = [
+  'apiKey',
+  'authDomain',
+  'databaseURL',
+  'projectId',
+  'appId',
+];
+
+const missingFirebaseConfigKeys = REQUIRED_FIREBASE_CONFIG_KEYS.filter((key) => !String(firebaseConfig[key] || '').trim());
+export const firebaseConfigError = missingFirebaseConfigKeys.length
+  ? `Firebase sign-in is not configured correctly. Missing: ${missingFirebaseConfigKeys.join(', ')}.`
+  : '';
+const appCheckSiteKey = String(import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY || '').trim();
+export const appCheckConfigError = appCheckSiteKey
+  ? ''
+  : 'Firebase App Check is not configured correctly. Missing: VITE_RECAPTCHA_ENTERPRISE_SITE_KEY.';
+
+function isAndroidNativeWebView() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const host = String(window.location?.hostname || '').trim().toLowerCase();
+  const ua = String(navigator.userAgent || '');
+  return host === 'localhost' && /Android/i.test(ua);
+}
+
+if (firebaseConfigError) {
+  console.error(firebaseConfigError);
+}
+if (appCheckConfigError) {
+  console.warn(appCheckConfigError);
+}
+
 export const app = initializeApp(firebaseConfig);
 
 // New default Firebase Storage buckets use *.firebasestorage.app.
@@ -37,7 +68,6 @@ const projectId = firebaseConfig.projectId || '';
 const resolvedBucket = rawBucket || (projectId ? `${projectId}.firebasestorage.app` : null);
 
 function createAuth() {
-  console.log('Initializing Firebase Auth with multi-persistence fallbacks...');
   try {
     return initializeAuth(app, {
       persistence: [
@@ -55,9 +85,54 @@ function createAuth() {
 
 export const auth = createAuth();
 
-setPersistence(auth, inMemoryPersistence)
-  .then(() => console.log('Firebase Auth persistence set to in-memory fallback-safe mode.'))
-  .catch((err) => console.warn('Could not force in-memory persistence; continuing with SDK defaults:', err?.code || err?.message || err));
+function createAppCheck() {
+  if (!appCheckSiteKey) return null;
+  if (isAndroidNativeWebView()) {
+    console.info('Skipping Firebase App Check in Android WebView.');
+    return null;
+  }
+  try {
+    if (import.meta.env.DEV && typeof self !== 'undefined') {
+      self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_APP_CHECK_DEBUG_TOKEN || true;
+    }
+    return initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    console.warn('Firebase App Check initialization failed:', err?.code || err?.message || err);
+    return null;
+  }
+}
+
+export const appCheck = createAppCheck();
+
+async function ensureDurablePersistence() {
+  const fallbacks = [
+    indexedDBLocalPersistence,
+    browserLocalPersistence,
+    browserSessionPersistence,
+    inMemoryPersistence,
+  ];
+  for (const persistence of fallbacks) {
+    try {
+      await setPersistence(auth, persistence);
+      return;
+    } catch (err) {
+      console.warn('Firebase auth persistence fallback failed:', err?.code || err?.message || err);
+    }
+  }
+}
+
+export const authReady = ensureDurablePersistence().catch((err) => {
+  console.warn('Could not configure Firebase auth persistence; continuing with SDK defaults:', err?.code || err?.message || err);
+});
+
+const functionsRegion = String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || '').trim() || 'us-central1';
+if (!import.meta.env.DEV && !String(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || '').trim()) {
+  console.warn('VITE_FIREBASE_FUNCTIONS_REGION is not set. Falling back to us-central1.');
+}
 
 export const db = getDatabase(app);
+export const functions = getFunctions(app, functionsRegion);
 export const storage = resolvedBucket ? getStorage(app, `gs://${resolvedBucket}`) : getStorage(app);

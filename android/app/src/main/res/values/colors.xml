@@ -1,7 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="splash_background">#0D3B66</color>
-    <color name="splash_icon_background">#2F6FA8</color>
-    <color name="splash_status_bar">#0A2E52</color>
-    <color name="splash_navigation_bar">#0A2E52</color>
+    <color name="app_primary">#10263D</color>
+    <color name="app_primary_dark">#081A2B</color>
+    <color name="app_accent">#D3A34D</color>
+    <color name="app_surface">#F3F6FA</color>
+    <color name="splash_background">#0F172A</color>
+    <color name="splash_icon_background">#0F172A</color>
+    <color name="splash_status_bar">#0F172A</color>
+    <color name="splash_navigation_bar">#0F172A</color>
+    <color name="brand_midnight">#081A2B</color>
+    <color name="brand_navy">#0F2C46</color>
+    <color name="brand_ink">#153757</color>
+    <color name="brand_glow">#244E79</color>
+    <color name="brand_mist">#D8E4F1</color>
+    <color name="brand_gold">#D3A34D</color>
+    <color name="brand_white">#FFFFFF</color>
 </resources>

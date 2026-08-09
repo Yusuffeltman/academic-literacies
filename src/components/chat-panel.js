@@ -10,7 +10,9 @@ import {
   createGroupRoom, createDirectRoom, getRoomMembers,
   ensureTutorialGroupRooms, getAvailableStudents,
 } from '../chat.js';
+import { addCollaborationLinkArtefact, uploadCollaborationArtefact } from '../collaboration-groups.js';
 import { showToast } from './toaster.js';
+import { getAppSurface } from '../platform.js';
 
 let _chatOpen = false;
 let _currentView = 'room-list'; // 'room-list' | 'thread' | 'new-chat'
@@ -20,6 +22,17 @@ let _liveStaff = {};
 let _scheduledSessions = {};
 let _typingUsers = {};
 let _reminderTimer = null;
+let _sharingAsset = false;
+
+function _chatRole() {
+  if (getAppSurface().isAndroidApp) return 'student';
+  return STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student';
+}
+
+function _isStaffChatRole() {
+  const role = _chatRole();
+  return role === 'tutor' || role === 'lecturer' || role === 'moderator';
+}
 
 // ── Init ────────────────────────────────────────
 
@@ -68,6 +81,7 @@ export function destroyChatPanel() {
   _chatOpen = false;
   _currentView = 'room-list';
   _activeRoomId = null;
+  _sharingAsset = false;
 }
 
 // ── Toggle ──────────────────────────────────────
@@ -97,6 +111,33 @@ export function isChatPanelOpen() { return _chatOpen; }
 export function closeChatPanel() {
   if (!_chatOpen) return;
   toggleChatPanel();
+}
+
+export function openChatRoom(roomId, roomSummary = null) {
+  if (!roomId) return;
+
+  if (!document.getElementById('chat-panel') || !document.getElementById('chat-fab')) {
+    initChatPanel();
+  }
+
+  if (roomSummary && !STATE.chat.cachedRooms?.[roomId]) {
+    STATE.chat.cachedRooms = {
+      ...(STATE.chat.cachedRooms || {}),
+      [roomId]: {
+        unreadCount: 0,
+        ...roomSummary,
+      },
+    };
+  }
+
+  if (!_chatOpen) {
+    _chatOpen = true;
+    const panel = document.getElementById('chat-panel');
+    panel?.classList.remove('hidden');
+  }
+
+  if (!document.getElementById('chat-panel')) return;
+  _openRoom(roomId);
 }
 
 // ── Back handler (for Android) ──────────────────
@@ -174,8 +215,7 @@ function _updateBadge() {
 
 function _renderRoomList() {
   const rooms = getCachedRooms();
-  const role = STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student';
-  const isStaff = role === 'tutor' || role === 'lecturer' || role === 'moderator';
+  const isStaff = _isStaffChatRole();
 
   // Live staff section (for students)
   let liveHtml = '';
@@ -290,6 +330,7 @@ function _openRoom(roomId) {
   _messages = [];
   _typingUsers = {};
   _readReceipts = {};
+  _sharingAsset = false;
   openThread(roomId);
   _renderAndMountThread();
   // Load read receipts asynchronously
@@ -304,6 +345,7 @@ function _renderThread() {
   const room = rooms[_activeRoomId] || {};
   const roomName = room.name || 'Chat';
   const uid = STATE.user?.uid;
+  const isCollaborationRoom = Boolean(room?.collaborationGroupId && room?.collaborationScopeId);
 
   // Find last own message index for read receipt placement
   let lastOwnIdx = -1;
@@ -318,10 +360,11 @@ function _renderThread() {
     const isOwn = msg.sender === uid;
     const pending = msg.status === 'pending';
     const showReceipt = isOwn && idx === lastOwnIdx && !pending;
+    const bodyHtml = msg.type === 'asset' ? _renderAssetMessageBody(msg) : `<div class="chat-msg-bubble">${_esc(msg.text)}</div>`;
     return `
       <div class="chat-msg ${isOwn ? 'chat-msg-own' : 'chat-msg-other'} ${pending ? 'chat-msg-pending' : ''}">
         ${!isOwn ? `<div class="chat-msg-sender">${_esc(msg.senderName)}</div>` : ''}
-        <div class="chat-msg-bubble">${_esc(msg.text)}</div>
+        ${bodyHtml}
         <div class="chat-msg-time">${_formatTime(msg.timestamp)}${pending ? ' · sending...' : ''}${showReceipt ? '<span id="chat-read-receipt" class="chat-read-receipt"></span>' : ''}</div>
       </div>
     `;
@@ -338,6 +381,11 @@ function _renderThread() {
     </div>
     <div class="chat-typing" id="chat-typing"></div>
     <div class="chat-input-area">
+      ${isCollaborationRoom ? `
+        <input id="chat-file-input" type="file" class="chat-file-input" ${_sharingAsset ? 'disabled' : ''} />
+        <button id="chat-share-file-btn" class="chat-attach-btn" ${_sharingAsset ? 'disabled' : ''} title="Share file">📎</button>
+        <button id="chat-share-link-btn" class="chat-attach-btn" ${_sharingAsset ? 'disabled' : ''} title="Share link">🔗</button>
+      ` : ''}
       <textarea id="chat-input" class="chat-input" placeholder="Type a message..." rows="1"></textarea>
       <button id="chat-send-btn" class="chat-send-btn">Send</button>
     </div>
@@ -365,6 +413,12 @@ function _wireThreadEvents() {
   const sendBtn = document.getElementById('chat-send-btn');
 
   sendBtn?.addEventListener('click', _handleSend);
+  document.getElementById('chat-share-file-btn')?.addEventListener('click', () => {
+    if (_sharingAsset) return;
+    document.getElementById('chat-file-input')?.click();
+  });
+  document.getElementById('chat-file-input')?.addEventListener('change', _handleFileShare);
+  document.getElementById('chat-share-link-btn')?.addEventListener('click', _handleLinkShare);
   input?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -389,7 +443,7 @@ async function _handleSend() {
     id: `local_${Date.now()}`,
     sender: STATE.user?.uid,
     senderName: STATE.user?.displayName?.split(' [')[0] || 'You',
-    senderRole: STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student',
+    senderRole: _chatRole(),
     text,
     timestamp: new Date().toISOString(),
     type: 'text',
@@ -399,6 +453,58 @@ async function _handleSend() {
   _renderAndMountThread();
 
   await sendMessage(_activeRoomId, text);
+}
+
+async function _handleFileShare() {
+  const room = getCachedRooms()[_activeRoomId] || {};
+  const fileInput = document.getElementById('chat-file-input');
+  const file = fileInput?.files?.[0] || null;
+  if (!room?.collaborationGroupId || !room?.collaborationScopeId || !file || _sharingAsset) return;
+
+  _sharingAsset = true;
+  try {
+    await uploadCollaborationArtefact(room.collaborationScopeId, room.collaborationGroupId, file);
+    showToast('Artefact shared with the group.', 'success');
+  } catch (err) {
+    showToast(err?.message || 'Could not share the file right now.', 'error');
+  } finally {
+    if (fileInput) fileInput.value = '';
+    _sharingAsset = false;
+    _renderAndMountThread();
+  }
+}
+
+async function _handleLinkShare() {
+  const room = getCachedRooms()[_activeRoomId] || {};
+  if (!room?.collaborationGroupId || !room?.collaborationScopeId || _sharingAsset) return;
+  const url = window.prompt('Paste the link you want to share with your group:');
+  if (!url) return;
+
+  _sharingAsset = true;
+  try {
+    await addCollaborationLinkArtefact(room.collaborationScopeId, room.collaborationGroupId, { url });
+    showToast('Link shared with the group.', 'success');
+  } catch (err) {
+    showToast(err?.message || 'Could not share the link right now.', 'error');
+  } finally {
+    _sharingAsset = false;
+    _renderAndMountThread();
+  }
+}
+
+function _renderAssetMessageBody(msg) {
+  const asset = msg?.asset || {};
+  const title = _esc(asset?.name || msg?.text || 'Shared artefact');
+  const caption = msg?.text && msg.text !== `Shared ${asset?.name || ''}` ? `<div class="chat-asset-caption">${_esc(msg.text)}</div>` : '';
+  const kind = String(asset?.kind || asset?.type || 'file');
+  return `
+    <div class="chat-msg-bubble chat-msg-bubble--asset">
+      <div class="chat-asset-kind">${_esc(kind)}</div>
+      <div class="chat-asset-name">${title}</div>
+      ${caption}
+      ${asset?.url ? `<a class="chat-asset-link" href="${_escAttr(asset.url)}" target="_blank" rel="noopener">Open artefact</a>` : ''}
+    </div>
+  `;
 }
 
 function _scrollToBottom() {
@@ -675,8 +781,7 @@ export function renderGoLiveToggle(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const role = STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student';
-  if (role !== 'tutor' && role !== 'lecturer' && role !== 'moderator') return;
+  if (!_isStaffChatRole()) return;
 
   const uid = STATE.user?.uid;
   const isLive = _liveStaff[uid]?.available || false;

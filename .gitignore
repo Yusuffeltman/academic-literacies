@@ -5,3 +5,28 @@ dist.zip
 *.zip
 .env
 .env.local
+
+# Deploy cache
+.firebase/
+
+# Local snapshot of the pilot fork (1GB+, includes Android build trees)
+pilot/
+
+# Signed release binaries (kept locally / distributed via Drive)
+android/distribution/
+
+# One-off data migration snapshots — contain student PII, never commit
+.migration-*.json
+
+# Account merge plans and patches — full account snapshots, never commit
+.merge-plan-*.json
+.merge-patch-*.json
+
+# Signing keys
+keys/
+*.jks
+
+# Env files anywhere, any suffix
+.env.*
+**/.env
+**/.env.*

@@ -3,12 +3,18 @@
 import { STATE } from '../state.js';
 import { createScheduledSession, cancelScheduledSession } from '../chat.js';
 import { showToast } from './toaster.js';
+import { getAppSurface } from '../platform.js';
+
+function _scheduleRole() {
+  if (getAppSurface().isAndroidApp) return 'student';
+  return STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student';
+}
 
 export function renderScheduleForm(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const role = STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student';
+  const role = _scheduleRole();
   if (role !== 'tutor' && role !== 'lecturer' && role !== 'moderator') return;
 
   container.innerHTML = `
@@ -94,7 +100,7 @@ export function renderUpcomingSessions(containerId, scheduledSessions = {}) {
   container.innerHTML = upcoming.map(([id, s]) => {
     const d = new Date(s.startsAt);
     const timeStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const isStaff = (STATE.user?.displayName?.match(/\[(.*?)\]/)?.[1] || 'student') !== 'student';
+    const isStaff = _scheduleRole() !== 'student';
     return `
       <div class="chat-scheduled-item">
         <div class="chat-scheduled-title">${_esc(s.title)}</div>

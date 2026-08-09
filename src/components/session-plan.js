@@ -7,6 +7,7 @@
 
 import { _aiChat } from '../ai.js';
 import { scoreSubmissionForAI, getStudentBaselineProfile } from '../ai-detection.js';
+import { persistLocalStateSoon } from '../state.js';
 
 // ── Process Writing persistence ───────────────────────────
 const PW_STORAGE_PREFIX = 'acadlit-pw-v1';
@@ -52,12 +53,13 @@ function _pwScheduleStateSave(sid, i, payload) {
     timestamp: new Date(savedAt).toISOString(),
     updatedAt: new Date(savedAt).toISOString(),
   };
+  persistLocalStateSoon('process-writing');
 
   const timerKey = `${sid}:${i}`;
   const existing = _pwSaveTimers.get(timerKey);
   if (existing) clearTimeout(existing);
   _pwSaveTimers.set(timerKey, setTimeout(() => {
-    window.saveState?.().catch(() => {});
+    window.saveState?.();
   }, 700));
 }
 
@@ -457,40 +459,420 @@ function _spVisualSrc(type = 'overview', title = '') {
 }
 
 function _spBuildSlides(cfg) {
-  const workflow = cfg.blocks.map((b, i) => `${i + 1}. ${b.time} · ${b.title}`).join('\n');
+  const isContact = cfg.type === 'contact';
   const slides = [
+    // Title slide — full-width hero
     {
+      layout: 'hero',
       heading: cfg.title,
-      subheading: `${cfg.type === 'contact' ? 'Contact' : 'Tutorial'} session · ${cfg.phase}`,
-      body: cfg.goal,
-      bullets: [
-        `Duration: ${cfg.type === 'contact' ? '90' : '45'} minutes`,
-        `Focus: ${cfg.subtitle}`,
-      ],
-      visualType: 'overview',
+      subheading: cfg.subtitle,
+      accent: isContact ? '#3b82f6' : '#22c55e',
+      gradient: isContact ? 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 40%,#1d4ed8 100%)' : 'linear-gradient(135deg,#0f172a 0%,#1a3a2a 40%,#15803d 100%)',
+      icon: isContact ? '🏫' : '👥',
+      meta: `${cfg.phase} · ${isContact ? '90' : '45'} minutes`,
     },
+    // Goal slide
     {
+      layout: 'focus',
+      heading: 'Session Goal',
+      body: cfg.goal,
+      icon: '🎯',
+      accent: '#f59e0b',
+    },
+    // Workflow overview — numbered steps
+    {
+      layout: 'workflow',
       heading: 'Class Workflow',
-      subheading: 'Session sequence overview',
-      body: workflow,
-      bullets: [],
-      visualType: 'workflow',
+      steps: cfg.blocks.map((b, i) => ({
+        num: i + 1,
+        time: b.time,
+        title: b.title,
+        duration: b.duration,
+        type: b.type,
+        icon: (_SP_VISUAL_MAP[b.type] || _SP_VISUAL_MAP.overview).icon,
+      })),
     },
   ];
 
-  cfg.blocks.forEach((b) => {
+  // Pre-work slide
+  if (cfg.preWork?.length) {
     slides.push({
-      heading: `${b.time} · ${b.title}`,
-      subheading: `${b.duration} minutes · ${b.type}`,
+      layout: 'checklist',
+      heading: 'Pre-Session Requirements',
+      icon: '📋',
+      accent: '#ef4444',
+      items: cfg.preWork.map(p => ({
+        text: p.item,
+        detail: p.detail || '',
+      })),
+      warning: cfg.preWorkNote || null,
+    });
+  }
+
+  // Individual block slides
+  cfg.blocks.forEach((b, i) => {
+    const vis = _SP_VISUAL_MAP[b.type] || _SP_VISUAL_MAP.overview;
+    slides.push({
+      layout: (b.steps?.length) ? 'steps' : 'focus',
+      heading: b.title,
+      subheading: `${b.time} · ${b.duration} min`,
       body: b.description,
-      bullets: [
-        ...(b.steps || []),
-      ],
-      visualType: b.type || 'overview',
+      bullets: b.steps || [],
+      icon: vis.icon,
+      accent: _blockAccent(b.type),
+      blockNum: i + 1,
+      totalBlocks: cfg.blocks.length,
+      facilitatorScript: b.facilitatorScript || null,
     });
   });
 
+  // Process writing stages (if present)
+  if (cfg.processWritingStages?.length) {
+    slides.push({
+      layout: 'stages',
+      heading: 'Process Writing Stages',
+      icon: '✍️',
+      stages: cfg.processWritingStages,
+    });
+  }
+
+  // Inject interactive games mapped to this session
+  const games = _SESSION_GAMES[cfg.id] || [];
+  games.forEach(g => slides.push(g));
+
   return slides;
+}
+
+// ── Interactive Game Engine ─────────────────────────
+// Games are mapped per session for maximum educational relevance.
+// Each game is a slide with layout: 'game-*' that renders interactive content.
+
+const _SESSION_GAMES = {
+  // ── C1: AI in Education ──────────────────────
+  c1: [
+    {
+      layout: 'game-ai-or-human',
+      heading: 'AI or Human?',
+      icon: '🤖',
+      instruction: 'Read each paragraph. Decide: was it written by AI or a student?',
+      items: [
+        { text: 'Artificial intelligence in education presents both opportunities and challenges. As future teachers, we must consider the implications of AI-driven tools in our classrooms, particularly in the South African context where access to technology varies significantly across communities.', answer: 'human', reveal: 'Written by a 1st-year student — notice the personal voice and specific SA context.' },
+        { text: 'The integration of artificial intelligence in educational settings represents a paradigm shift in pedagogical approaches. AI-powered tools can facilitate personalized learning experiences, enable real-time assessment feedback, and support educators in identifying at-risk students through predictive analytics.', answer: 'ai', reveal: 'AI-generated — notice the generic language, no personal stance, perfect but empty structure.' },
+        { text: 'I think AI is scary because what if it takes my job one day? But also my cousin used ChatGPT to help study for matric and she passed everything. So maybe it depends on how you use it, not whether you use it.', answer: 'human', reveal: 'Student writing — authentic voice, personal example, honest uncertainty.' },
+        { text: 'The pedagogical implications of AI adoption necessitate a comprehensive re-evaluation of assessment methodologies, curriculum design frameworks, and the fundamental nature of teacher-student interactions in contemporary educational ecosystems.', answer: 'ai', reveal: 'AI — overloaded with jargon, says nothing specific, no human perspective.' },
+      ],
+    },
+    {
+      layout: 'game-four-corners',
+      heading: 'Four Corners',
+      icon: '🧭',
+      instruction: 'Move to the corner that matches your position. Be ready to defend it.',
+      statement: 'Students should be allowed to use AI tools like ChatGPT for all their university assignments.',
+      corners: [
+        { label: 'Strongly Agree', color: '#22c55e', argument: 'AI is a tool like a calculator — banning it prepares students for a world that no longer exists.' },
+        { label: 'Agree', color: '#3b82f6', argument: 'With proper guidelines, AI can enhance learning without replacing thinking.' },
+        { label: 'Disagree', color: '#f59e0b', argument: 'Students need to develop foundational skills first before using AI shortcuts.' },
+        { label: 'Strongly Disagree', color: '#ef4444', argument: 'AI use in assignments is academic dishonesty and undermines the purpose of education.' },
+      ],
+    },
+  ],
+
+  // ── C2: Algorithms & Filter Bubbles ──────────
+  c2: [
+    {
+      layout: 'game-ai-or-human',
+      heading: 'Headline or Hoax?',
+      icon: '📰',
+      instruction: 'Are these real headlines from South African news, or AI-generated fakes?',
+      items: [
+        { text: 'Department of Education announces AI tutors for all Grade 12 learners by 2026', answer: 'ai', reveal: 'Fake — AI-generated headline. No such announcement exists. Did it feel plausible? That\'s how filter bubbles work.' },
+        { text: 'South African students spend average of 4.5 hours daily on social media', answer: 'human', reveal: 'Real — from a 2024 Digital Citizenship report. Your algorithm probably never showed you this.' },
+        { text: 'University of Johannesburg launches Africa\'s first AI-powered student support chatbot', answer: 'human', reveal: 'Real — this actually happened. Did your search bubble surface it?' },
+        { text: 'Study proves students who use TikTok perform 30% worse in academic writing', answer: 'ai', reveal: 'Fake — no such study. But it confirms existing biases, which is exactly how misinformation spreads.' },
+      ],
+    },
+    {
+      layout: 'game-standup',
+      heading: 'Stand Up / Sit Down',
+      icon: '🧍',
+      instruction: 'Stand if the statement is TRUE. Stay seated if FALSE.',
+      statements: [
+        { text: 'Google shows the same search results to everyone.', answer: false, explain: 'False — Google personalises results based on location, search history, and browsing behaviour.' },
+        { text: 'Your social media feed is curated by algorithms, not shown in chronological order.', answer: true, explain: 'True — engagement-based algorithms decide what you see, creating filter bubbles.' },
+        { text: 'Using incognito mode stops websites from tracking you.', answer: false, explain: 'False — incognito only hides history locally. Websites, ISPs, and networks can still track you.' },
+        { text: 'Two students sitting next to each other can get different results for the same Google search.', answer: true, explain: 'True — personalisation means the same query returns different results for different users.' },
+        { text: 'AI-generated content always contains factual errors.', answer: false, explain: 'False — AI can be factually correct. The danger is that you can\'t tell when it isn\'t without verifying.' },
+      ],
+    },
+  ],
+
+  // ── C3: Critical Thinking & SIFT ─────────────
+  c3: [
+    {
+      layout: 'game-spot-error',
+      heading: 'Spot the Bias',
+      icon: '🔍',
+      instruction: 'Each statement contains a cognitive bias. Can you name it?',
+      items: [
+        { text: 'I read one article that says vaccines cause autism, so it must be true.', error: 'Confirmation bias + anecdotal evidence', explain: 'One source is never enough. The overwhelming scientific consensus says otherwise.' },
+        { text: 'Everyone on my Twitter timeline agrees that online learning is better, so most people must think so.', error: 'False consensus effect + filter bubble', explain: 'Your timeline is curated. The people you follow are not representative of "most people."' },
+        { text: 'This website looks professional and has a .org domain, so the information must be reliable.', error: 'Authority bias + appearance heuristic', explain: 'Anyone can buy a .org domain. Professional design ≠ credible information. Always check WHO is behind it.' },
+        { text: 'I\'ve always believed this, so the new evidence against it must be wrong.', error: 'Belief perseverance / backfire effect', explain: 'When new evidence contradicts existing beliefs, we often reject the evidence rather than update our beliefs.' },
+      ],
+    },
+    {
+      layout: 'game-quiz',
+      heading: 'SIFT Speed Round',
+      icon: '⚡',
+      instruction: '10 seconds per question. What does each letter in SIFT stand for?',
+      questions: [
+        { q: 'What does the S in SIFT stand for?', options: ['Search', 'Stop', 'Source', 'Study'], correct: 1, explain: 'STOP — before you share or use information, stop and check.' },
+        { q: 'What does the I stand for?', options: ['Investigate', 'Interpret', 'Integrate', 'Inquire'], correct: 0, explain: 'INVESTIGATE the source — who is behind the information?' },
+        { q: 'What does the F stand for?', options: ['Filter', 'Find better coverage', 'Fact-check', 'Follow'], correct: 1, explain: 'FIND BETTER COVERAGE — look for other sources reporting the same claim.' },
+        { q: 'What does the T stand for?', options: ['Test', 'Think', 'Trace claims', 'Track'], correct: 2, explain: 'TRACE claims, quotes, and media back to the original context.' },
+        { q: 'You find a shocking statistic on a blog. First SIFT step?', options: ['Share it quickly', 'Google the statistic', 'Stop and check the source', 'Ask a friend'], correct: 2, explain: 'Always STOP first. Don\'t react or share before verifying.' },
+      ],
+    },
+  ],
+
+  // ── C4: Deep Work ────────────────────────────
+  c4: [
+    {
+      layout: 'game-standup',
+      heading: 'Deep Work Truth or Myth',
+      icon: '🧠',
+      instruction: 'Stand if TRUE, sit if FALSE.',
+      statements: [
+        { text: 'Multitasking makes you more productive.', answer: false, explain: 'Myth — research shows task-switching reduces productivity by up to 40% and increases errors.' },
+        { text: 'It takes an average of 23 minutes to refocus after a distraction.', answer: true, explain: 'True — University of California research found it takes 23 minutes and 15 seconds on average.' },
+        { text: 'Checking your phone once during a study session has no measurable impact.', answer: false, explain: 'False — even a brief phone check creates a "attention residue" that lingers for minutes.' },
+        { text: 'You can train your capacity for deep work like a muscle.', answer: true, explain: 'True — Cal Newport\'s research shows focused practice gradually increases your concentration capacity.' },
+        { text: 'The best students study for the longest hours.', answer: false, explain: 'False — research shows quality (deep, focused work) matters far more than quantity.' },
+      ],
+    },
+    {
+      layout: 'game-challenge',
+      heading: 'The Focus Challenge',
+      icon: '🍅',
+      instruction: 'Can you beat your own record?',
+      challenge: 'Write as many complete sentences about "what deep work means for my studies" as you can in exactly 5 minutes. No phones, no talking. Count your sentences when the timer ends.',
+      timer: 300,
+      debrief: 'How many did you write? Was it harder than expected? What distracted you? This is what deep work feels like — uncomfortable at first, then powerful.',
+    },
+  ],
+
+  // ── C5: Finding Sources ──────────────────────
+  c5: [
+    {
+      layout: 'game-quiz',
+      heading: 'Source or Sauce?',
+      icon: '📚',
+      instruction: 'Which of these would be acceptable as an academic source?',
+      questions: [
+        { q: 'A Wikipedia article about climate change', options: ['Acceptable', 'Not acceptable', 'Use for background only', 'Cite the references it lists'], correct: 2, explain: 'Wikipedia is useful for background reading, but cite the original sources it references — not Wikipedia itself.' },
+        { q: 'A peer-reviewed journal article from 2019', options: ['Too old', 'Acceptable', 'Only if nothing newer exists', 'Depends on the field'], correct: 1, explain: 'Peer-reviewed articles are the gold standard. 2019 is recent enough for most fields.' },
+        { q: 'A blog post by a professor at Harvard', options: ['Always acceptable', 'Never acceptable', 'Check if peer-reviewed', 'Acceptable as grey literature'], correct: 2, explain: 'Being from Harvard doesn\'t make it peer-reviewed. Check if it has been published in a journal.' },
+        { q: 'A YouTube video with 10 million views', options: ['Views = credibility', 'Never cite videos', 'Check who made it and why', 'Only if it\'s a TED talk'], correct: 2, explain: 'Popularity ≠ credibility. Always investigate the creator\'s expertise and potential bias.' },
+      ],
+    },
+    {
+      layout: 'game-spot-error',
+      heading: 'Abstract Jigsaw',
+      icon: '🧩',
+      instruction: 'These abstract sentences are scrambled. What is the correct order?',
+      items: [
+        { text: '1. Results showed a 34% improvement in critical thinking scores among the experimental group.', error: 'This is a RESULTS sentence — it reports findings.', explain: '' },
+        { text: '2. This study investigated the impact of AI-assisted feedback on undergraduate writing quality.', error: 'This is a PURPOSE sentence — it belongs first.', explain: '' },
+        { text: '3. The findings suggest that AI feedback tools, when combined with human instruction, can enhance academic writing development.', error: 'This is a CONCLUSION sentence — it belongs last.', explain: '' },
+        { text: '4. A mixed-methods design was employed with 120 first-year students at a South African university.', error: 'This is a METHODS sentence — it explains how the study was done.', explain: '' },
+      ],
+    },
+  ],
+
+  // ── C7: Lateral Reading ──────────────────────
+  c7: [
+    {
+      layout: 'game-ai-or-human',
+      heading: 'Trustworthy or Tricky?',
+      icon: '🕵️',
+      instruction: 'Would a fact-checker trust this source? Vote YES or NO.',
+      items: [
+        { text: 'A news article on health benefits of a product, written by the company that sells it.', answer: 'ai', reveal: 'NO — massive conflict of interest. The company profits from positive claims.' },
+        { text: 'A systematic review published in The Lancet, with declared funding and no conflicts of interest.', answer: 'human', reveal: 'YES — peer-reviewed, transparent funding, no conflicts. This is what reliable looks like.' },
+        { text: 'A WhatsApp forward that says "doctors confirm" something, with no named doctors or links.', answer: 'ai', reveal: 'NO — unnamed sources, no verifiable claims, classic misinformation pattern.' },
+        { text: 'A government statistical report from Stats SA with methodology section and raw data.', answer: 'human', reveal: 'YES — transparent methodology, government statistical agency, raw data available for verification.' },
+      ],
+    },
+  ],
+
+  // ── C8: AI Hallucinations ────────────────────
+  c8: [
+    {
+      layout: 'game-spot-error',
+      heading: 'Hallucination Hunt',
+      icon: '👻',
+      instruction: 'Each reference was generated by AI. Find what\'s wrong.',
+      items: [
+        { text: 'Smith, J. & Patel, R. (2022). Digital literacy in South African schools. Journal of Educational Technology, 45(3), 112-128.', error: 'Fabricated reference', explain: 'This journal article does not exist. AI invented the authors, journal, and page numbers. Always verify in Google Scholar or Scopus.' },
+        { text: 'According to Vygotsky (1978), the zone of proximal development was first described in his work "Thinking and Speech" published in 1934.', error: 'Date contradiction', explain: 'The citation says 1978, but the work described was published in 1934. AI mixed up the original publication date with the English translation date.' },
+        { text: 'The South African Department of Basic Education (2023) reported that 89.7% of schools now have reliable internet access.', error: 'Fabricated statistic', explain: 'This statistic is fabricated. The actual connectivity rate is much lower. AI generates plausible-sounding but false statistics.' },
+        { text: 'Brown, A.L. (1992). Design experiments: Theoretical and methodological challenges. Journal of the Learning Sciences, 2(2), 141-178.', error: 'This one is actually real!', explain: 'Trick question — this is a real, frequently cited paper. Not every AI output is wrong, which is what makes verification essential.' },
+      ],
+    },
+    {
+      layout: 'game-quiz',
+      heading: 'Verification Speed Test',
+      icon: '✅',
+      instruction: 'What is the fastest way to verify each claim?',
+      questions: [
+        { q: 'An AI gives you a journal article citation. First step?', options: ['Read it carefully', 'Search Google Scholar for the exact title', 'Trust it if the format looks correct', 'Check the author on LinkedIn'], correct: 1, explain: 'Google Scholar is the fastest way to verify if a citation actually exists.' },
+        { q: 'AI says "research shows 73% of teachers support AI." How to verify?', options: ['73% sounds specific so probably real', 'Search for the original study', 'Ask AI for the source', 'Check if other articles cite this stat'], correct: 1, explain: 'Specific numbers sound convincing but can be fabricated. Find the original study or it doesn\'t exist.' },
+        { q: 'You find the cited journal exists, but not the specific article. What happened?', options: ['The article was retracted', 'AI hallucinated the article in a real journal', 'The article is behind a paywall', 'It must be a preprint'], correct: 1, explain: 'AI commonly generates fake articles in real journals — it knows journal names but invents content.' },
+      ],
+    },
+  ],
+
+  // ── C9: Citations & Zotero ───────────────────
+  c9: [
+    {
+      layout: 'game-spot-error',
+      heading: 'Citation Crime Scene',
+      icon: '🔎',
+      instruction: 'Find the APA 7th edition error in each citation.',
+      items: [
+        { text: 'Nkosi, T. (2021). "Understanding Academic Literacy." Journal of Higher Education, 15(2), pp. 45-60.', error: 'Quotation marks around title + "pp." prefix', explain: 'In APA 7th: no quotation marks around article titles, and no "pp." for journal articles. Correct: Nkosi, T. (2021). Understanding academic literacy. Journal of Higher Education, 15(2), 45–60.' },
+        { text: 'Department of Education. (2023). Annual report on school performance. Pretoria: Government Printer.', error: 'Location before publisher (old APA 6th style)', explain: 'APA 7th removed the publisher location. Correct: Department of Education. (2023). Annual report on school performance. Government Printer.' },
+        { text: '(Molefe, Dlamini, Sithole, Van der Merwe, & Ngcobo, 2022)', error: 'Using "&" with 5+ authors', explain: 'APA 7th: for 3+ authors, use first author et al. from the first citation. Correct: (Molefe et al., 2022)' },
+        { text: 'Retrieved from https://www.education.gov.za/report2023.pdf on 15 March 2024.', error: '"Retrieved from" and retrieval date', explain: 'APA 7th: no "Retrieved from" — just the URL. Only include retrieval dates for content that changes (e.g., wikis). Correct: https://www.education.gov.za/report2023.pdf' },
+      ],
+    },
+  ],
+
+  // ── C10: Strategic Reading ───────────────────
+  c10: [
+    {
+      layout: 'game-challenge',
+      heading: 'Speed Scan Challenge',
+      icon: '⏱️',
+      instruction: 'Test your reading strategy!',
+      challenge: 'You have 60 seconds to scan a journal article abstract. After the time is up, you must answer: (1) What is the study about? (2) What method was used? (3) What was the main finding? Ready?',
+      timer: 60,
+      debrief: 'Could you answer all three? If yes, you used strategic reading. If you tried to read every word, you ran out of time. The three-pass method teaches you to extract what matters first.',
+    },
+    {
+      layout: 'game-standup',
+      heading: 'Reading Confessions',
+      icon: '📖',
+      instruction: 'Stand if this describes YOUR reading habit. No judgement!',
+      statements: [
+        { text: 'I highlight everything in the article because it all seems important.', answer: true, explain: 'If everything is highlighted, nothing is highlighted. Strategic readers are selective.' },
+        { text: 'I read the abstract and conclusion first before reading the full article.', answer: true, explain: 'This is actually a great strategy! It gives you a map before you dive into details.' },
+        { text: 'I re-read the same paragraph multiple times without understanding it better.', answer: true, explain: 'This is common but inefficient. Try writing a summary sentence instead — forcing output helps comprehension.' },
+        { text: 'I skip articles that are longer than 10 pages.', answer: true, explain: 'Length ≠ difficulty. A well-structured 30-page article can be easier than a dense 5-page one. Use the three-pass method.' },
+      ],
+    },
+  ],
+
+  // ── C12: PEEL Paragraphs ─────────────────────
+  c12: [
+    {
+      layout: 'game-spot-error',
+      heading: 'PEEL or No PEEL?',
+      icon: '🏗️',
+      instruction: 'Which PEEL component is missing from each paragraph?',
+      items: [
+        { text: 'According to Vygotsky (1978), learning occurs through social interaction. The zone of proximal development suggests that learners achieve more with guidance than alone. A study by Smith (2020) found that collaborative learning improved test scores by 22%.', error: 'Missing: LINK', explain: 'Has Point, Evidence (Smith, 2020), Explanation (Vygotsky), but no Link back to the essay question or forward to the next paragraph.' },
+        { text: 'AI tools are transforming education in South Africa. ChatGPT usage among university students increased by 340% between 2023 and 2024 (Stats SA, 2024). This trend is reshaping how institutions approach assessment integrity.', error: 'Missing: EXPLANATION', explain: 'Has Point, Evidence (Stats SA), and Link, but no Explanation of WHY this statistic matters or what it means.' },
+        { text: 'Furthermore, the digital divide in South Africa means that not all students benefit equally from AI tools. Rural students with limited internet access are disadvantaged compared to their urban counterparts. This inequality must be addressed before AI can be equitably integrated into education.', error: 'Missing: EVIDENCE', explain: 'Has Point, Explanation, and Link, but no cited Evidence. Claims need sources.' },
+      ],
+    },
+    {
+      layout: 'game-quiz',
+      heading: 'Topic Sentence Showdown',
+      icon: '🎯',
+      instruction: 'Which is the strongest topic sentence for an academic paragraph?',
+      questions: [
+        { q: 'Topic: AI in education', options: ['AI is interesting.', 'This paragraph discusses AI.', 'AI-powered feedback tools can improve student writing when combined with human instruction.', 'There are many opinions about AI.'], correct: 2, explain: 'A strong topic sentence makes a specific, arguable claim — not a vague statement or announcement.' },
+        { q: 'Topic: Academic reading strategies', options: ['Reading is important for university.', 'The three-pass reading method enables students to extract key arguments more efficiently than linear reading.', 'In this essay I will discuss reading.', 'Many students struggle with reading.'], correct: 1, explain: 'Specific claim + method + outcome = strong topic sentence. Avoid announcements ("I will discuss") and vague claims.' },
+      ],
+    },
+  ],
+
+  // ── C13: Academic Voice ──────────────────────
+  c13: [
+    {
+      layout: 'game-transform',
+      heading: 'Register Flip',
+      icon: '🔄',
+      instruction: 'Transform each informal sentence into academic register. You have 30 seconds per sentence.',
+      items: [
+        { informal: 'Kids these days are glued to their phones and it\'s making them dumb.', academic: 'Contemporary research suggests that excessive smartphone usage among adolescents may negatively impact cognitive development and attention span (Ward et al., 2017).', hint: 'Replace slang, add hedging language, cite evidence.' },
+        { informal: 'The government is doing nothing about the problem and it\'s getting worse.', academic: 'Despite growing public concern, government intervention has been limited, and current data indicates a continued deterioration of outcomes (National Report, 2023).', hint: 'Remove emotional language, add specificity, use formal alternatives.' },
+        { informal: 'Everyone knows that group work is a waste of time.', academic: 'While collaborative learning is widely prescribed in higher education, its effectiveness remains contested, with some studies reporting minimal gains in individual performance (Johnson & Smith, 2021).', hint: 'Replace "everyone knows" with hedged claims and evidence.' },
+        { informal: 'AI is basically just copying stuff from the internet.', academic: 'Large language models generate responses by predicting statistically probable sequences based on patterns in their training data, which may include publicly available internet text (Brown et al., 2020).', hint: 'Replace casual description with precise technical language.' },
+      ],
+    },
+    {
+      layout: 'game-quiz',
+      heading: 'Hedging Master',
+      icon: '🌿',
+      instruction: 'Which sentence uses hedging language correctly?',
+      questions: [
+        { q: 'Choose the correctly hedged academic sentence:', options: ['AI will definitely replace teachers.', 'AI may potentially complement existing pedagogical approaches.', 'AI is sort of useful sometimes.', 'AI might maybe possibly help.'], correct: 1, explain: '"May potentially complement" — appropriate hedging without being vague or over-hedged.' },
+        { q: 'Which hedging phrase is appropriate for uncertain findings?', options: ['This proves that...', 'The evidence suggests that...', 'Obviously...', 'It is a known fact that...'], correct: 1, explain: '"The evidence suggests" appropriately hedges while maintaining authority. Avoid absolute claims and "obviously."' },
+        { q: 'Rewrite: "Social media causes depression in teenagers."', options: ['Social media definitely causes depression.', 'Some researchers have found an association between social media usage and depressive symptoms among adolescents.', 'Social media might cause depression or maybe not.', 'Depression is caused by social media according to science.'], correct: 1, explain: 'Correlation ≠ causation. Use "association," cite researchers, specify the population.' },
+      ],
+    },
+  ],
+};
+
+// Also add games for tutorial sessions
+Object.assign(_SESSION_GAMES, {
+  t1: [{
+    layout: 'game-quiz',
+    heading: 'AI Vocabulary Check',
+    icon: '📝',
+    instruction: 'Match the AI term to its correct definition.',
+    questions: [
+      { q: 'What is a "large language model"?', options: ['A very long essay', 'An AI trained on text data to predict and generate language', 'A dictionary database', 'A grammar checker'], correct: 1, explain: 'LLMs like ChatGPT are trained on massive text datasets to predict and generate human-like language.' },
+      { q: 'What does "hallucination" mean in AI?', options: ['The AI is dreaming', 'The AI generates confident but false information', 'The AI has a virus', 'The AI is confused'], correct: 1, explain: 'AI hallucination = generating plausible-sounding but fabricated facts, citations, or data.' },
+      { q: 'What is a "prompt"?', options: ['A deadline reminder', 'The instruction you give an AI to generate a response', 'An error message', 'A citation format'], correct: 1, explain: 'A prompt is the input text you provide to an AI system to guide its output.' },
+    ],
+  }],
+  t3: [{
+    layout: 'game-standup',
+    heading: 'Assessment 1 Ready Check',
+    icon: '✅',
+    instruction: 'Stand if you\'ve completed this. Stay seated if not yet.',
+    statements: [
+      { text: 'I have chosen my platform for the observation log.', answer: true, explain: 'You need a platform chosen by now. If not, decide today.' },
+      { text: 'I understand what SIFT stands for and can apply it.', answer: true, explain: 'S = Stop, I = Investigate, F = Find better coverage, T = Trace claims.' },
+      { text: 'I have started writing observation entries.', answer: true, explain: 'Don\'t wait until the deadline. Start observing patterns NOW.' },
+      { text: 'I know the difference between describing and analysing.', answer: true, explain: 'Description = what happened. Analysis = why it matters and what it reveals.' },
+    ],
+  }],
+  t6: [{
+    layout: 'game-spot-error',
+    heading: 'Synthesis vs Summary',
+    icon: '🔗',
+    instruction: 'Is each example a SYNTHESIS (combining sources) or just a SUMMARY (restating one source)?',
+    items: [
+      { text: 'According to Smith (2020), digital literacy is important for students. Smith argues that schools should invest in technology.', error: 'SUMMARY — only one source, no comparison or integration.', explain: 'This just restates what Smith said. Synthesis requires combining multiple sources.' },
+      { text: 'While Smith (2020) argues that technology investment is essential, Nkosi (2021) challenges this view by demonstrating that pedagogy, rather than infrastructure, drives improved outcomes.', error: 'SYNTHESIS — two sources in dialogue, showing agreement/disagreement.', explain: 'This puts sources in conversation. Notice "while... challenges" — the writer is orchestrating the discussion.' },
+      { text: 'Research shows that academic writing is difficult (Brown, 2019). Other research also shows that academic writing is difficult (Jones, 2020).', error: 'LIST, not synthesis — sources are stacked, not integrated.', explain: 'Listing sources that say the same thing is not synthesis. Show HOW they relate, differ, or build on each other.' },
+    ],
+  }],
+});
+
+function _blockAccent(type) {
+  const map = {
+    activation: '#f59e0b', pomodoro: '#ef4444', 'think-pair': '#3b82f6',
+    'close-read': '#8b5cf6', 'process-write': '#10b981', 'peer-feedback': '#06b6d4',
+    discussion: '#6366f1', jigsaw: '#ec4899', 'gallery-walk': '#f97316',
+    'live-demo': '#14b8a6', workshop: '#84cc16', diagnostic: '#a855f7',
+    'mini-lesson': '#0ea5e9', revision: '#22c55e', break: '#64748b',
+  };
+  return map[type] || '#3b82f6';
 }
 
 function _spRenderDeck() {
@@ -499,26 +881,312 @@ function _spRenderDeck() {
   const slide = st.slides[st.index];
   const total = st.slides.length;
 
-  const title = document.getElementById('sp-deck-title');
-  const sub = document.getElementById('sp-deck-sub');
-  const body = document.getElementById('sp-deck-body');
-  const bullets = document.getElementById('sp-deck-bullets');
   const count = document.getElementById('sp-deck-count');
   const progress = document.getElementById('sp-deck-progress');
-  const visual = document.getElementById('sp-deck-visual');
+  const frame = document.querySelector('.sp-deck-frame');
 
-  if (title) title.textContent = slide.heading || '';
-  if (sub) sub.textContent = slide.subheading || '';
-  if (body) body.textContent = slide.body || '';
-  if (bullets) bullets.innerHTML = (slide.bullets || []).length
-    ? `<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;">${slide.bullets.map(b => `<li>${b}</li>`).join('')}</ul>`
-    : '';
-  if (count) count.textContent = `Slide ${st.index + 1} / ${total}`;
+  if (count) count.textContent = `${st.index + 1} / ${total}`;
   if (progress) progress.style.width = `${Math.round(((st.index + 1) / total) * 100)}%`;
-  if (visual) {
-    visual.src = _spVisualSrc(slide.visualType || 'overview', slide.heading || 'Session');
-    visual.alt = `${slide.heading || 'Session'} visual`;
+  if (!frame) return;
+
+  // Animate transition
+  frame.style.opacity = '0';
+  frame.style.transform = 'translateY(12px)';
+  setTimeout(() => {
+    frame.innerHTML = _spRenderSlideContent(slide);
+    frame.style.transition = 'opacity .35s ease, transform .35s ease';
+    frame.style.opacity = '1';
+    frame.style.transform = 'translateY(0)';
+    // Initialize quiz if this is a quiz slide
+    if (slide.layout === 'game-quiz') _spRenderQuiz();
+  }, 80);
+}
+
+function _spEsc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s || '');
+  return d.innerHTML;
+}
+
+function _spRenderSlideContent(slide) {
+  const layout = slide.layout || 'focus';
+
+  if (layout === 'hero') {
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;text-align:center;background:${slide.gradient};border-radius:18px;padding:60px 40px;">
+        <div style="font-size:80px;margin-bottom:20px;filter:drop-shadow(0 8px 24px rgba(0,0,0,.3));">${slide.icon || ''}</div>
+        <div style="font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:16px;">${_spEsc(slide.meta)}</div>
+        <h1 style="font-size:clamp(36px,5vw,56px);font-weight:900;line-height:1.15;margin:0 0 16px 0;color:white;max-width:900px;">${_spEsc(slide.heading)}</h1>
+        <p style="font-size:clamp(18px,2.5vw,26px);color:rgba(255,255,255,.8);margin:0;max-width:700px;line-height:1.5;">${_spEsc(slide.subheading)}</p>
+      </div>`;
   }
+
+  if (layout === 'focus') {
+    const accent = slide.accent || '#3b82f6';
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:40px 48px;">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;">
+          <div style="width:64px;height:64px;border-radius:18px;background:${accent}22;display:flex;align-items:center;justify-content:center;font-size:34px;border:2px solid ${accent}44;">${slide.icon || '📌'}</div>
+          <div>
+            ${slide.subheading ? `<div style="font-size:14px;color:${accent};font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">${_spEsc(slide.subheading)}</div>` : ''}
+            <h1 style="font-size:clamp(32px,4vw,48px);font-weight:900;margin:0;line-height:1.2;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(20px,2.5vw,28px);line-height:1.7;color:rgba(255,255,255,.9);max-width:850px;">${_spEsc(slide.body)}</p>
+        ${slide.facilitatorScript ? `
+          <div style="margin-top:28px;padding:18px 22px;border-left:4px solid ${accent};background:rgba(255,255,255,.05);border-radius:0 12px 12px 0;">
+            <div style="font-size:11px;color:${accent};text-transform:uppercase;letter-spacing:.15em;font-weight:700;margin-bottom:6px;">Facilitator Script</div>
+            <p style="font-size:clamp(16px,1.8vw,20px);color:rgba(255,255,255,.8);line-height:1.6;margin:0;font-style:italic;">"${_spEsc(slide.facilitatorScript)}"</p>
+          </div>` : ''}
+      </div>`;
+  }
+
+  if (layout === 'steps') {
+    const accent = slide.accent || '#3b82f6';
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:36px 44px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;">
+          <div style="width:52px;height:52px;border-radius:14px;background:${accent}22;display:flex;align-items:center;justify-content:center;font-size:28px;border:2px solid ${accent}44;">${slide.icon || '📌'}</div>
+          <div>
+            <div style="font-size:13px;color:${accent};font-weight:700;letter-spacing:.08em;text-transform:uppercase;">${_spEsc(slide.subheading)} · Step ${slide.blockNum}/${slide.totalBlocks}</div>
+            <h1 style="font-size:clamp(28px,3.5vw,42px);font-weight:900;margin:0;line-height:1.2;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(16px,1.8vw,22px);line-height:1.6;color:rgba(255,255,255,.8);margin:8px 0 20px 0;max-width:800px;">${_spEsc(slide.body)}</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${(slide.bullets || []).map((b, i) => `
+            <div style="display:flex;align-items:flex-start;gap:14px;padding:14px 18px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:14px;">
+              <div style="width:32px;height:32px;border-radius:10px;background:${accent};color:white;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;flex-shrink:0;">${i + 1}</div>
+              <p style="font-size:clamp(15px,1.6vw,20px);line-height:1.5;color:rgba(255,255,255,.9);margin:0;">${_spEsc(b)}</p>
+            </div>`).join('')}
+        </div>
+        ${slide.facilitatorScript ? `
+          <div style="margin-top:20px;padding:14px 18px;border-left:4px solid ${accent};background:rgba(255,255,255,.04);border-radius:0 12px 12px 0;">
+            <div style="font-size:10px;color:${accent};text-transform:uppercase;letter-spacing:.15em;font-weight:700;margin-bottom:4px;">Script</div>
+            <p style="font-size:clamp(14px,1.4vw,18px);color:rgba(255,255,255,.7);line-height:1.5;margin:0;font-style:italic;">"${_spEsc(slide.facilitatorScript)}"</p>
+          </div>` : ''}
+      </div>`;
+  }
+
+  if (layout === 'workflow') {
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:36px 44px;">
+        <h1 style="font-size:clamp(30px,3.5vw,44px);font-weight:900;margin:0 0 24px 0;color:white;">🗺️ ${_spEsc(slide.heading)}</h1>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+          ${(slide.steps || []).map(s => {
+            const accent = _blockAccent(s.type);
+            return `
+            <div style="padding:16px 18px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:12px;">
+              <div style="width:40px;height:40px;border-radius:12px;background:${accent}33;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">${s.icon}</div>
+              <div>
+                <div style="font-size:clamp(14px,1.5vw,18px);font-weight:800;color:white;">${_spEsc(s.title)}</div>
+                <div style="font-size:clamp(12px,1.2vw,14px);color:rgba(255,255,255,.6);">${_spEsc(s.time)} · ${s.duration} min</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (layout === 'checklist') {
+    const accent = slide.accent || '#ef4444';
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:40px 48px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px;">
+          <span style="font-size:42px;">${slide.icon || '📋'}</span>
+          <h1 style="font-size:clamp(30px,3.5vw,44px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          ${(slide.items || []).map(item => `
+            <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:14px;">
+              <div style="width:28px;height:28px;border-radius:8px;background:${accent}33;color:${accent};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">✓</div>
+              <div>
+                <div style="font-size:clamp(16px,1.8vw,22px);font-weight:700;color:white;">${_spEsc(item.text)}</div>
+                ${item.detail ? `<div style="font-size:clamp(13px,1.4vw,17px);color:rgba(255,255,255,.65);margin-top:4px;line-height:1.5;">${_spEsc(item.detail)}</div>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>
+        ${slide.warning ? `
+          <div style="margin-top:20px;padding:14px 18px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:12px;">
+            <p style="font-size:clamp(14px,1.5vw,18px);color:#fca5a5;margin:0;line-height:1.5;">⚠️ ${_spEsc(slide.warning)}</p>
+          </div>` : ''}
+      </div>`;
+  }
+
+  if (layout === 'stages') {
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:36px 44px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px;">
+          <span style="font-size:42px;">${slide.icon || '✍️'}</span>
+          <h1 style="font-size:clamp(28px,3vw,40px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          ${(slide.stages || []).map((s, i) => `
+            <div style="flex:1;min-width:160px;padding:18px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);">
+              <div style="font-size:28px;margin-bottom:8px;">${s.icon || ''}</div>
+              <div style="font-size:clamp(14px,1.5vw,18px);font-weight:800;color:white;margin-bottom:4px;">${_spEsc(s.title)}</div>
+              <div style="font-size:clamp(11px,1.1vw,14px);color:rgba(255,255,255,.5);margin-bottom:8px;">${_spEsc(s.time || '')}</div>
+              <div style="font-size:clamp(12px,1.2vw,15px);color:rgba(255,255,255,.7);line-height:1.5;">${_spEsc(s.description || '')}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // ── Game layouts ──────────────────────────────
+
+  if (layout === 'game-ai-or-human') {
+    return `
+      <div style="display:flex;flex-direction:column;height:100%;padding:32px 40px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <span style="font-size:38px;">${slide.icon || '🤖'}</span>
+          <div>
+            <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;">Interactive Game</div>
+            <h1 style="font-size:clamp(28px,3.5vw,40px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(15px,1.5vw,19px);color:rgba(255,255,255,.7);margin:0 0 16px 0;">${_spEsc(slide.instruction)}</p>
+        <div style="flex:1;display:flex;flex-direction:column;gap:10px;overflow-y:auto;" id="sp-game-items">
+          ${(slide.items || []).map((item, i) => `
+            <div id="sp-game-item-${i}" style="padding:18px 22px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);cursor:pointer;transition:all .3s ease;" onclick="_spRevealGameItem(${i}, '${item.answer === 'human' || item.answer === true ? 'true' : 'false'}')">
+              <p style="font-size:clamp(15px,1.6vw,20px);color:rgba(255,255,255,.9);line-height:1.6;margin:0 0 8px 0;">"${_spEsc(item.text)}"</p>
+              <div id="sp-game-reveal-${i}" style="display:none;margin-top:10px;padding:12px 16px;border-radius:10px;font-size:clamp(13px,1.3vw,17px);line-height:1.5;"></div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (layout === 'game-four-corners') {
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:36px 44px;text-align:center;">
+        <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;margin-bottom:8px;">Interactive Game</div>
+        <div style="font-size:52px;margin-bottom:12px;">${slide.icon || '🧭'}</div>
+        <h1 style="font-size:clamp(30px,3.5vw,44px);font-weight:900;margin:0 0 12px 0;color:white;">${_spEsc(slide.heading)}</h1>
+        <p style="font-size:clamp(14px,1.4vw,18px);color:rgba(255,255,255,.65);margin:0 0 20px 0;">${_spEsc(slide.instruction)}</p>
+        <div style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:24px 28px;margin-bottom:24px;">
+          <p style="font-size:clamp(20px,2.5vw,30px);font-weight:800;color:white;margin:0;line-height:1.4;">"${_spEsc(slide.statement)}"</p>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          ${(slide.corners || []).map((c, i) => `
+            <div id="sp-corner-${i}" style="padding:18px;border-radius:14px;background:${c.color}22;border:2px solid ${c.color}66;cursor:pointer;transition:all .3s ease;" onclick="_spRevealCorner(${i})">
+              <div style="font-size:clamp(16px,1.8vw,22px);font-weight:800;color:${c.color};">${_spEsc(c.label)}</div>
+              <div id="sp-corner-arg-${i}" style="display:none;font-size:clamp(13px,1.3vw,16px);color:rgba(255,255,255,.75);margin-top:8px;line-height:1.5;">${_spEsc(c.argument)}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (layout === 'game-standup') {
+    return `
+      <div style="display:flex;flex-direction:column;height:100%;padding:32px 40px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <span style="font-size:38px;">${slide.icon || '🧍'}</span>
+          <div>
+            <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;">Interactive Game</div>
+            <h1 style="font-size:clamp(26px,3vw,38px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(14px,1.4vw,18px);color:rgba(255,255,255,.65);margin:0 0 16px 0;">${_spEsc(slide.instruction)}</p>
+        <div style="flex:1;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+          ${(slide.statements || []).map((s, i) => `
+            <div id="sp-standup-${i}" style="padding:18px 22px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);cursor:pointer;transition:all .3s ease;" onclick="_spRevealStandup(${i}, ${s.answer})">
+              <div style="display:flex;align-items:center;gap:14px;">
+                <div id="sp-standup-icon-${i}" style="width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">❓</div>
+                <p style="font-size:clamp(16px,1.7vw,22px);color:white;margin:0;font-weight:600;line-height:1.4;">${_spEsc(s.text)}</p>
+              </div>
+              <div id="sp-standup-reveal-${i}" style="display:none;margin-top:10px;padding:10px 14px;border-radius:10px;font-size:clamp(13px,1.3vw,17px);line-height:1.5;margin-left:54px;"></div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (layout === 'game-quiz') {
+    return `
+      <div style="display:flex;flex-direction:column;height:100%;padding:32px 40px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <span style="font-size:38px;">${slide.icon || '⚡'}</span>
+          <div>
+            <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;">Quiz</div>
+            <h1 style="font-size:clamp(24px,3vw,36px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(13px,1.3vw,17px);color:rgba(255,255,255,.6);margin:0 0 14px 0;">${_spEsc(slide.instruction)}</p>
+        <div id="sp-quiz-mount" style="flex:1;overflow-y:auto;"></div>
+      </div>`;
+  }
+
+  if (layout === 'game-spot-error') {
+    return `
+      <div style="display:flex;flex-direction:column;height:100%;padding:32px 40px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <span style="font-size:38px;">${slide.icon || '🔍'}</span>
+          <div>
+            <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;">Interactive Game</div>
+            <h1 style="font-size:clamp(24px,3vw,36px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(13px,1.3vw,17px);color:rgba(255,255,255,.6);margin:0 0 14px 0;">${_spEsc(slide.instruction)}</p>
+        <div style="flex:1;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+          ${(slide.items || []).map((item, i) => `
+            <div id="sp-error-${i}" style="padding:16px 20px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);cursor:pointer;transition:all .3s ease;" onclick="_spRevealError(${i})">
+              <p style="font-size:clamp(14px,1.5vw,19px);color:rgba(255,255,255,.9);line-height:1.5;margin:0;font-family:var(--font-mono);">${_spEsc(item.text)}</p>
+              <div id="sp-error-reveal-${i}" style="display:none;margin-top:10px;"></div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (layout === 'game-challenge') {
+    return `
+      <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;padding:40px;text-align:center;">
+        <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;margin-bottom:10px;">Timed Challenge</div>
+        <div style="font-size:56px;margin-bottom:16px;">${slide.icon || '⏱️'}</div>
+        <h1 style="font-size:clamp(28px,3.5vw,42px);font-weight:900;margin:0 0 16px 0;color:white;">${_spEsc(slide.heading)}</h1>
+        <p style="font-size:clamp(16px,1.8vw,22px);color:rgba(255,255,255,.85);margin:0 0 24px 0;max-width:700px;line-height:1.6;">${_spEsc(slide.challenge)}</p>
+        <div id="sp-challenge-timer" style="font-size:clamp(48px,8vw,96px);font-weight:900;color:#f59e0b;font-family:var(--font-mono);margin-bottom:20px;">${Math.floor((slide.timer || 300) / 60)}:00</div>
+        <div style="display:flex;gap:12px;">
+          <button onclick="_spStartChallengeTimer(${slide.timer || 300})" style="padding:14px 28px;border-radius:14px;border:none;background:#22c55e;color:white;font-weight:800;font-size:18px;cursor:pointer;">▶ Start</button>
+          <button onclick="_spStopChallengeTimer()" style="padding:14px 28px;border-radius:14px;border:none;background:rgba(255,255,255,.1);color:white;font-weight:700;font-size:18px;cursor:pointer;">⏸ Stop</button>
+        </div>
+        <div id="sp-challenge-debrief" style="display:none;margin-top:24px;padding:18px 24px;background:rgba(255,255,255,.08);border-radius:14px;max-width:600px;">
+          <p style="font-size:clamp(15px,1.6vw,20px);color:rgba(255,255,255,.85);margin:0;line-height:1.6;">${_spEsc(slide.debrief || '')}</p>
+        </div>
+      </div>`;
+  }
+
+  if (layout === 'game-transform') {
+    return `
+      <div style="display:flex;flex-direction:column;height:100%;padding:32px 40px;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <span style="font-size:38px;">${slide.icon || '🔄'}</span>
+          <div>
+            <div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:.2em;font-weight:800;">Interactive Game</div>
+            <h1 style="font-size:clamp(24px,3vw,36px);font-weight:900;margin:0;color:white;">${_spEsc(slide.heading)}</h1>
+          </div>
+        </div>
+        <p style="font-size:clamp(13px,1.3vw,17px);color:rgba(255,255,255,.6);margin:0 0 14px 0;">${_spEsc(slide.instruction)}</p>
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px;overflow-y:auto;">
+          ${(slide.items || []).map((item, i) => `
+            <div id="sp-transform-${i}" style="padding:18px 22px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);">
+              <div style="font-size:11px;color:#ef4444;text-transform:uppercase;letter-spacing:.1em;font-weight:700;margin-bottom:6px;">Informal</div>
+              <p style="font-size:clamp(14px,1.5vw,19px);color:rgba(255,255,255,.9);line-height:1.5;margin:0;">"${_spEsc(item.informal)}"</p>
+              <div style="font-size:11px;color:rgba(255,255,255,.4);margin:8px 0 4px 0;">💡 Hint: ${_spEsc(item.hint)}</div>
+              <button onclick="_spRevealTransform(${i})" style="margin-top:8px;padding:8px 16px;border-radius:10px;border:none;background:rgba(255,255,255,.1);color:white;font-size:13px;cursor:pointer;font-weight:600;">Show Academic Version</button>
+              <div id="sp-transform-reveal-${i}" style="display:none;margin-top:10px;padding:14px 18px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:10px;">
+                <div style="font-size:11px;color:#22c55e;text-transform:uppercase;letter-spacing:.1em;font-weight:700;margin-bottom:6px;">Academic</div>
+                <p style="font-size:clamp(14px,1.5vw,19px);color:rgba(255,255,255,.9);line-height:1.5;margin:0;">${_spEsc(item.academic)}</p>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // Fallback
+  return `
+    <div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding:40px 48px;">
+      <h1 style="font-size:clamp(32px,4vw,48px);font-weight:900;margin:0 0 16px 0;color:white;">${_spEsc(slide.heading)}</h1>
+      ${slide.subheading ? `<div style="font-size:clamp(16px,2vw,22px);color:rgba(147,197,253,.9);margin-bottom:12px;">${_spEsc(slide.subheading)}</div>` : ''}
+      ${slide.body ? `<p style="font-size:clamp(18px,2vw,24px);line-height:1.6;color:rgba(255,255,255,.9);">${_spEsc(slide.body)}</p>` : ''}
+    </div>`;
 }
 
 window._spOpenPresentation = (sessionId) => {
@@ -545,7 +1213,10 @@ window._spOpenPresentation = (sessionId) => {
     <div class="sp-deck-clock" id="sp-deck-clock"></div>
     <div class="sp-deck-inner" role="dialog" aria-modal="true">
       <div class="sp-deck-controls">
-        <div id="sp-deck-count" class="sp-deck-count"></div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div id="sp-deck-count" class="sp-deck-count"></div>
+          <div id="sp-deck-wake-status" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;background:#1e293b;color:#cbd5e1;border:1px solid rgba(148,163,184,.35);">Checking screen wake…</div>
+        </div>
         <div class="sp-deck-btns">
           <button onclick="_spDeckFullscreen()">⛶ Full Screen</button>
           <button onclick="_spPrevSlide()">← Prev</button>
@@ -556,19 +1227,7 @@ window._spOpenPresentation = (sessionId) => {
       <div class="sp-deck-progress">
         <div id="sp-deck-progress" class="sp-deck-progress-bar"></div>
       </div>
-      <div class="sp-deck-frame">
-        <div class="sp-deck-content">
-          <div>
-            <h1 id="sp-deck-title"></h1>
-            <div id="sp-deck-sub" class="sp-deck-sub"></div>
-            <div id="sp-deck-body" class="sp-deck-body"></div>
-            <div id="sp-deck-bullets" class="sp-deck-bullets"></div>
-          </div>
-          <div class="sp-deck-visual-wrap">
-            <img id="sp-deck-visual" alt="Session visual" />
-          </div>
-        </div>
-      </div>
+      <div class="sp-deck-frame"></div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -591,17 +1250,86 @@ window._spOpenPresentation = (sessionId) => {
     if (e.key === 'Escape') window._spClosePresentation();
   };
   document.addEventListener('keydown', window._spDeckKeyHandler);
+  window._spDeckWakeVisibilityHandler = () => {
+    if (document.visibilityState === 'visible' && window._spDeckState) {
+      window._spDeckRequestWakeLock?.();
+    }
+  };
+  document.addEventListener('visibilitychange', window._spDeckWakeVisibilityHandler);
+  window._spDeckSetWakeStatus?.(
+    window._spDeckWakeLockSupported ? 'Trying to keep screen awake' : 'Screen wake lock not supported',
+    window._spDeckWakeLockSupported ? 'pending' : 'unsupported'
+  );
   window._spDeckFullscreen();
+  window._spDeckRequestWakeLock?.();
   _spRenderDeck();
 };
 
-  window._spDeckFullscreen = async () => {
-    const overlay = document.getElementById('sp-deck-overlay');
-    if (!overlay) return;
-    try {
+window._spDeckWakeLock = null;
+window._spDeckWakeLockSupported = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+window._spDeckSetWakeStatus = (label, tone = 'neutral') => {
+  const el = document.getElementById('sp-deck-wake-status');
+  if (!el) return;
+  const palette = {
+    active: { bg: '#dcfce7', fg: '#166534', border: '#86efac' },
+    pending: { bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' },
+    unsupported: { bg: '#e2e8f0', fg: '#334155', border: '#cbd5e1' },
+    blocked: { bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
+    neutral: { bg: '#1e293b', fg: '#cbd5e1', border: 'rgba(148,163,184,.35)' },
+  };
+  const colors = palette[tone] || palette.neutral;
+  el.textContent = label;
+  el.style.background = colors.bg;
+  el.style.color = colors.fg;
+  el.style.border = `1px solid ${colors.border}`;
+};
+
+window._spDeckRequestWakeLock = async () => {
+  if (!window._spDeckWakeLockSupported || !window._spDeckState) {
+    window._spDeckSetWakeStatus?.('Screen wake lock not supported', 'unsupported');
+    return;
+  }
+  if (window._spDeckWakeLock) {
+    window._spDeckSetWakeStatus?.('Screen will stay awake', 'active');
+    return;
+  }
+  window._spDeckSetWakeStatus?.('Trying to keep screen awake', 'pending');
+  try {
+    const lock = await navigator.wakeLock.request('screen');
+    window._spDeckWakeLock = lock;
+    window._spDeckSetWakeStatus?.('Screen will stay awake', 'active');
+    lock.addEventListener('release', () => {
+      if (window._spDeckWakeLock === lock) {
+        window._spDeckWakeLock = null;
+      }
+      if (window._spDeckState) {
+        window._spDeckSetWakeStatus?.('Screen wake lock released', 'pending');
+      }
+    }, { once: true });
+  } catch {
+    window._spDeckSetWakeStatus?.('Chrome blocked screen wake lock', 'blocked');
+  }
+};
+
+window._spDeckReleaseWakeLock = async () => {
+  const lock = window._spDeckWakeLock;
+  window._spDeckWakeLock = null;
+  if (!lock) return;
+  try {
+    await lock.release();
+  } catch {
+    // Ignore release failures if the browser already cleared the lock
+  }
+};
+
+window._spDeckFullscreen = async () => {
+  const overlay = document.getElementById('sp-deck-overlay');
+  if (!overlay) return;
+  try {
     if (!document.fullscreenElement && overlay.requestFullscreen) {
       await overlay.requestFullscreen();
     }
+    await window._spDeckRequestWakeLock?.();
   } catch {
     // Ignore if fullscreen is blocked by browser policy
   }
@@ -619,13 +1347,19 @@ window._spClosePresentation = () => {
   document.getElementById('sp-deck-overlay')?.remove();
   if (window._spDeckKeyHandler) {
     document.removeEventListener('keydown', window._spDeckKeyHandler);
+    window._spDeckKeyHandler = null;
+  }
+  if (window._spDeckWakeVisibilityHandler) {
+    document.removeEventListener('visibilitychange', window._spDeckWakeVisibilityHandler);
+    window._spDeckWakeVisibilityHandler = null;
   }
   window._spDeckState = null;
+  window._spDeckReleaseWakeLock?.();
   if (window._spDeckClockInterval) {
     clearInterval(window._spDeckClockInterval);
     window._spDeckClockInterval = null;
   }
-  };
+};
 
 window._spNextSlide = () => {
   const st = window._spDeckState;
@@ -639,6 +1373,183 @@ window._spPrevSlide = () => {
   if (!st) return;
   st.index = Math.max(0, st.index - 1);
   _spRenderDeck();
+};
+
+// ── Game interaction handlers ─────────────────
+window._spRevealGameItem = (index, isCorrectStr) => {
+  const el = document.getElementById(`sp-game-reveal-${index}`);
+  const card = document.getElementById(`sp-game-item-${index}`);
+  if (!el || el.style.display !== 'none') return;
+  const st = window._spDeckState;
+  const slide = st?.slides?.[st?.index];
+  const item = slide?.items?.[index];
+  if (!item) return;
+  el.style.display = 'block';
+  el.style.background = isCorrectStr === 'true' ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)';
+  el.style.color = 'rgba(255,255,255,.85)';
+  el.innerHTML = `<strong style="color:${isCorrectStr === 'true' ? '#4ade80' : '#f87171'};">${item.answer === 'human' || item.answer === true ? '✅ Human / True' : '🤖 AI / False'}</strong><br>${_spEsc(item.reveal)}`;
+  if (card) {
+    card.style.borderColor = isCorrectStr === 'true' ? 'rgba(34,197,94,.5)' : 'rgba(239,68,68,.5)';
+    card.style.background = isCorrectStr === 'true' ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)';
+  }
+};
+
+window._spRevealCorner = (index) => {
+  const el = document.getElementById(`sp-corner-arg-${index}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+window._spRevealStandup = (index, answer) => {
+  const reveal = document.getElementById(`sp-standup-reveal-${index}`);
+  const icon = document.getElementById(`sp-standup-icon-${index}`);
+  const card = document.getElementById(`sp-standup-${index}`);
+  if (!reveal || reveal.style.display !== 'none') return;
+  const st = window._spDeckState;
+  const slide = st?.slides?.[st?.index];
+  const stmt = slide?.statements?.[index];
+  if (!stmt) return;
+  reveal.style.display = 'block';
+  reveal.style.background = answer ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)';
+  reveal.style.borderRadius = '10px';
+  reveal.style.padding = '10px 14px';
+  reveal.innerHTML = `<strong style="color:${answer ? '#4ade80' : '#f87171'};">${answer ? '✅ TRUE' : '❌ FALSE'}</strong> — ${_spEsc(stmt.explain)}`;
+  if (icon) icon.textContent = answer ? '✅' : '❌';
+  if (card) card.style.borderColor = answer ? 'rgba(34,197,94,.4)' : 'rgba(239,68,68,.4)';
+};
+
+window._spRevealError = (index) => {
+  const el = document.getElementById(`sp-error-reveal-${index}`);
+  const card = document.getElementById(`sp-error-${index}`);
+  if (!el || el.style.display !== 'none') return;
+  const st = window._spDeckState;
+  const slide = st?.slides?.[st?.index];
+  const item = slide?.items?.[index];
+  if (!item) return;
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="padding:12px 16px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:10px;">
+      <div style="font-size:clamp(14px,1.4vw,18px);font-weight:700;color:#fbbf24;margin-bottom:4px;">🔍 ${_spEsc(item.error)}</div>
+      ${item.explain ? `<div style="font-size:clamp(12px,1.2vw,16px);color:rgba(255,255,255,.7);line-height:1.5;">${_spEsc(item.explain)}</div>` : ''}
+    </div>`;
+  if (card) card.style.borderColor = 'rgba(245,158,11,.4)';
+};
+
+window._spRevealTransform = (index) => {
+  const el = document.getElementById(`sp-transform-reveal-${index}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+// Quiz engine
+window._spQuizState = null;
+
+function _spRenderQuiz() {
+  const mount = document.getElementById('sp-quiz-mount');
+  const st = window._spDeckState;
+  if (!mount || !st) return;
+  const slide = st.slides[st.index];
+  const qs = slide?.questions || [];
+  if (!window._spQuizState || window._spQuizState.slideIndex !== st.index) {
+    window._spQuizState = { slideIndex: st.index, current: 0, score: 0, answered: false };
+  }
+  const qst = window._spQuizState;
+  if (qst.current >= qs.length) {
+    mount.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;">
+        <div style="font-size:64px;margin-bottom:16px;">🏆</div>
+        <h2 style="font-size:clamp(28px,3vw,40px);font-weight:900;color:white;margin:0 0 10px 0;">Quiz Complete!</h2>
+        <p style="font-size:clamp(18px,2vw,26px);color:rgba(255,255,255,.8);">Score: ${qst.score} / ${qs.length}</p>
+        <button onclick="window._spQuizState=null;_spRenderQuiz();" style="margin-top:16px;padding:12px 24px;border-radius:12px;border:none;background:var(--accent);color:white;font-weight:700;font-size:16px;cursor:pointer;">Restart</button>
+      </div>`;
+    return;
+  }
+  const q = qs[qst.current];
+  mount.innerHTML = `
+    <div style="display:flex;flex-direction:column;justify-content:center;height:100%;">
+      <div style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:8px;">Question ${qst.current + 1} of ${qs.length}</div>
+      <h2 style="font-size:clamp(22px,2.5vw,32px);font-weight:800;color:white;margin:0 0 20px 0;line-height:1.3;">${_spEsc(q.q)}</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        ${q.options.map((opt, i) => {
+          const colors = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444'];
+          return `<button id="sp-quiz-opt-${i}" onclick="_spQuizAnswer(${i}, ${q.correct})" style="padding:18px 20px;border-radius:14px;border:2px solid ${colors[i]}66;background:${colors[i]}22;color:white;font-size:clamp(15px,1.6vw,20px);font-weight:700;cursor:pointer;text-align:left;transition:all .2s ease;">${_spEsc(opt)}</button>`;
+        }).join('')}
+      </div>
+      <div id="sp-quiz-feedback" style="display:none;margin-top:16px;padding:14px 18px;border-radius:12px;font-size:clamp(14px,1.5vw,18px);line-height:1.5;"></div>
+    </div>`;
+};
+
+window._spQuizAnswer = (selected, correct) => {
+  const qst = window._spQuizState;
+  if (!qst || qst.answered) return;
+  qst.answered = true;
+  const st = window._spDeckState;
+  const slide = st?.slides?.[st?.index];
+  const q = slide?.questions?.[qst.current];
+  const isCorrect = selected === correct;
+  if (isCorrect) qst.score++;
+
+  // Highlight options
+  for (let i = 0; i < (q?.options?.length || 4); i++) {
+    const btn = document.getElementById(`sp-quiz-opt-${i}`);
+    if (!btn) continue;
+    btn.style.cursor = 'default';
+    if (i === correct) {
+      btn.style.background = 'rgba(34,197,94,.3)';
+      btn.style.borderColor = '#22c55e';
+    } else if (i === selected && !isCorrect) {
+      btn.style.background = 'rgba(239,68,68,.3)';
+      btn.style.borderColor = '#ef4444';
+    } else {
+      btn.style.opacity = '0.4';
+    }
+  }
+
+  const fb = document.getElementById('sp-quiz-feedback');
+  if (fb && q) {
+    fb.style.display = 'block';
+    fb.style.background = isCorrect ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)';
+    fb.style.color = 'rgba(255,255,255,.85)';
+    fb.innerHTML = `<strong style="color:${isCorrect ? '#4ade80' : '#f87171'};">${isCorrect ? '✅ Correct!' : '❌ Not quite.'}</strong> ${_spEsc(q.explain || '')}`;
+  }
+
+  // Auto-advance after delay
+  setTimeout(() => {
+    qst.current++;
+    qst.answered = false;
+    _spRenderQuiz();
+  }, 3500);
+};
+
+// Challenge timer
+window._spChallengeInterval = null;
+
+window._spStartChallengeTimer = (seconds) => {
+  if (window._spChallengeInterval) clearInterval(window._spChallengeInterval);
+  let remaining = seconds;
+  const timerEl = document.getElementById('sp-challenge-timer');
+  const debriefEl = document.getElementById('sp-challenge-debrief');
+  if (debriefEl) debriefEl.style.display = 'none';
+  window._spChallengeInterval = setInterval(() => {
+    remaining--;
+    if (timerEl) {
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      if (remaining <= 10) timerEl.style.color = '#ef4444';
+    }
+    if (remaining <= 0) {
+      clearInterval(window._spChallengeInterval);
+      window._spChallengeInterval = null;
+      if (timerEl) timerEl.textContent = "Time's up!";
+      if (debriefEl) debriefEl.style.display = 'block';
+    }
+  }, 1000);
+};
+
+window._spStopChallengeTimer = () => {
+  if (window._spChallengeInterval) {
+    clearInterval(window._spChallengeInterval);
+    window._spChallengeInterval = null;
+  }
 };
 
 // ── Pomodoro handlers ─────────────────────────
@@ -863,6 +1774,6 @@ window._pwClear = (sid, i) => {
   _pwSaveTimers.delete(timerKey);
   if (window.STATE?.tutorialNotebook?.entries) {
     delete window.STATE.tutorialNotebook.entries[_pwNotebookKey(sid, i)];
-    window.saveState?.().catch(() => {});
+    window.saveState?.();
   }
 };

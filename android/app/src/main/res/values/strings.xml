@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="app_name">Academic Literacies</string>
-    <string name="title_activity_main">Academic Literacies</string>
+    <string name="title_activity_main">Academic Literacies Student</string>
     <string name="package_name">za.ac.uj.academicliteracies</string>
     <string name="custom_url_scheme">za.ac.uj.academicliteracies</string>
 </resources>

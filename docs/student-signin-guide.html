@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>How to Sign In — Academic Literacies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --navy: #0f172a;
+  --ink: #1e293b;
+  --muted: #64748b;
+  --amber: #fbbf24;
+  --amber2: #f59e0b;
+  --teal: #0d9488;
+  --green: #16a34a;
+  --cream: #f8fafc;
+  --border: rgba(0,0,0,.08);
+  --radius: 16px;
+  --font: 'Inter', system-ui, sans-serif;
+  --mono: 'DM Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  background: linear-gradient(180deg, #f0f4f8 0%, #e2e8f0 100%);
+  color: var(--ink);
+  line-height: 1.6;
+  min-height: 100vh;
+  padding: 24px 16px 60px;
+}
+.guide {
+  max-width: 620px;
+  margin: 0 auto;
+}
+.guide-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.guide-logo {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--teal);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.guide-header h1 {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+.guide-header p {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Steps */
+.step {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 18px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  position: relative;
+  border: 1px solid var(--border);
+}
+.step-number {
+  position: absolute;
+  top: -12px;
+  left: 20px;
+  background: var(--navy);
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+}
+.step h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  padding-top: 4px;
+}
+.step p {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.step p:last-child { margin-bottom: 0; }
+
+/* Mock UI frames */
+.mock {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+.mock-bar {
+  background: var(--navy);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mock-dot {
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.2);
+}
+.mock-url {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(255,255,255,.5);
+  margin-left: 8px;
+}
+.mock-body {
+  padding: 20px;
+}
+
+/* Simulated auth form */
+.sim-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+}
+.sim-tab {
+  padding: 10px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.sim-tab.on {
+  color: var(--navy);
+  border-color: var(--amber);
+}
+.sim-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+.sim-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: var(--font);
+  color: var(--ink);
+  background: #f8fafc;
+  margin-bottom: 12px;
+}
+.sim-input.filled {
+  border-color: var(--teal);
+  background: #f0fdfa;
+  color: var(--navy);
+}
+.sim-btn {
+  width: 100%;
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font);
+  cursor: default;
+}
+.sim-btn-primary {
+  background: var(--amber);
+  color: var(--navy);
+}
+.sim-btn-outline {
+  background: #fff;
+  color: var(--navy);
+  border: 1px solid #e2e8f0;
+  margin-top: 8px;
+}
+
+/* Email mock */
+.sim-email {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.sim-email-header {
+  background: #f8fafc;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.sim-email-from {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 12px;
+}
+.sim-email-subject {
+  color: var(--muted);
+  font-size: 11px;
+}
+.sim-email-body {
+  padding: 14px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.sim-email-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 18px;
+  background: var(--teal);
+  color: #fff;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* Highlight callout */
+.highlight {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.6;
+  margin-top: 12px;
+}
+.highlight strong { color: #78350f; }
+
+/* Arrow connector between steps */
+.step-arrow {
+  text-align: center;
+  margin: -6px 0 -6px;
+  font-size: 20px;
+  color: #cbd5e1;
+}
+
+/* Success mock */
+.sim-success {
+  text-align: center;
+  padding: 18px;
+}
+.sim-success-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+.sim-success h3 {
+  font-size: 16px;
+  color: var(--navy);
+  margin-bottom: 4px;
+}
+.sim-success p {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Pointer annotation */
+.pointer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #92400e;
+  position: relative;
+  margin-left: 4px;
+}
+.pointer::before {
+  content: "\2190";
+}
+
+/* Tips */
+.tips {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-top: 24px;
+}
+.tips h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0369a1;
+  margin-bottom: 8px;
+}
+.tips ul {
+  list-style: none;
+  font-size: 13px;
+  color: var(--ink);
+}
+.tips li {
+  padding: 4px 0;
+  padding-left: 18px;
+  position: relative;
+}
+.tips li::before {
+  content: "\2713";
+  position: absolute;
+  left: 0;
+  color: var(--teal);
+  font-weight: 700;
+}
+
+.footer {
+  text-align: center;
+  margin-top: 32px;
+  font-size: 12px;
+  color: var(--muted);
+}
+</style>
+</head>
+<body>
+<div class="guide">
+
+  <div class="guide-header">
+    <div class="guide-logo">ACADLIT &middot; AI</div>
+    <h1>How to Sign In as a Student</h1>
+    <p>A step-by-step visual guide to signing in with a secure email link</p>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="step">
+    <div class="step-number">1</div>
+    <h2>Open the app and find the Student Sign In tab</h2>
+    <p>Go to the Academic Literacies app. The <strong>Student Sign In</strong> tab should already be selected.</p>
+    <div class="mock">
+      <div class="mock-bar">
+        <div class="mock-dot"></div><div class="mock-dot"></div><div class="mock-dot"></div>
+        <span class="mock-url">academic-literacy.web.app</span>
+      </div>
+      <div class="mock-body">
+        <div class="sim-tabs">
+          <div class="sim-tab on">Student Sign In <span class="pointer">select this</span></div>
+          <div class="sim-tab">Staff Sign In</div>
+        </div>
+        <div class="sim-label">Personal Email Address</div>
+        <div class="sim-input" style="color:#94a3b8;">e.g. student@gmail.com</div>
+        <div class="sim-btn sim-btn-primary">Email me a secure sign-in link</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-arrow">&darr;</div>
+
+  <!-- STEP 2 -->
+  <div class="step">
+    <div class="step-number">2</div>
+    <h2>Type your personal email address</h2>
+    <p>Enter the <strong>same personal email</strong> that appears on your class record. This is usually your Gmail, Outlook, or Yahoo address.</p>
+    <div class="mock">
+      <div class="mock-bar">
+        <div class="mock-dot"></div><div class="mock-dot"></div><div class="mock-dot"></div>
+        <span class="mock-url">academic-literacy.web.app</span>
+      </div>
+      <div class="mock-body">
+        <div class="sim-tabs">
+          <div class="sim-tab on">Student Sign In</div>
+          <div class="sim-tab">Staff Sign In</div>
+        </div>
+        <div class="sim-label">Personal Email Address</div>
+        <div class="sim-input filled">jane.student@gmail.com <span class="pointer">your email here</span></div>
+        <div class="sim-btn sim-btn-primary">Email me a secure sign-in link</div>
+      </div>
+    </div>
+    <div class="highlight">
+      <strong>Important:</strong> Use the exact email address your lecturer has on the class list. If you are unsure, ask your lecturer which email is on record.
+    </div>
+  </div>
+
+  <div class="step-arrow">&darr;</div>
+
+  <!-- STEP 3 -->
+  <div class="step">
+    <div class="step-number">3</div>
+    <h2>Tap "Email me a secure sign-in link"</h2>
+    <p>Press the yellow button. You will see a confirmation message that the link has been sent.</p>
+    <div class="mock">
+      <div class="mock-bar">
+        <div class="mock-dot"></div><div class="mock-dot"></div><div class="mock-dot"></div>
+        <span class="mock-url">academic-literacy.web.app</span>
+      </div>
+      <div class="mock-body">
+        <div class="sim-tabs">
+          <div class="sim-tab on">Student Sign In</div>
+          <div class="sim-tab">Staff Sign In</div>
+        </div>
+        <div class="sim-label">Personal Email Address</div>
+        <div class="sim-input filled">jane.student@gmail.com</div>
+        <p style="font-size:13px;color:#16a34a;margin-bottom:10px;">Secure sign-in link sent to ja**@gmail.com. Open it from your inbox to finish signing in.</p>
+        <div class="sim-btn sim-btn-primary" style="opacity:.7;">Sending link...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-arrow">&darr;</div>
+
+  <!-- STEP 4 -->
+  <div class="step">
+    <div class="step-number">4</div>
+    <h2>Open your email inbox</h2>
+    <p>Switch to your email app (Gmail, Outlook, etc). Look for an email from <strong>noreply@academic-literacy.firebaseapp.com</strong>. It may take a minute to arrive.</p>
+    <div class="sim-email">
+      <div class="sim-email-header">
+        <div class="sim-email-from">noreply@academic-literacy.firebaseapp.com</div>
+        <div class="sim-email-subject">Sign in to Academic Literacies</div>
+      </div>
+      <div class="sim-email-body">
+        Hello,<br><br>
+        We received a request to sign in to Academic Literacies using this email address. If you requested this, click the link below:
+        <br>
+        <a class="sim-email-link" href="#" onclick="return false">Sign in to Academic Literacies</a>
+        <br><br>
+        <span style="font-size:12px;color:#94a3b8;">If you did not request this, you can ignore this email.</span>
+      </div>
+    </div>
+    <div class="highlight">
+      <strong>Can't find it?</strong> Check your Spam or Junk folder. The email comes from a Firebase address and may be filtered automatically.
+    </div>
+  </div>
+
+  <div class="step-arrow">&darr;</div>
+
+  <!-- STEP 5 -->
+  <div class="step">
+    <div class="step-number">5</div>
+    <h2>Tap the sign-in link in the email</h2>
+    <p>Tap <strong>"Sign in to Academic Literacies"</strong> in the email. This will open the app and sign you in automatically.</p>
+    <div class="mock">
+      <div class="mock-bar">
+        <div class="mock-dot"></div><div class="mock-dot"></div><div class="mock-dot"></div>
+        <span class="mock-url">academic-literacy.web.app/?...</span>
+      </div>
+      <div class="mock-body">
+        <div class="sim-success">
+          <div class="sim-success-icon">&#10003;</div>
+          <h3>Sign-in confirmed</h3>
+          <p>Loading your dashboard...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-arrow">&darr;</div>
+
+  <!-- STEP 6 -->
+  <div class="step">
+    <div class="step-number">6</div>
+    <h2>You're in!</h2>
+    <p>Your student dashboard will load with your course content, activities, and progress. You do not need a password — just use the email link each time you sign in.</p>
+  </div>
+
+  <!-- Tips -->
+  <div class="tips">
+    <h3>Tips &amp; Troubleshooting</h3>
+    <ul>
+      <li>You must use the <strong>same email address</strong> that your lecturer has on the class list</li>
+      <li>The sign-in link expires after a short time — if it doesn't work, go back and request a new one</li>
+      <li>Check your <strong>Spam / Junk folder</strong> if you don't see the email within 2 minutes</li>
+      <li>You do <strong>not</strong> need a password — the email link is your password</li>
+      <li>If you open the link on a different device, you may need to type your email again</li>
+      <li>If you still can't sign in, contact your lecturer with your student number</li>
+    </ul>
+  </div>
+
+  <div class="footer">Academic Literacies in the Age of AI &middot; University of Johannesburg</div>
+
+</div>
+</body>
+</html>

@@ -2,6 +2,14 @@
 export const DASHBOARD_CONTENT = {
   announcements: [
     {
+      id: 4,
+      icon: '🚨',
+      title: 'Group Restructure & Assessment Notice',
+      content: 'Groups with fewer than 5 members have been dissolved and affected members randomly reassigned. You are at risk of failing if you have not joined a group or your group has not started the assessment tasks. Act immediately. Live Q&A today at 3:00 PM on Microsoft Teams — log in and click the Teams link on your dashboard.',
+      ctaLabel: 'Open Assessment 1',
+      ctaAction: 'assessment-a1',
+    },
+    {
       id: 1,
       icon: '📢',
       title: 'Welcome to the Academic Literacies Module!',

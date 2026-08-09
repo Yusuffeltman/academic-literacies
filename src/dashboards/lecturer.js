@@ -8,7 +8,9 @@ import {
 } from '../profile.js';
 import { renderSubmissionReviewer } from '../components/submission-reviewer.js';
 import {
+  applyModeratedMarkChanges,
   postFinalisedSubmissionFeedback,
+  recordBorderlineFailConfirmation,
   returnSubmissionToTutor,
   saveModerationDecision,
 } from '../submissions.js';
@@ -443,9 +445,10 @@ import { UNITS } from '../../content/units/index.js';
 import * as assessmentConfigs from '../../content/assessments/index.js';
 import { renderSessionPlan } from '../components/session-plan.js';
 import { auth, db, functions } from '../firebase.js';
-import { sendPasswordResetEmail } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
+import { requestPasswordResetEmail } from '../password-reset.js';
 import { ref, get, set, update, remove } from 'firebase/database';
+import { buildMergePlan } from '../account-merge.js';
 import { SEED_RESOURCES } from '../../content/resources.js';
 import { addResource, vettResource, removeResource } from '../resources.js';
 import { TUTOR_GROUP_ASSIGNMENTS } from '../../content/tutorial-groups/assignments.js';
@@ -3040,7 +3043,10 @@ function _findActiveRosterEntryForStudent(rowOrEmail, rosterRows = _umRosterRows
 }
 
 async function _sendRosterResetEmail(email) {
-  await sendPasswordResetEmail(auth, email);
+  // Goes through the sendStaffPasswordReset callable so students receive the
+  // branded ACADLIT email over our SMTP, matching the login screen's
+  // self-service flow. See src/password-reset.js.
+  await requestPasswordResetEmail(email);
 }
 
 async function _sendUserResetLink(uid, user) {
@@ -4958,12 +4964,14 @@ window._openRosterProfileSyncModal = async () => {
   const modalId = 'roster-profile-sync-modal';
   document.getElementById(modalId)?.remove();
 
-  const [usersSnap, rosterSnap] = await Promise.all([
+  const [usersSnap, rosterSnap, mergesSnap] = await Promise.all([
     get(ref(db, 'users')),
     get(ref(db, 'rosters/classList')),
+    get(ref(db, 'account-merges')).catch(() => null),
     _loadProcessedAuthUsers().catch(() => ({})),
   ]);
   const users = usersSnap.exists() ? (usersSnap.val() || {}) : {};
+  const accountMerges = mergesSnap?.exists() ? (mergesSnap.val() || {}) : {};
   const rosterRows = rosterSnap.exists() ? Object.values(rosterSnap.val() || {}) : [];
   _umUsersCache = users;
   _umRosterRowsCache = rosterRows;
@@ -5031,12 +5039,52 @@ window._openRosterProfileSyncModal = async () => {
               <div style="font-size:12px;color:var(--muted);margin-top:2px;">UID: ${_esc(candidate.uid)} · work score ${Number(candidate.workScore || 0)}</div>
               <div style="font-size:12px;color:${candidate.safeArchive ? '#166534' : '#9a3412'};margin-top:4px;">${candidate.safeArchive ? 'Safe to archive automatically: no meaningful work detected.' : 'Review required: this duplicate has recorded work.'}</div>
               ${_isNonUjDuplicateCandidate(candidate) ? `<div style="font-size:12px;color:#991b1b;margin-top:4px;font-weight:700;">Invalid non-UJ identity: eligible for hard delete.</div>` : ''}
+              ${candidate.safeArchive ? '' : `
+                <button class="btn-prev" style="display:inline-flex;margin-top:8px;padding:6px 10px;font-size:12px;background:#1d4ed8;border-color:#1d4ed8;color:white;" onclick="_previewDuplicateAccountMerge('${_esc(candidate.uid)}','${_esc(group.keeper?.uid || '')}')">Merge work into keeper</button>
+                <div style="font-size:11px;color:#9a3412;margin-top:4px;">Moves submissions, marks, attendance and progress onto the keeper, then disables this account. You will see the full plan before anything is written.</div>
+              `}
             </div>
           `).join('')}
         </div>
       </div>
     `).join('')
     : '<div style="font-size:12px;color:var(--muted);">No duplicate student accounts detected.</div>';
+
+  // Merges run from scripts/merge-student-accounts.mjs land here too, so the
+  // follow-up actions stay reachable however the merge was performed.
+  const mergeRows = Object.values(accountMerges || {})
+    .filter((m) => m && m.mergeId && !m.revertedAt)
+    .sort((a, b) => String(b.mergedAt || '').localeCompare(String(a.mergedAt || '')));
+
+  const mergeCards = mergeRows.length
+    ? mergeRows.map((m) => {
+      const keeperProfile = users?.[m.keeperUid]?.profile || {};
+      const loserProfile = users?.[m.loserUid]?.profile || {};
+      const keeperEmail = keeperProfile.authEmail || '—';
+      const loserEmail = loserProfile.authEmail || '';
+      // Once reassigned, the folded-in account holds a parked address. A real
+      // address still sitting there only means the swap is *available* — not
+      // that it is needed. Which inbox the student actually uses is not
+      // recorded anywhere, so this offers the choice rather than flagging it:
+      // moving the wrong way round would break a working sign-in.
+      const canReassign = Boolean(loserEmail)
+        && !loserEmail.endsWith('@merged.invalid')
+        && loserEmail !== keeperEmail;
+      return `
+        <div style="padding:14px;border-radius:16px;background:#f8fbff;border:1px solid rgba(15,23,42,.10);">
+          <div style="font-weight:800;color:var(--navy);">${_esc(keeperProfile.displayName || m.keeperUid)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">Signs in as <strong>${_esc(keeperEmail)}</strong> · merged ${_esc(String(m.mergedAt || '').slice(0, 10))}</div>
+          ${canReassign ? `
+            <div style="font-size:12px;color:#5b6b84;margin-top:4px;">The folded-in account used ${_esc(loserEmail)}. Only swap if that is the inbox the student actually checks — the address above works today.</div>
+          ` : '<div style="font-size:12px;color:#166534;margin-top:4px;">Sign-in email settled.</div>'}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            ${canReassign ? `<button class="btn-prev" style="display:inline-flex;padding:6px 10px;font-size:12px;" onclick="_reassignMergedSignInEmail('${_esc(m.keeperUid)}','${_esc(m.loserUid)}')">Switch to ${_esc(loserEmail)}</button>` : ''}
+            <button class="btn-prev" style="display:inline-flex;padding:6px 10px;font-size:12px;" onclick="_revertAccountMerge('${_esc(m.mergeId)}')">Revert merge</button>
+          </div>
+        </div>
+      `;
+    }).join('')
+    : '<div style="font-size:12px;color:var(--muted);">No account merges recorded.</div>';
 
   const invalidNonUjDuplicateCards = report.invalidNonUjDuplicateCandidates.length
     ? report.invalidNonUjDuplicateCandidates.map((row) => {
@@ -5356,6 +5404,14 @@ window._openRosterProfileSyncModal = async () => {
       </section>
 
       <section style="background:linear-gradient(180deg,#ffffff,#f8fbff);border:1px solid rgba(15,23,42,.08);border-radius:22px;padding:18px;margin-top:14px;box-shadow:0 14px 28px rgba(15,23,42,.04);">
+        <h3 style="margin:0 0 10px 0;color:#10213a;font-size:16px;">Completed account merges</h3>
+        <p style="margin:0 0 12px 0;font-size:12px;color:#5b6b84;line-height:1.7;">Merged accounts no longer appear as duplicates above. Move the sign-in email if the student had been using the address on the account that was folded in, otherwise only the kept account's address reaches their work.</p>
+        <div style="display:grid;gap:10px;max-height:260px;overflow:auto;">
+          ${mergeCards}
+        </div>
+      </section>
+
+      <section style="background:linear-gradient(180deg,#ffffff,#f8fbff);border:1px solid rgba(15,23,42,.08);border-radius:22px;padding:18px;margin-top:14px;box-shadow:0 14px 28px rgba(15,23,42,.04);">
         <h3 style="margin:0 0 10px 0;color:#10213a;font-size:16px;">Out-of-Sync Students</h3>
         <p style="margin:0 0 12px 0;font-size:12px;color:#5b6b84;line-height:1.7;">This table isolates accounts that still need attention after automatic roster matching. Use Sync only for review matches you accept, Mark Review to force student confirmation, Archive Duplicate for safe duplicates with no work, and Hard Delete only for invalid non-UJ duplicates.</p>
         ${outOfSyncTable}
@@ -5568,6 +5624,125 @@ window._archiveSingleDuplicateProfile = async (uid) => {
   } catch (err) {
     _setRosterProfileSyncStatus(`Duplicate archive failed: ${err?.message || err || 'Unknown error'}`, 'warn');
     _showLecturerToast(`Duplicate archive failed: ${err?.message || err || 'Unknown error'}`, 'warn', 4200);
+  } finally {
+    _clearRosterSyncBusy();
+  }
+};
+
+// ── Duplicate account merge ──────────────────────────────────────────────────
+// Archiving only covers duplicates with no work. When both accounts hold real
+// work the lecturer needs the work consolidated instead, so this builds the
+// plan from the shared rules in account-merge.js, shows it, and applies it as a
+// single atomic multi-path update once the lecturer confirms.
+
+async function _readForMerge(dbPath) {
+  const snap = await get(ref(db, dbPath));
+  return snap.exists() ? snap.val() : null;
+}
+
+// Hands the folded-in account's sign-in email to the keeper, so the student
+// carries on using the inbox they know. Safe to call any time after a merge:
+// the callable refuses unless the loser is already tombstoned into the keeper.
+async function _runMergedEmailReassignment(keeperUid, loserUid) {
+  const reassign = httpsCallable(functions, 'reassignMergedAccountEmail');
+  const res = await reassign({ keeperUid, loserUid });
+  return res?.data?.reassignedEmail || '';
+}
+
+window._reassignMergedSignInEmail = async (keeperUid = '', loserUid = '') => {
+  if (!keeperUid || !loserUid) return;
+  if (!confirm('Move the folded-in account\'s sign-in email onto the kept account? The student then signs in with that address instead of the kept account\'s current one.')) return;
+  _setRosterSyncBusy('Reassigning sign-in email...');
+  try {
+    const email = await _runMergedEmailReassignment(keeperUid, loserUid);
+    await _umRefreshUsers().catch(() => { });
+    _setRosterProfileSyncStatus(`Sign-in email moved. The student now signs in as ${email}.`, 'success');
+    _showLecturerToast(`Sign-in email moved to ${email}.`, 'success', 4200);
+    await window._openRosterProfileSyncModal();
+  } catch (err) {
+    _setRosterProfileSyncStatus(`Email reassignment failed: ${err?.message || err || 'Unknown error'}`, 'warn');
+    _showLecturerToast(`Email reassignment failed: ${err?.message || err || 'Unknown error'}`, 'warn', 4600);
+  } finally {
+    _clearRosterSyncBusy();
+  }
+};
+
+window._previewDuplicateAccountMerge = async (loserUid = '', keeperUid = '') => {
+  if (!loserUid || !keeperUid) {
+    _showLecturerToast('Cannot merge: missing keeper or duplicate UID.', 'warn', 3200);
+    return;
+  }
+  _setRosterSyncBusy('Building merge plan...');
+  try {
+    const plan = await buildMergePlan({ keeperUid, loserUid, read: _readForMerge });
+
+    const keeperName = plan.keeper.profile?.displayName || keeperUid;
+    const loserName = plan.loser.profile?.displayName || loserUid;
+    const lines = plan.moves.map((m) => `  • ${m.label}`).join('\n');
+    const warnings = plan.warnings.map((w) => `  ! ${w}`).join('\n');
+
+    const confirmed = confirm(
+      `Merge "${loserName}" into "${keeperName}"?\n\n`
+      + `${plan.moves.length} item(s) will move:\n${lines}\n\n`
+      + `Warnings:\n${warnings}\n\n`
+      + `The duplicate account is disabled, not deleted. A snapshot of both accounts is saved to account-merges/${plan.mergeId} so this can be reversed.`
+    );
+    if (!confirmed) {
+      _setRosterProfileSyncStatus('Merge cancelled. Nothing was written.', 'warn');
+      return;
+    }
+
+    _setRosterSyncBusy('Merging accounts...');
+    // One atomic multi-path update: nulls delete, so the copies and the
+    // removals land together or not at all.
+    await update(ref(db), plan.patch);
+
+    // The student keeps the inbox they have actually been using, unless the
+    // lecturer declines. Offered only when the two accounts differ, and only
+    // after the merge, which is the precondition the callable enforces.
+    const loserEmail = plan.loser.profile?.authEmail || '';
+    const keeperEmail = plan.keeper.profile?.authEmail || '';
+    let signInEmail = keeperEmail;
+    if (loserEmail && loserEmail !== keeperEmail
+      && confirm(`Merge done. ${loserName} has been signing in as ${loserEmail}, but only ${keeperEmail} now reaches their work.\n\nMove ${loserEmail} onto the kept account so they can carry on using it?`)) {
+      _setRosterSyncBusy('Reassigning sign-in email...');
+      try {
+        signInEmail = await _runMergedEmailReassignment(keeperUid, loserUid) || loserEmail;
+      } catch (err) {
+        _showLecturerToast(`Merge succeeded but the email reassignment failed: ${err?.message || err}. The student must sign in as ${keeperEmail}.`, 'warn', 6000);
+      }
+    }
+
+    await _umRefreshUsers().catch(() => { });
+    _setRosterProfileSyncStatus(`Merged ${loserName} into ${keeperName}. ${plan.moves.length} item(s) moved. Sign-in email: ${signInEmail}.`, 'success');
+    _showLecturerToast(`Accounts merged. Ask the student to sign in as ${signInEmail}.`, 'success', 5200);
+    await window._openRosterProfileSyncModal();
+  } catch (err) {
+    _setRosterProfileSyncStatus(`Account merge failed: ${err?.message || err || 'Unknown error'}`, 'warn');
+    _showLecturerToast(`Account merge failed: ${err?.message || err || 'Unknown error'}`, 'warn', 4600);
+  } finally {
+    _clearRosterSyncBusy();
+  }
+};
+
+// Reverse a merge using the snapshot captured at merge time.
+window._revertAccountMerge = async (mergeId = '') => {
+  if (!mergeId) return;
+  _setRosterSyncBusy('Reverting account merge...');
+  try {
+    const record = await _readForMerge(`account-merges/${mergeId}`);
+    if (!record?.reversePatchJson) throw new Error('No reverse patch stored for this merge.');
+    const reversePatch = JSON.parse(record.reversePatchJson);
+    if (!confirm(`Restore both accounts to their state before merge ${mergeId}? Any work done since the merge will be lost.`)) return;
+    await update(ref(db), {
+      ...reversePatch,
+      [`account-merges/${mergeId}/revertedAt`]: new Date().toISOString(),
+      [`account-merges/${mergeId}/revertedByUid`]: STATE.user?.uid || null,
+    });
+    await _umRefreshUsers().catch(() => { });
+    _setRosterProfileSyncStatus(`Merge ${mergeId} reverted: every path restored to its pre-merge value.`, 'success');
+  } catch (err) {
+    _setRosterProfileSyncStatus(`Merge revert failed: ${err?.message || err || 'Unknown error'}`, 'warn');
   } finally {
     _clearRosterSyncBusy();
   }
@@ -6174,6 +6349,34 @@ let _attendanceAnalyticsSelectedDate = new Date().toISOString().slice(0, 10);
 const _studentSupportModeByUid = {};
 const _studentSupportSaveStateByUid = {};
 const _studentSupportSaveTimerByUid = {};
+
+function _gradebookPendingEditCount() {
+  return Object.keys(_gradebookMarkEdits || {}).length;
+}
+
+function _gradebookPendingEditForKey(key) {
+  return _gradebookMarkEdits?.[key] || null;
+}
+
+function _gradebookQueuePendingMarkEdit({ uid = '', assessmentId = '', submissionId = '', mark, reason = '', source = 'gradebook-edit' }) {
+  const safeUid = String(uid || '').trim();
+  const safeAssessmentId = String(assessmentId || '').trim();
+  const num = Number(mark);
+  if (!safeUid || !safeAssessmentId || !Number.isFinite(num)) return null;
+  const key = `${safeUid}__${safeAssessmentId}`;
+  const entry = {
+    key,
+    uid: safeUid,
+    assessmentId: safeAssessmentId,
+    submissionId: String(submissionId || '').trim(),
+    mark: Math.max(0, Math.min(100, Math.round(num))),
+    reason: String(reason || '').trim(),
+    source: String(source || '').trim() || 'gradebook-edit',
+  };
+  _gradebookMarkEdits[key] = entry;
+  _gradebookEditMode = true;
+  return entry;
+}
 
 function _attendanceDateKeyLabel(dateKey = '') {
   const normalized = String(dateKey || '').trim();
@@ -6807,10 +7010,18 @@ function _gradebookSummaryRows() {
   });
 }
 
-function _gradebookAssessmentRows(assessmentId) {
+function _gradebookAssessmentNumber(assessment = {}) {
+  const match = String(assessment.id || assessment.badge || '').match(/\d+/);
+  return match ? Number(match[0]) : '';
+}
+
+function _gradebookAssessmentRows(assessment) {
+  const assessmentId = assessment?.id;
+  const assessmentNumber = _gradebookAssessmentNumber(assessment);
   return (_gradebookRows || []).map((row) => {
     const cell = row.assessments?.[assessmentId] || {};
     return [
+      assessmentNumber,
       row.name,
       row.studentNumber,
       row.email,
@@ -6859,19 +7070,20 @@ window._downloadGradebookXlsm = async () => {
     ..._gradebookAssessments.map((assessment) => ({
       name: assessment.badge || assessment.id,
       rows: [[
+        'Assignment Number',
         'Student Name',
         'Student Number',
         'Email',
         'Tutorial Group',
-        'Mark',
+        'Nom',
         'Mark Source',
         'Review Status',
         'Released To Student',
         'Submission Versions',
         'Latest Submission At',
         'Latest Submission ID',
-      ], ..._gradebookAssessmentRows(assessment.id)],
-      widths: [28, 16, 28, 14, 12, 16, 18, 16, 18, 22, 18],
+      ], ..._gradebookAssessmentRows(assessment)],
+      widths: [12, 28, 16, 28, 14, 12, 16, 18, 16, 18, 22, 18],
     })),
   ];
   await _downloadWorkbookAsXlsm(`gradebook-${new Date().toISOString().slice(0, 10)}.xlsm`, sheets);
@@ -6892,20 +7104,110 @@ window._downloadSelectedAssessmentXlsm = async () => {
   await _downloadWorkbookAsXlsm(`assessment-${assessment.id}-marks-${new Date().toISOString().slice(0, 10)}.xlsm`, [{
     name: assessment.badge || assessment.id,
     rows: [[
+      'Assignment Number',
       'Student Name',
       'Student Number',
       'Email',
       'Tutorial Group',
-      'Mark',
+      'Nom',
       'Mark Source',
       'Review Status',
       'Released To Student',
       'Submission Versions',
       'Latest Submission At',
       'Latest Submission ID',
-    ], ..._gradebookAssessmentRows(assessment.id)],
-    widths: [28, 16, 28, 14, 12, 16, 18, 16, 18, 22, 18],
+    ], ..._gradebookAssessmentRows(assessment)],
+    widths: [12, 28, 16, 28, 14, 12, 16, 18, 16, 18, 22, 18],
   }]);
+};
+
+function _gradebookMarksByStudentNumber(assessmentId) {
+  const map = new Map();
+  (_gradebookRows || []).forEach((row) => {
+    const digits = String(row.studentNumber || '').replace(/\D/g, '');
+    if (!digits) return;
+    const mark = row.assessments?.[assessmentId]?.resolved?.mark;
+    if (mark != null) map.set(digits, Number(mark));
+  });
+  return map;
+}
+
+window._handleMamsTemplateUpload = async (event) => {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+
+  const assessment = (_gradebookAssessments || []).find((item) => item.id === _gradebookSelectedAssessmentId)
+    || (_gradebookAssessments || [])[0];
+  if (!assessment) {
+    _showLecturerToast('No assessment gradebook is available yet.', 'warn', 2800);
+    if (event?.target) event.target.value = '';
+    return;
+  }
+
+  try {
+    const XLSX = await import('xlsx');
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true });
+    const sheetName = workbook.SheetNames?.[0];
+    const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+    if (!sheet || !sheet['!ref']) {
+      _showLecturerToast('That workbook does not contain a readable sheet.', 'warn', 3200);
+      return;
+    }
+
+    const range = XLSX.utils.decode_range(sheet['!ref']);
+    let headerRow = -1;
+    let studColIdx = -1;
+    let nomColIdx = -1;
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      let rowStudCol = -1;
+      let rowNomCol = -1;
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const val = String(sheet[XLSX.utils.encode_cell({ r, c })]?.v ?? '').trim().toLowerCase();
+        if (val === 'stud number') rowStudCol = c;
+        if (val === 'nom') rowNomCol = c;
+      }
+      if (rowStudCol >= 0 && rowNomCol >= 0) {
+        headerRow = r;
+        studColIdx = rowStudCol;
+        nomColIdx = rowNomCol;
+        break;
+      }
+    }
+    if (headerRow < 0) {
+      _showLecturerToast('Could not find "Stud Number" and "NOM" columns in that template.', 'warn', 3600);
+      return;
+    }
+
+    const marksByStudentNumber = _gradebookMarksByStudentNumber(assessment.id);
+    let matched = 0;
+    let unmatched = 0;
+    for (let r = headerRow + 1; r <= range.e.r; r++) {
+      const rawStud = sheet[XLSX.utils.encode_cell({ r, c: studColIdx })]?.v;
+      if (rawStud == null || rawStud === '') continue;
+      const digits = String(rawStud).replace(/\D/g, '');
+      if (!digits) continue;
+      if (marksByStudentNumber.has(digits)) {
+        const nomRef = XLSX.utils.encode_cell({ r, c: nomColIdx });
+        const existing = sheet[nomRef] || {};
+        sheet[nomRef] = { ...existing, t: 'n', v: marksByStudentNumber.get(digits) };
+        delete sheet[nomRef].w;
+        matched += 1;
+      } else {
+        unmatched += 1;
+      }
+    }
+
+    const ext = /\.xlsx$/i.test(file.name) ? 'xlsx' : 'xls';
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+    XLSX.writeFile(workbook, `${baseName} - marks merged.${ext}`, { bookType: ext });
+    _showLecturerToast(`Merged ${matched} mark${matched === 1 ? '' : 's'} into the template (${unmatched} student number${unmatched === 1 ? '' : 's'} in the template had no mark to merge).`, 'success', 4600);
+  } catch (err) {
+    console.error('MAMS template merge failed:', err);
+    _showLecturerToast(`Could not merge marks into that template: ${err.message || err}`, 'warn', 3800);
+  } finally {
+    if (event?.target) event.target.value = '';
+  }
 };
 
 window._loadGradebookManager = async () => {
@@ -6921,12 +7223,16 @@ window._loadGradebookManager = async () => {
 
   try {
     const assessments = _gradebookAssessmentList();
-    const students = await _loadGradebookStudents();
-    const fetches = assessments.flatMap((assessment) => [
-      get(ref(db, `submissions/${assessment.id}`)).catch(() => ({ exists: () => false })),
-      get(ref(db, `grading-records/${assessment.id}`)).catch(() => ({ exists: () => false })),
+    // Single network phase: the roster goes out alongside the assessment
+    // subtrees instead of blocking them, so the load costs one round trip
+    // rather than two.
+    const [students, ...fetchResults] = await Promise.all([
+      _loadGradebookStudents(),
+      ...assessments.flatMap((assessment) => [
+        get(ref(db, `submissions/${assessment.id}`)).catch(() => ({ exists: () => false })),
+        get(ref(db, `grading-records/${assessment.id}`)).catch(() => ({ exists: () => false })),
+      ]),
     ]);
-    const fetchResults = await Promise.all(fetches);
 
     const submissionsByAssessment = {};
     const recordsByAssessment = {};
@@ -6973,9 +7279,134 @@ window._loadGradebookManager = async () => {
       };
     });
 
+    _renderGradebookManager(mount);
+  } catch (err) {
+    console.error('Gradebook load failed:', err);
+    mount.innerHTML = `<div style="padding:40px;text-align:center;color:#b91c1c;">Failed to load gradebook: ${_esc(err?.message || err || 'Unknown error')}</div>`;
+  }
+};
+
+function _gradebookAssessmentStats(assessment) {
+  const total = (_gradebookRows || []).length;
+  let submitted = 0;
+  const marks = [];
+  (_gradebookRows || []).forEach((row) => {
+    const cell = row.assessments[assessment.id];
+    if (cell?.latestSubmissionId) submitted++;
+    if (cell?.resolved?.mark != null) marks.push(Number(cell.resolved.mark));
+  });
+  marks.sort((a, b) => a - b);
+  const graded = marks.length;
+  const average = graded ? marks.reduce((sum, m) => sum + m, 0) / graded : null;
+  const median = graded
+    ? (graded % 2 === 1 ? marks[(graded - 1) / 2] : (marks[graded / 2 - 1] + marks[graded / 2]) / 2)
+    : null;
+  const passRate = graded ? (marks.filter((m) => m >= 50).length / graded) * 100 : null;
+  const failRate = graded ? 100 - passRate : null;
+  return { total, submitted, graded, average, median, passRate, failRate, notSubmitted: total - submitted };
+}
+
+// Only assessments where at least one student has submitted or been marked
+// count toward risk — otherwise every student would show as "missed" for
+// work that simply isn't due yet.
+function _gradebookOpenAssessments() {
+  return (_gradebookAssessments || []).filter((assessment) => (_gradebookRows || []).some((row) => {
+    const cell = row.assessments[assessment.id];
+    return Boolean(cell?.latestSubmissionId) || cell?.resolved?.mark != null;
+  }));
+}
+
+function _gradebookAtRiskStudents() {
+  const openAssessments = _gradebookOpenAssessments();
+  if (!openAssessments.length) return [];
+
+  return (_gradebookRows || []).map((row) => {
+    let missed = 0;
+    let failed = 0;
+    let gradedCount = 0;
+    let markSum = 0;
+    let lowestMark = null;
+    openAssessments.forEach((assessment) => {
+      const cell = row.assessments[assessment.id];
+      if (!cell?.latestSubmissionId) missed++;
+      const mark = cell?.resolved?.mark;
+      if (mark != null) {
+        gradedCount++;
+        markSum += Number(mark);
+        if (lowestMark == null || Number(mark) < lowestMark) lowestMark = Number(mark);
+        if (Number(mark) < 50) failed++;
+      }
+    });
+    let tier = null;
+    if (missed >= 2 || failed >= 2) tier = 'Critical';
+    else if (missed === 1 || failed === 1 || (lowestMark != null && lowestMark < 40)) tier = 'Watch';
+    return {
+      uid: row.uid,
+      name: row.name,
+      studentNumber: row.studentNumber,
+      email: row.email,
+      tutorialGroup: row.tutorialGroup,
+      missed,
+      failed,
+      avgMark: gradedCount ? Math.round((markSum / gradedCount) * 10) / 10 : null,
+      lowestMark,
+      tier,
+    };
+  })
+    .filter((s) => s.tier)
+    .sort((a, b) => {
+      const rank = { Critical: 0, Watch: 1 };
+      if (rank[a.tier] !== rank[b.tier]) return rank[a.tier] - rank[b.tier];
+      return (b.missed + b.failed) - (a.missed + a.failed);
+    });
+}
+
+// Renders from the already-fetched _gradebookRows/_gradebookAssessments state.
+// Split out of _loadGradebookManager so a re-render after a local mutation
+// costs no network at all.
+function _renderGradebookManager(mountEl) {
+  const mount = mountEl || document.getElementById('analytics-mount');
+  if (!mount) return;
+
+  try {
+    const assessments = _gradebookAssessments || [];
+    if (!Array.isArray(_gradebookRows)) return;
     const selectedAssessment = assessments.find((assessment) => assessment.id === _gradebookSelectedAssessmentId) || null;
     const completedMarks = _gradebookRows.reduce((sum, row) => sum + assessments.filter((assessment) => row.assessments[assessment.id]?.resolved?.mark != null).length, 0);
     const finalisedMarks = _gradebookRows.reduce((sum, row) => sum + assessments.filter((assessment) => row.assessments[assessment.id]?.statusLabel === 'Finalised').length, 0);
+    const pendingEditCount = _gradebookPendingEditCount();
+    const assessmentStats = assessments.map((assessment) => ({ assessment, stats: _gradebookAssessmentStats(assessment) }));
+    const atRiskStudents = _gradebookAtRiskStudents();
+    const criticalCount = atRiskStudents.filter((s) => s.tier === 'Critical').length;
+
+    // Borderline fails (45–49): every one must either be adjusted with a
+    // justification or confirmed as a fail with a written outcomes-based
+    // justification. Matches _isBorderlineFailMark in the submission reviewer.
+    const borderlineRows = [];
+    _gradebookRows.forEach((row) => {
+      assessments.forEach((assessment) => {
+        const cell = row.assessments[assessment.id];
+        const mark = Number(cell?.resolved?.mark);
+        if (!Number.isFinite(mark) || mark < 45 || mark >= 50) return;
+        if (!cell?.latestSubmissionId) return;
+        const editKey = `${row.uid}__${assessment.id}`;
+        const pendingEdit = _gradebookPendingEditForKey(editKey);
+        borderlineRows.push({
+          uid: row.uid,
+          name: row.name,
+          studentNumber: row.studentNumber,
+          assessmentId: assessment.id,
+          assessmentBadge: assessment.badge,
+          submissionId: cell.latestSubmissionId,
+          mark: pendingEdit ? pendingEdit.mark : mark,
+          statusLabel: cell.statusLabel || '',
+          confirmed: Boolean(cell.record?.moderation?.borderlineFailJustification),
+          confirmedBy: cell.record?.moderation?.borderlineFailConfirmedByName || '',
+          pendingEdit: Boolean(pendingEdit),
+        });
+      });
+    });
+    const unresolvedBorderline = borderlineRows.filter((item) => !item.confirmed).length;
 
     mount.innerHTML = `
       <div style="display:grid;gap:20px;">
@@ -6984,7 +7415,10 @@ window._loadGradebookManager = async () => {
             <h1 style="margin:0;color:var(--navy);font-family:var(--font-heading);font-size:30px;">Gradebook</h1>
             <p style="margin:8px 0 0 0;color:var(--muted);line-height:1.6;max-width:820px;">Review assessment marks across the cohort, then download the full gradebook or a single-assessment marks workbook as <code>.xlsm</code>.</p>
           </div>
-          <button class="btn-prev" style="display:inline-flex;" onclick="_loadAnalytics()">Back to Cohort Overview</button>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="btn-prev" style="display:inline-flex;" onclick="window._loadGradebookManager()">↻ Refresh</button>
+            <button class="btn-prev" style="display:inline-flex;" onclick="_loadAnalytics()">Back to Cohort Overview</button>
+          </div>
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
@@ -7007,6 +7441,93 @@ window._loadGradebookManager = async () => {
         </div>
 
         <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+          <div>
+            <h2 style="margin:0;color:var(--navy);font-size:18px;">Assessment Statistics</h2>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px;">Average, median, and pass rate per assessment — computed only from marks captured so far.</div>
+          </div>
+          <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;margin-top:14px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#f8fafc;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">
+                  <th style="padding:10px 14px;text-align:left;">Assessment</th>
+                  <th style="padding:10px 14px;text-align:left;">Submitted</th>
+                  <th style="padding:10px 14px;text-align:left;">Graded</th>
+                  <th style="padding:10px 14px;text-align:left;">Average</th>
+                  <th style="padding:10px 14px;text-align:left;">Median</th>
+                  <th style="padding:10px 14px;text-align:left;">Pass Rate</th>
+                  <th style="padding:10px 14px;text-align:left;">Not Submitted</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${assessmentStats.map(({ assessment, stats }) => {
+                  const passColor = stats.passRate == null ? 'var(--muted)' : (stats.passRate >= 70 ? '#166534' : (stats.passRate >= 50 ? '#b45309' : '#991b1b'));
+                  const submittedPct = stats.total ? Math.round((stats.submitted / stats.total) * 100) : 0;
+                  return `
+                  <tr>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);font-weight:800;color:var(--navy);">${_esc(assessment.badge)}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);color:var(--navy);">${stats.submitted}/${stats.total} <span style="color:var(--muted);">(${submittedPct}%)</span></td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);color:var(--navy);">${stats.graded}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);color:var(--navy);font-weight:700;">${stats.average != null ? `${Math.round(stats.average * 10) / 10}%` : '—'}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);color:var(--navy);">${stats.median != null ? `${Math.round(stats.median * 10) / 10}%` : '—'}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);font-weight:800;color:${passColor};">${stats.passRate != null ? `${Math.round(stats.passRate)}%` : '—'}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);font-weight:700;color:${stats.notSubmitted > 0 ? '#991b1b' : '#166534'};">${stats.notSubmitted}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+              <h2 style="margin:0;color:var(--navy);font-size:18px;">Students At Risk</h2>
+              <div style="font-size:12px;color:var(--muted);margin-top:6px;max-width:760px;line-height:1.6;">Flagged from submission and mark patterns across assessments that have opened so far — <strong>Critical</strong>: missed 2+ assessments or failed 2+; <strong>Watch</strong>: missed or failed one, or scored below 40% on any assessment.</div>
+            </div>
+            <div style="font-size:12px;font-weight:800;color:${criticalCount ? '#991b1b' : '#166534'};padding:6px 12px;border-radius:999px;background:${criticalCount ? '#fef2f2' : '#ecfdf5'};border:1px solid ${criticalCount ? '#fecaca' : '#a7f3d0'};white-space:nowrap;">
+              ${atRiskStudents.length ? `${atRiskStudents.length} flagged (${criticalCount} critical)` : 'No students flagged'}
+            </div>
+          </div>
+          ${atRiskStudents.length ? `
+          <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#f8fafc;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">
+                  <th style="padding:10px 14px;text-align:left;">Student</th>
+                  <th style="padding:10px 14px;text-align:left;">Missed</th>
+                  <th style="padding:10px 14px;text-align:left;">Failed</th>
+                  <th style="padding:10px 14px;text-align:left;">Avg Mark</th>
+                  <th style="padding:10px 14px;text-align:left;">Lowest Mark</th>
+                  <th style="padding:10px 14px;text-align:left;">Risk</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${atRiskStudents.map((s) => {
+                  const isCritical = s.tier === 'Critical';
+                  const badgeBg = isCritical ? '#fef2f2' : '#fffbeb';
+                  const badgeFg = isCritical ? '#991b1b' : '#92400e';
+                  const badgeBorder = isCritical ? '#fecaca' : '#fcd34d';
+                  return `
+                  <tr>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);">
+                      <div style="font-weight:800;color:var(--navy);">${_esc(s.name)}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:2px;">${_esc(s.studentNumber || '—')}${s.tutorialGroup ? ` · Group ${_esc(s.tutorialGroup)}` : ''}${s.email ? ` · <a href="mailto:${_esc(s.email)}" style="color:var(--muted);">${_esc(s.email)}</a>` : ''}</div>
+                    </td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);font-weight:700;color:${s.missed > 0 ? '#991b1b' : 'var(--navy)'};">${s.missed}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);font-weight:700;color:${s.failed > 0 ? '#991b1b' : 'var(--navy)'};">${s.failed}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);color:var(--navy);">${s.avgMark != null ? `${s.avgMark}%` : '—'}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);color:var(--navy);">${s.lowestMark != null ? `${s.lowestMark}%` : '—'}</td>
+                    <td style="padding:10px 14px;border-top:1px solid var(--border);">
+                      <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;background:${badgeBg};color:${badgeFg};border:1px solid ${badgeBorder};white-space:nowrap;">${s.tier}</span>
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>` : `<div style="font-size:12px;color:var(--muted);">No students currently meet the missed/failed thresholds above.</div>`}
+        </div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
             <div>
               <h2 style="margin:0;color:var(--navy);font-size:18px;">Exports</h2>
@@ -7018,9 +7539,68 @@ window._loadGradebookManager = async () => {
                 ${assessments.map((assessment) => `<option value="${_esc(assessment.id)}" ${assessment.id === _gradebookSelectedAssessmentId ? 'selected' : ''}>${_esc(assessment.badge)} · ${_esc(assessment.title)}</option>`).join('')}
               </select>
               <button class="btn-prev" style="display:inline-flex;" onclick="_downloadSelectedAssessmentXlsm()">⬇ Download Assessment XLSM</button>
+              <label class="btn-prev" style="display:inline-flex;cursor:pointer;">
+                ⬆ Merge Marks into MAMS Template
+                <input type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;" onchange="_handleMamsTemplateUpload(event)" />
+              </label>
             </div>
           </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:10px;">Upload the blank roster workbook you downloaded from MAMS for the selected assessment above — marks get written into its NOM column by matching student number, everything else in the file is left untouched, and the merged file downloads automatically.</div>
         </div>
+
+        ${borderlineRows.length ? `
+        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:16px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+              <h2 style="margin:0;color:#92400e;font-size:18px;">Borderline Fails (45–49) — Review Required</h2>
+              <div style="font-size:12px;color:#78350f;margin-top:6px;max-width:760px;line-height:1.6;">
+                Each mark below must be resolved by a human decision: open the script and either <strong>adjust the mark</strong> (if the work does meet the learning objectives) or <strong>confirm the fail</strong> with a written justification naming the outcomes that were not met. Both actions are recorded in the moderation audit trail.
+              </div>
+            </div>
+            <div style="font-size:12px;font-weight:800;color:${unresolvedBorderline ? '#92400e' : '#047857'};padding:6px 12px;border-radius:999px;background:${unresolvedBorderline ? '#fef3c7' : '#ecfdf5'};border:1px solid ${unresolvedBorderline ? '#fcd34d' : '#a7f3d0'};white-space:nowrap;">
+              ${unresolvedBorderline ? `${unresolvedBorderline} awaiting review` : 'All reviewed'}
+            </div>
+          </div>
+          <div style="overflow:auto;border:1px solid #fcd34d;border-radius:12px;background:white;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#fef3c7;color:#92400e;text-transform:uppercase;letter-spacing:.08em;">
+                  <th style="padding:10px 14px;text-align:left;">Student</th>
+                  <th style="padding:10px 14px;text-align:left;">Assessment</th>
+                  <th style="padding:10px 14px;text-align:left;">Mark</th>
+                  <th style="padding:10px 14px;text-align:left;">Status</th>
+                  <th style="padding:10px 14px;text-align:left;">Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${borderlineRows.map((item) => `
+                  <tr>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;">
+                      <div style="font-weight:800;color:var(--navy);">${_esc(item.name)}</div>
+                      <div style="font-size:11px;color:var(--muted);">${_esc(item.studentNumber || '')}</div>
+                    </td>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;font-weight:700;color:var(--navy);">${_esc(item.assessmentBadge)}</td>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;font-weight:900;color:${item.pendingEdit ? '#166534' : '#b45309'};">${_esc(String(item.mark))}%${item.pendingEdit ? '<div style="font-size:10px;color:#166534;font-weight:800;margin-top:3px;">Unsaved</div>' : ''}</td>
+                    <td style="padding:10px 14px;border-top:1px solid #fde68a;">${_esc(item.statusLabel)}</td>
+                    <td style="padding:8px 14px;border-top:1px solid #fde68a;">
+                      ${item.confirmed
+                        ? `<span style="font-size:11px;font-weight:800;color:#047857;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:999px;padding:3px 10px;white-space:nowrap;">✓ Fail confirmed${item.confirmedBy ? ` · ${_esc(item.confirmedBy)}` : ''}</span>`
+                        : `<div style="display:flex;gap:5px;flex-wrap:wrap;">
+                            <button type="button" class="btn-prev" style="font-size:10px;padding:3px 9px;display:inline-flex;"
+                              onclick="window._gradebookOpenMarkingPlatform(${_esc(JSON.stringify(item.assessmentId))},${_esc(JSON.stringify(item.uid))},${_esc(JSON.stringify(item.submissionId))})">Open Script</button>
+                            <button type="button" style="font-size:10px;padding:3px 9px;border:1px solid #059669;border-radius:5px;background:white;color:#047857;cursor:pointer;white-space:nowrap;"
+                              onclick="window._gbBorderlineAdjust(${_esc(JSON.stringify(item.uid))},${_esc(JSON.stringify(item.assessmentId))},${_esc(JSON.stringify(item.submissionId))},${item.mark})">${item.pendingEdit ? 'Edit Draft…' : 'Adjust Mark…'}</button>
+                            <button type="button" style="font-size:10px;padding:3px 9px;border:1px solid #dc2626;border-radius:5px;background:white;color:#991b1b;cursor:pointer;white-space:nowrap;"
+                              onclick="window._gbBorderlineConfirmFail(${_esc(JSON.stringify(item.uid))},${_esc(JSON.stringify(item.assessmentId))},${_esc(JSON.stringify(item.submissionId))})">Confirm Fail…</button>
+                          </div>`
+                      }
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
 
         <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:20px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
@@ -7030,12 +7610,14 @@ window._loadGradebookManager = async () => {
             </div>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
               ${_gradebookEditMode
-                ? `<button class="btn-next" style="display:inline-flex;background:#059669;border-color:#059669;" onclick="_gradebookSaveMarkChanges()">Save Mark Changes</button>
-                   <button class="btn-prev" style="display:inline-flex;" onclick="_gradebookToggleEditMode()">Cancel</button>`
+                ? `<span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:#ecfdf5;border:1px solid #bbf7d0;color:#166534;font-size:12px;font-weight:800;">${pendingEditCount} unsaved change${pendingEditCount === 1 ? '' : 's'}</span>
+                   <button class="btn-next" style="display:inline-flex;background:#059669;border-color:#059669;${pendingEditCount ? '' : 'opacity:.55;cursor:not-allowed;'}" ${pendingEditCount ? 'onclick="_gradebookSaveMarkChanges()"' : 'disabled'}>Save Mark Changes${pendingEditCount ? ` (${pendingEditCount})` : ''}</button>
+                   <button class="btn-prev" style="display:inline-flex;" onclick="_gradebookToggleEditMode()">Discard</button>`
                 : `<button class="btn-prev" style="display:inline-flex;" onclick="_gradebookToggleEditMode()">Edit Marks</button>`
               }
             </div>
           </div>
+          ${_gradebookEditMode ? `<div style="font-size:11px;color:#92400e;line-height:1.6;margin-bottom:10px;">Edit marks in draft mode, then press Save Mark Changes once to apply the batch. The table and audit trail update after the save completes.</div>` : ''}
           <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;">
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead>
@@ -7058,9 +7640,13 @@ window._loadGradebookManager = async () => {
                       const mark = cell?.resolved?.mark;
                       const status = cell?.statusLabel || 'Not submitted';
                       const source = cell?.resolved?.source || '';
-                      const bg = mark == null ? '#f8fafc' : (Number(mark) < 50 ? '#fef2f2' : '#ecfdf5');
-                      const color = mark == null ? 'var(--muted)' : (Number(mark) < 50 ? '#991b1b' : '#166534');
                       const editKey = `${_esc(row.uid)}__${_esc(assessment.id)}`;
+                      const pendingEdit = _gradebookPendingEditForKey(editKey);
+                      const displayMark = pendingEdit ? pendingEdit.mark : mark;
+                      const numericMark = Number(displayMark);
+                      const isBorderlineFail = Number.isFinite(numericMark) && numericMark >= 45 && numericMark < 50;
+                      const bg = displayMark == null ? '#f8fafc' : (isBorderlineFail ? '#fffbeb' : (numericMark < 50 ? '#fef2f2' : '#ecfdf5'));
+                      const color = displayMark == null ? 'var(--muted)' : (isBorderlineFail ? '#b45309' : (numericMark < 50 ? '#991b1b' : '#166534'));
                       const hasSubmission = Boolean(cell?.latestSubmissionId);
                       const fileUrl = cell?.submissionFileUrl || '';
                       return `<td style="padding:10px 14px;border-top:1px solid var(--border);background:${bg};">
@@ -7069,11 +7655,12 @@ window._loadGradebookManager = async () => {
                                data-edit-key="${editKey}"
                                data-uid="${_esc(row.uid)}"
                                data-assessment="${_esc(assessment.id)}"
-                               value="${mark != null ? mark : ''}"
+                               data-submission-id="${_esc(cell?.latestSubmissionId || '')}"
+                               value="${displayMark != null ? displayMark : ''}"
                                placeholder="—"
                                oninput="window._gradebookRecordEdit(this)"
-                               style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:900;color:${color};background:white;" /><span style="font-size:11px;color:var(--muted);margin-left:3px;">%</span>`
-                          : `<div style="font-weight:900;color:${color};">${mark != null ? `${_esc(String(mark))}%` : '—'}</div>`
+                               style="width:70px;padding:4px 6px;border:1px solid ${pendingEdit ? '#059669' : 'var(--border)'};border-radius:6px;font-size:13px;font-weight:900;color:${color};background:${pendingEdit ? '#ecfdf5' : 'white'};" /><span style="font-size:11px;color:var(--muted);margin-left:3px;">%</span>${pendingEdit ? '<div style="font-size:10px;color:#166534;font-weight:800;margin-top:3px;">Unsaved</div>' : ''}`
+                          : `<div style="font-weight:900;color:${color};">${displayMark != null ? `${_esc(String(displayMark))}%` : '—'}</div>${pendingEdit ? '<div style="font-size:10px;color:#166534;font-weight:800;margin-top:3px;">Unsaved</div>' : ''}`
                         }
                         <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(status)}${source ? ` · ${_esc(source)}` : ''}</div>
                         ${hasSubmission ? `<div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;">
@@ -7141,10 +7728,13 @@ window._loadGradebookManager = async () => {
                   ${_gradebookRows.map((row) => {
                     const cell = row.assessments[selectedAssessment.id];
                     const mark = cell?.resolved?.mark;
-                    const markColor = mark != null && Number(mark) < 50 ? '#991b1b' : '#166534';
+                    const editKey = row.uid + '__' + selectedAssessment.id;
+                    const pendingEdit = _gradebookPendingEditForKey(editKey);
+                    const displayMark = pendingEdit ? pendingEdit.mark : mark;
+                    const markColor = displayMark != null && Number(displayMark) < 50 ? '#991b1b' : '#166534';
                     const hasSubmission = Boolean(cell?.latestSubmissionId);
                     const fileUrl = cell?.submissionFileUrl || '';
-                    const selKey = row.uid + '__' + selectedAssessment.id;
+                    const selKey = editKey;
                     const isSelected = _gbBulkSelected.has(selKey);
                     return `<tr style="background:${isSelected ? '#eff6ff' : 'inherit'};">
                       <td style="padding:12px 14px;border-top:1px solid var(--border);">
@@ -7156,7 +7746,7 @@ window._loadGradebookManager = async () => {
                         <div style="font-size:11px;color:var(--muted);margin-top:4px;">${_esc(row.email || 'No email')}</div>
                       </td>
                       <td style="padding:12px 14px;border-top:1px solid var(--border);">${_esc(row.studentNumber || '—')}</td>
-                      <td style="padding:12px 14px;border-top:1px solid var(--border);font-weight:900;color:${markColor};">${mark != null ? `${_esc(String(mark))}%` : '—'}</td>
+                      <td style="padding:12px 14px;border-top:1px solid var(--border);font-weight:900;color:${markColor};">${displayMark != null ? `${_esc(String(displayMark))}%` : '—'}${pendingEdit ? '<div style="font-size:10px;color:#166534;font-weight:800;margin-top:3px;">Unsaved</div>' : ''}</td>
                       <td style="padding:12px 14px;border-top:1px solid var(--border);">${_esc(cell?.resolved?.source || '—')}</td>
                       <td style="padding:12px 14px;border-top:1px solid var(--border);">${_esc(cell?.statusLabel || 'Not submitted')}</td>
                       <td style="padding:12px 14px;border-top:1px solid var(--border);">${cell?.releasedToStudent ? 'Yes' : 'No'}</td>
@@ -7178,10 +7768,10 @@ window._loadGradebookManager = async () => {
       </div>
     `;
   } catch (err) {
-    console.error('Gradebook load failed:', err);
-    mount.innerHTML = `<div style="padding:40px;text-align:center;color:#b91c1c;">Failed to load gradebook: ${_esc(err?.message || err || 'Unknown error')}</div>`;
+    console.error('Gradebook render failed:', err);
+    mount.innerHTML = `<div style="padding:40px;text-align:center;color:#b91c1c;">Failed to render gradebook: ${_esc(err?.message || err || 'Unknown error')}</div>`;
   }
-};
+}
 
 window._gradebookToggleEditMode = () => {
   _gradebookEditMode = !_gradebookEditMode;
@@ -7193,15 +7783,29 @@ window._gradebookRecordEdit = (input) => {
   const key = input.dataset.editKey;
   const uid = input.dataset.uid;
   const assessmentId = input.dataset.assessment;
+  const submissionId = input.dataset.submissionId || '';
   const val = input.value.trim();
   if (!key || !uid || !assessmentId) return;
   if (val === '') {
     delete _gradebookMarkEdits[key];
+    input.style.borderColor = 'var(--border)';
+    return;
+  }
+  const num = Number(val);
+  if (Number.isFinite(num) && num >= 0 && num <= 100) {
+    const current = _gradebookMarkEdits[key] || {};
+    _gradebookQueuePendingMarkEdit({
+      uid,
+      assessmentId,
+      submissionId: current.submissionId || submissionId,
+      mark: num,
+      reason: current.reason || '',
+      source: current.source || 'gradebook-edit',
+    });
+    input.style.borderColor = '#059669';
   } else {
-    const num = Number(val);
-    if (Number.isFinite(num) && num >= 0 && num <= 100) {
-      _gradebookMarkEdits[key] = { uid, assessmentId, mark: num };
-    }
+    delete _gradebookMarkEdits[key];
+    input.style.borderColor = '#dc2626';
   }
 };
 
@@ -7211,47 +7815,150 @@ window._gradebookSaveMarkChanges = async () => {
     _showLecturerToast('No mark changes to save.', 'warn', 2400);
     return;
   }
-  if (!confirm(`Save ${edits.length} mark change${edits.length === 1 ? '' : 's'}? This will write a moderation-level mark override for each selected student.`)) return;
-
-  _showLecturerProcessing?.('Saving mark changes…');
-  let saved = 0;
-  let failed = 0;
-  const now = new Date().toISOString();
-  const user = STATE?.user;
-  const moderatorName = user?.displayName || user?.email || 'Lecturer';
-  const moderatorUid = user?.uid || '';
-
-  for (const edit of edits) {
-    const row = _gradebookRows.find((r) => r.uid === edit.uid);
-    const cell = row?.assessments?.[edit.assessmentId];
-    const submissionId = cell?.latestSubmissionId;
-    if (!row || !submissionId) { failed++; continue; }
-    try {
-      await update(ref(db, `grading-records/${edit.assessmentId}/${edit.uid}/${submissionId}`), {
-        'moderation/mark': edit.mark,
-        'moderation/moderatorUid': moderatorUid,
-        'moderation/moderatorName': moderatorName,
-        'moderation/moderatedAt': now,
-        'moderation/source': 'gradebook-edit',
-        moderatedAt: now,
-        moderatedByUid: moderatorUid,
-        moderatedByName: moderatorName,
-        updatedAt: now,
-      });
-      saved++;
-    } catch (err) {
-      console.error('Gradebook mark save failed for', edit.uid, err);
-      failed++;
+  const reasonlessEdits = edits.filter((edit) => !String(edit.reason || '').trim());
+  let fallbackReason = '';
+  if (reasonlessEdits.length) {
+    const reason = (prompt(
+      `Saving ${edits.length} mark change${edits.length === 1 ? '' : 's'}.\n\n${reasonlessEdits.length === edits.length
+        ? 'Enter a justification for this batch (recorded in the moderation audit trail):'
+        : 'Enter a justification for the pending changes that do not already have one:'
+      }`
+    ) || '').trim();
+    if (!reason) {
+      _showLecturerToast('Mark changes need a justification — nothing was saved.', 'warn', 3200);
+      return;
     }
+    fallbackReason = reason;
   }
 
-  _gradebookEditMode = false;
-  _gradebookMarkEdits = {};
-  await window._loadGradebookManager?.();
-  if (failed) {
-    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved; ${failed} failed.`, 'warn', 3500);
+  const rowsByUid = new Map((_gradebookRows || []).map((row) => [row.uid, row]));
+  const resolvedEdits = [];
+  const remainingEdits = {};
+  let saved = 0;
+  let failed = 0;
+  let amended = 0;
+
+  edits.forEach((edit) => {
+    const row = rowsByUid.get(edit.uid);
+    const cell = row?.assessments?.[edit.assessmentId];
+    const submissionId = edit.submissionId || cell?.latestSubmissionId;
+    if (!row || !submissionId) {
+      failed += 1;
+      remainingEdits[edit.key] = edit;
+      console.error('Gradebook mark save failed for', edit.uid, 'No submission found for this cell.');
+      return;
+    }
+
+    resolvedEdits.push({
+      ...edit,
+      submissionId,
+      reason: edit.reason || fallbackReason,
+      source: edit.source || 'gradebook-edit',
+    });
+  });
+
+  _showLecturerProcessing?.('Saving mark changes…');
+  const result = resolvedEdits.length
+    ? await applyModeratedMarkChanges(resolvedEdits)
+    : { ok: true, results: [] };
+
+  if (result.ok === false) {
+    failed += resolvedEdits.length;
+    resolvedEdits.forEach((edit) => {
+      if (edit?.key) remainingEdits[edit.key] = edit;
+    });
+    console.error('Gradebook mark save failed:', result.error);
   } else {
-    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved.`, 'success', 2800);
+    const results = Array.isArray(result.results) ? result.results : [];
+    results.forEach((item, index) => {
+      const edit = resolvedEdits[index];
+      if (item?.ok) {
+        saved += 1;
+        if (item.amendedReleasedFeedback) amended += 1;
+        return;
+      }
+      failed += 1;
+      if (edit?.key) remainingEdits[edit.key] = edit;
+      console.error('Gradebook mark save failed for', edit?.uid, item?.error);
+    });
+  }
+
+  _gradebookEditMode = failed > 0 || Object.keys(remainingEdits).length > 0;
+  _gradebookMarkEdits = remainingEdits;
+
+  // Patch the loaded rows from the save results rather than refetching every
+  // submission and grading record for the cohort. A mark change only writes
+  // moderation/mark (and released feedback when the mark was already posted),
+  // and applyModeratedMarkChanges returns both per edit — so the table can be
+  // brought up to date with no network at all. Status is untouched by a mark
+  // change, so statusLabel stays valid.
+  const patchTargets = new Map((_gradebookRows || []).map((row) => [row.uid, row]));
+  (Array.isArray(result.results) ? result.results : []).forEach((item) => {
+    if (!item?.ok) return;
+    const cell = patchTargets.get(item.uid)?.assessments?.[item.assessmentId];
+    if (!cell) return;
+    cell.record = cell.record || {};
+    cell.record.moderation = { ...(cell.record.moderation || {}), mark: item.mark };
+    cell.resolved = { mark: item.mark, source: 'Moderation' };
+    if (item.amendedReleasedFeedback && cell.submission) {
+      cell.submission.feedback = { ...(cell.submission.feedback || {}), mark: item.mark };
+    }
+  });
+  _renderGradebookManager();
+
+  if (failed) {
+    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved; ${failed} failed. Remaining edits stay in draft mode.`, 'warn', 3800);
+  } else {
+    const amendedNote = amended ? ` ${amended} released mark${amended === 1 ? ' was' : 's were'} updated for the student view too.` : '';
+    _showLecturerToast(`${saved} mark${saved === 1 ? '' : 's'} saved with audit trail.${amendedNote}`, 'success', 3200);
+  }
+  _finishLecturerProcessing?.(failed ? 'warn' : 'success', failed ? 'Mark save completed with issues' : 'Mark changes saved', failed ? 1400 : 1000);
+};
+
+window._gbBorderlineAdjust = async (studentUid, assessmentId, submissionId, currentMark) => {
+  const markInput = (prompt(
+    `Current mark: ${currentMark}%.\n\nEnter the corrected mark (0–100). This will be queued as a draft change until you press Save Mark Changes:`
+  ) || '').trim();
+  if (!markInput) return;
+  const mark = Number(markInput);
+  if (!Number.isFinite(mark) || mark < 0 || mark > 100) {
+    _showLecturerToast('Enter a mark between 0 and 100.', 'warn', 2800);
+    return;
+  }
+  const reason = (prompt(
+    'Justification for this mark change (saved with the draft and recorded in the moderation audit trail):'
+  ) || '').trim();
+  if (!reason) {
+    _showLecturerToast('A justification is required — the mark was not changed.', 'warn', 3000);
+    return;
+  }
+  _gradebookQueuePendingMarkEdit({
+    uid: studentUid,
+    assessmentId,
+    submissionId,
+    mark,
+    reason,
+    source: 'borderline-review',
+  });
+  window._loadGradebookManager?.();
+  _showLecturerToast(`Borderline mark queued at ${mark}%. Press Save Mark Changes to apply it.`, 'success', 3200);
+};
+
+window._gbBorderlineConfirmFail = async (studentUid, assessmentId, submissionId) => {
+  const reason = (prompt(
+    'Confirming this fail: state which learning objectives the work did not meet and the evidence for that (recorded in the moderation audit trail):'
+  ) || '').trim();
+  if (!reason) {
+    _showLecturerToast('A written justification is required to confirm a borderline fail.', 'warn', 3200);
+    return;
+  }
+  _showLecturerProcessing?.('Recording fail confirmation…');
+  const result = await recordBorderlineFailConfirmation(assessmentId, studentUid, submissionId, { reason });
+  window._loadGradebookManager?.();
+  if (result.ok) {
+    _showLecturerToast('Fail confirmed with justification on record.', 'success', 2800);
+  } else {
+    _showLecturerToast(result.error || 'Failed to record the confirmation.', 'warn', 3200);
   }
 };
 

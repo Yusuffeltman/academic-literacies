@@ -9,14 +9,21 @@ const CFG = {
   subtitle: 'A 2-week collaborative investigation into information environments',
   icon: '🔭', color: 'linear-gradient(135deg,#1e3a5f,#2563eb)',
   marks: 100,
+  deadline: '2026-04-18T23:59:59Z', // Deadline configuration
   skills: ['AI literacy', 'Filter bubbles', 'Critical thinking', 'Policy writing'],
+  courseOutcomes: [
+    'Analyse how digital platforms, algorithms, and filter bubbles shape information quality in South African education contexts.',
+    'Produce evidence-based observations and comparative claims using systematically gathered platform data.',
+    'Write an academically credible policy recommendation in an appropriate professional register using accurate APA 7th citation.',
+    'Synthesise individual and group-generated evidence into practical, context-sensitive recommendations for schools.',
+  ],
 
   scenario: `A provincial Department of Education has commissioned a media literacy audit before rolling out a new digital citizenship curriculum. They need to understand how different platforms are shaping the information environment of South African teachers — what kinds of content spread, how algorithms shape what teachers see, and where misinformation enters the professional community.`,
 
-  brief: `You are part of a small research team that has been given access to monitor a specific digital platform for two weeks. Your team covers five different environments. Each member produces an intelligence report on their assigned platform, and the team's combined findings inform a formal policy recommendation to the provincial department.`,
+  brief: `You are part of a small research team that has been given access to monitor a specific digital platform for seven days. Your team covers five different environments. Each member produces an intelligence report on their assigned platform, and the team's combined findings inform a formal policy recommendation to the provincial department.`,
 
   products: [
-    'An Observation Log — structured daily notes over 14 days (not submitted, but evidence base for your report)',
+    'An Observation Log — structured daily notes over 7 days (not submitted, but evidence base for your report)',
     'A 300-word Platform Intelligence Report documenting filter bubble evidence, algorithm behaviour, and information quality on your assigned platform',
     'A 700-word Media Literacy Policy Recommendation addressed to a specific school principal — citing evidence from your platform AND drawing on your group\'s cross-platform comparison',
     'A Reference List in APA 7th (minimum 3 verified sources)',
@@ -26,16 +33,37 @@ const CFG = {
     type: 'Platform Surveillance',
     icon: '📡',
     name: 'Distributed Observation Network',
-    how: 'Each member of your group monitors a different digital environment for the full two weeks, keeping a structured observation log. In Week 2, groups share their platform data in a structured format, enabling each member to write a comparative policy recommendation that could not exist without all five observations.',
+    how: 'Each member of your group monitors a different digital environment for seven days, keeping a structured observation log. After the observation window, groups share their platform data in a structured format, enabling each member to write a comparative policy recommendation that could not exist without all five observations.',
     interdependence: 'Your policy recommendation must compare information quality, algorithm behaviour, and misinformation risk ACROSS all five platforms — data only you can compare because only your group observed all five simultaneously. Without every member\'s platform data, the cross-platform comparison is impossible and the recommendation becomes generic and unacceptable.',
     groupPanelNote: 'Below are the contribution slots for your group. When your group members submit their Platform Intelligence Reports, their findings will appear here. Your policy recommendation must reference at least 3 of the 5 platform reports.',
     roles: [
-      { icon: '📱', title: 'TikTok/Instagram Reels Monitor', description: 'Observe education-related short video content for 14 days. Track: what gets recommended, what hashtags appear, what education claims are made, evidence of algorithm personalisation.', contributes: '300-word Platform Intelligence Report + 5 annotated screenshots' },
-      { icon: '👥', title: 'Facebook/WhatsApp Education Groups Monitor', description: 'Monitor teacher-facing Facebook groups and note the types of WhatsApp forwards circulating in educator communities. Track misinformation spread and community responses.', contributes: '300-word Platform Intelligence Report + 5 annotated examples (anonymised)' },
-      { icon: '🐦', title: 'Twitter/X Education Discourse Tracker', description: 'Track education-related content on Twitter/X over 14 days. Note how algorithms surface content, what trends, and how education professionals use the platform versus how it uses them.', contributes: '300-word Platform Intelligence Report + thread analysis' },
-      { icon: '🔍', title: 'Google Search Algorithm Watcher', description: 'Conduct 20 structured searches on education topics over 14 days using the same terms in different contexts (incognito/non-incognito, different times). Document personalisation effects.', contributes: '300-word Platform Intelligence Report + side-by-side search result comparisons' },
-      { icon: '🎓', title: 'YouTube Education Content Analyst', description: 'Follow YouTube\'s recommendation algorithm for 14 days starting from a single education video. Map where the algorithm takes you. Note what defines "education content" on the platform.', contributes: '300-word Platform Intelligence Report + recommendation pathway map' },
+      { icon: '📱', title: 'TikTok/Instagram Reels Monitor', description: 'Observe education-related short video content for 7 days. Track: what gets recommended, what hashtags appear, what education claims are made, evidence of algorithm personalisation.', contributes: '300-word Platform Intelligence Report + 5 annotated screenshots' },
+      { icon: '👥', title: 'Facebook/WhatsApp Education Groups Monitor', description: 'Monitor teacher-facing Facebook groups and note the types of WhatsApp forwards circulating in educator communities over 7 days. Track misinformation spread and community responses.', contributes: '300-word Platform Intelligence Report + 5 annotated examples (anonymised)' },
+      { icon: '🐦', title: 'Twitter/X Education Discourse Tracker', description: 'Track education-related content on Twitter/X over 7 days. Note how algorithms surface content, what trends, and how education professionals use the platform versus how it uses them.', contributes: '300-word Platform Intelligence Report + thread analysis' },
+      { icon: '🔍', title: 'Google Search Algorithm Watcher', description: 'Conduct 20 structured searches on education topics over 7 days using the same terms in different contexts (incognito/non-incognito, different times). Document personalisation effects.', contributes: '300-word Platform Intelligence Report + side-by-side search result comparisons' },
+      { icon: '🎓', title: 'YouTube Education Content Analyst', description: 'Follow YouTube\'s recommendation algorithm for 7 days starting from a single education video. Map where the algorithm takes you. Note what defines "education content" on the platform.', contributes: '300-word Platform Intelligence Report + recommendation pathway map' },
     ],
+  },
+
+  groupFormation: {
+    enabled: true,
+    size: 5,
+    scopeType: 'assessment',
+    scopeId: 'assessment-a1',
+    scopeLabel: 'Assessment 1 Collaboration Space',
+    legacyAssessmentId: 'a1',
+    label: 'Assessment 1 Group Platform',
+    intro: 'Create or join a named research team of exactly five students. Each team should eventually include one student per platform role before you move into the cross-platform comparison work.',
+    compactLaunch: true,
+    launchLabel: 'Open Assessment 1 groups',
+  },
+
+  workspaceTemplates: {
+    enabled: true,
+    localDraftNote: 'Use these draft pads to work on your own artefacts in the assignment space. Your work is automatically saved to your account.',
+    sharedStudioLabel: 'Five-Student Collaboration Studio',
+    sharedStudioIntro: 'Use the shared workspace below to compare platform findings, coordinate evidence, and draft the joint 1000-word cross-platform report together.',
+    jointReportWordCount: 1000,
   },
 
   weeks: [
@@ -61,7 +89,7 @@ const CFG = {
   ],
 
   checklist: [
-    { title: '14-day observation log completed', detail: 'Every day has a log entry. You do not submit this, but it is the evidence base for your report. Your report should reference specific days and examples.' },
+    { title: '7-day observation log completed', detail: 'Every day has a log entry. You do not submit this, but it is the evidence base for your report. Your report should reference specific days and examples.' },
     { title: 'Platform Intelligence Report is exactly 280–320 words', detail: 'Check your word count. Includes in-text citations. Submitted to Group Panel before Day 12.' },
     { title: 'Policy Recommendation addresses a named school principal', detail: 'The recommendation is not generic — it is addressed to a specific (fictional) person in a specific school context.' },
     { title: 'Policy Recommendation references minimum 3 group platform reports', detail: 'You have read your group members\' reports and cited specific findings from at least 3 of them. You cannot write this section without their contributions.' },
@@ -102,12 +130,13 @@ registerAssessment(CFG);
 
 export const assess01 = {
   id: 'a1', badge: 'Assessment 1', title: 'The Media Intelligence Brief',
+  deadline: CFG.deadline,
   phase: 'Major Assessment — 2 weeks',
   isAssessment: true,
   html: () => {
     if (!window._atState?.['a1']) {
       window._atState = window._atState || {};
-      window._atState['a1'] = { milestones:{}, checklist:{}, selfScore:null, reflection:'', submitted:false };
+      window._atState['a1'] = { milestones:{}, checklist:{}, drafts:{}, selfScore:null, reflection:'', submitted:false };
     }
     return assessmentTask(CFG);
   },

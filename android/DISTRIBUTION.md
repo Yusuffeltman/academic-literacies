@@ -55,6 +55,30 @@ Notes:
 - Keep your keystore and passwords secure and backed up.
 - For Google Play, prefer uploading the `.aab` file.
 
+## Closed testing release checklist
+- Run `npm run build` from the workspace root.
+- Run `npx cap sync android` from the workspace root so the Android app picks up the latest web assets.
+- From `android`, run `.\gradlew.bat assembleDebug` for a smoke-test APK.
+- From `android`, run `.\gradlew.bat bundleRelease` for the Play Console upload bundle.
+- Verify the final release artifact and confirm the app opens, restores auth, checks attendance, opens notebooks, and returns correctly on Android back navigation.
+- Upload `app\build\outputs\bundle\release\app-release.aab` to a Google Play closed testing track.
+
+## Student QA matrix
+- Launch and splash screen feel branded and edge-to-edge on Android.
+- Sign-in restores correctly after app relaunch.
+- Student lands on the Android-first home surface, not the desktop dashboard layout.
+- Bottom navigation works: `Home`, `Modules`, `Attendance`, `Notebook`, `Profile`.
+- `Modules` opens the Android course shell and unit rail.
+- QR attendance works for scan and token entry.
+- Tutorial notebook, contact notebook, gallery, and resource flows open and return correctly.
+- Offline mode messaging appears and the app recovers when the connection returns.
+- Hardware back returns from course content to the Android student shell before exiting the app.
+
+## Play Console preparation
+- Confirm the privacy policy URL and Data Safety answers in Play Console before production rollout.
+- Use closed testing feedback to confirm camera permission copy, account recovery flows, and device compatibility before broad release.
+- Capture updated phone screenshots from the Android-first student shell instead of the desktop-style web layout.
+
 ## Troubleshooting
 - `jarsigner : not recognized`: use `apksigner` from Android build-tools (as shown above).
 - `ANDROID_HOME` not set: run PowerShell `$env:ANDROID_HOME = "C:\Users\<you>\AppData\Local\Android\Sdk"` for the current session.

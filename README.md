@@ -182,3 +182,93 @@ Client-side filtering is not sufficient on its own. Apply Firebase Realtime Data
 2. Ensure your auth role mapping exists under `roles/{uid}`.
 3. Prefer storing tutor assignments at `tutorial-groups/assignmentsByTutor/{tutorUid}` for strict server-side access control.
 
+---
+
+## SynthID Integrity Adapter
+
+The marking pipeline can now store a structured `integrity.synthId` result on each grading record. This is designed as a **provider adapter**, not as a built-in universal AI detector.
+
+### What it does
+
+- submission auto-marking can call a SynthID verification endpoint during ingest
+- the result is stored with the existing integrity object in `grading-records`
+- markers see the outcome in the `AI First Read` panel
+- positive results can feed the existing moderation flow
+
+### What it does not do
+
+- it does **not** prove human authorship
+- a negative result does **not** clear a submission
+- it should be used as one provenance signal alongside notebooks, drafting history, and staff review
+
+### Deployable adapter
+
+Firebase Functions now exposes:
+
+- `synthIdDetectorAdapter`
+
+Use this as the stable function URL if you want the app to call an internal adapter first, then forward to whichever detector service you are actually allowed to use.
+
+### Environment variables
+
+Set these in the Firebase Functions environment:
+
+- `ALE00Y1_SYNTHID_PROVIDER_URL`
+  - URL the auto-marking backend should call
+  - if you use the internal adapter, point this to the deployed `synthIdDetectorAdapter` URL
+- `ALE00Y1_SYNTHID_PROVIDER_TOKEN`
+  - optional bearer token sent to the provider URL
+- `ALE00Y1_SYNTHID_PROVIDER_API_KEY`
+  - optional `x-api-key` sent to the provider URL
+- `ALE00Y1_SYNTHID_SHARED_SECRET`
+  - optional secret required by `synthIdDetectorAdapter`
+- `ALE00Y1_SYNTHID_UPSTREAM_URL`
+  - optional upstream detector endpoint the adapter should forward to
+- `ALE00Y1_SYNTHID_UPSTREAM_TOKEN`
+  - optional bearer token for the upstream detector
+- `ALE00Y1_SYNTHID_UPSTREAM_API_KEY`
+  - optional `x-api-key` for the upstream detector
+
+### Expected provider response
+
+The provider should return JSON shaped like:
+
+```json
+{
+  "status": "detected",
+  "detected": true,
+  "confidence": 0.92,
+  "confidenceBand": "high",
+  "summary": "SynthID watermark detected in submitted content.",
+  "evidence": [
+    "Matched watermark signature in uploaded text asset."
+  ],
+  "checkedFiles": [
+    {
+      "name": "essay.docx",
+      "modality": "text",
+      "status": "checked"
+    }
+  ],
+  "recommendedStaffAction": "Route to lecturer moderation.",
+  "requiredHumanFollowUp": "Ask the student to explain their drafting process."
+}
+```
+
+Valid `status` values the app understands:
+
+- `detected`
+- `not_detected`
+- `uncertain`
+- `unsupported`
+- `unavailable`
+- `error`
+
+### Recommended deployment pattern
+
+1. Deploy functions.
+2. Set `ALE00Y1_SYNTHID_PROVIDER_URL` to the internal adapter URL.
+3. Set `ALE00Y1_SYNTHID_SHARED_SECRET` and mirror that value into `ALE00Y1_SYNTHID_PROVIDER_TOKEN`.
+4. Once you have access to a real detector service, set `ALE00Y1_SYNTHID_UPSTREAM_URL` and its credentials.
+5. Treat positive results as moderation triggers, not as automatic misconduct findings.
+

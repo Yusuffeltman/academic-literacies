@@ -2903,14 +2903,14 @@ function _renderWorkspaceFileTabs(ctx) {
   const nextDisabled = selectedIndex >= files.length - 1;
   const navButtons = files.length > 1 ? `
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-      <button type="button" ${prevDisabled ? 'disabled' : ''} onclick="window._stepMarkingWorkspaceFile(${_jsArg(ctx.sub.id)}, -1)" style="padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:${prevDisabled ? '#f8fafc' : 'white'};color:${prevDisabled ? '#94a3b8' : '#334155'};font-size:12px;font-weight:800;cursor:${prevDisabled ? 'not-allowed' : 'pointer'};">Previous file</button>
+      <button type="button" ${prevDisabled ? 'disabled' : ''} onclick="window._stepMarkingWorkspaceFile(${_esc(_jsArg(ctx.sub.id))}, -1)" style="padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:${prevDisabled ? '#f8fafc' : 'white'};color:${prevDisabled ? '#94a3b8' : '#334155'};font-size:12px;font-weight:800;cursor:${prevDisabled ? 'not-allowed' : 'pointer'};">Previous file</button>
       <div style="font-size:11px;font-weight:800;color:var(--muted);min-width:72px;text-align:center;">${selectedIndex + 1} / ${files.length}</div>
-      <button type="button" ${nextDisabled ? 'disabled' : ''} onclick="window._stepMarkingWorkspaceFile(${_jsArg(ctx.sub.id)}, 1)" style="padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:${nextDisabled ? '#f8fafc' : 'white'};color:${nextDisabled ? '#94a3b8' : '#334155'};font-size:12px;font-weight:800;cursor:${nextDisabled ? 'not-allowed' : 'pointer'};">Next file</button>
+      <button type="button" ${nextDisabled ? 'disabled' : ''} onclick="window._stepMarkingWorkspaceFile(${_esc(_jsArg(ctx.sub.id))}, 1)" style="padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:${nextDisabled ? '#f8fafc' : 'white'};color:${nextDisabled ? '#94a3b8' : '#334155'};font-size:12px;font-weight:800;cursor:${nextDisabled ? 'not-allowed' : 'pointer'};">Next file</button>
     </div>
   ` : '';
   const tabs = files.map((file, idx) => {
     const active = idx === selectedIndex;
-    return `<button type="button" onclick="window._selectMarkingWorkspaceFile(${_jsArg(ctx.sub.id)}, ${idx})" style="padding:8px 12px;border-radius:10px;border:1px solid ${active ? '#93c5fd' : 'var(--border)'};background:${active ? '#eff6ff' : 'white'};color:${active ? '#1d4ed8' : '#334155'};font-size:12px;font-weight:${active ? '800' : '700'};cursor:pointer;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(file?.name || `File ${idx + 1}`)}</button>`;
+    return `<button type="button" onclick="window._selectMarkingWorkspaceFile(${_esc(_jsArg(ctx.sub.id))}, ${idx})" style="padding:8px 12px;border-radius:10px;border:1px solid ${active ? '#93c5fd' : 'var(--border)'};background:${active ? '#eff6ff' : 'white'};color:${active ? '#1d4ed8' : '#334155'};font-size:12px;font-weight:${active ? '800' : '700'};cursor:pointer;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_esc(file?.name || `File ${idx + 1}`)}</button>`;
   }).join('');
   mount.innerHTML = files.length
     ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">${navButtons}<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">${tabs}</div></div>`
@@ -4341,8 +4341,8 @@ function _renderStudentRow(student, sampledByMarker) {
   const selectionWrapOpen = _bulkSelectionMode
     ? `<div style="display:flex;align-items:flex-start;gap:10px;">
         <label style="padding-top:18px;cursor:pointer;" title="Select ${_esc(student.name)}">
-          <input type="checkbox" data-bulk-sub-id="${_esc(sub.id)}" ${isSelected ? 'checked' : ''}
-            onchange="window._bulkToggleSubmission(${_jsArg(sub.id)},${_jsArg(student.uid)},${_jsArg(sub.assessmentId)},this.checked)" />
+          <input type="checkbox" data-bulk-sub-id="${_esc(sub.id)}" data-bulk-uid="${_esc(student.uid)}" data-bulk-assessment="${_esc(sub.assessmentId)}" ${isSelected ? 'checked' : ''}
+            onchange="window._bulkToggleSubmission(${_esc(_jsArg(sub.id))},${_esc(_jsArg(student.uid))},${_esc(_jsArg(sub.assessmentId))},this.checked)" />
         </label>
         <div style="flex:1;min-width:0;">`
     : '';
@@ -4970,15 +4970,12 @@ window._bulkSelectAllVisible = function (checked) {
   rows.forEach((cb) => {
     const subId = cb.dataset.bulkSubId;
     if (!subId) return;
-    const existing = _bulkSelectedSubmissions.get(subId);
-    if (checked && existing) { cb.checked = true; return; }
     if (!checked) { _bulkSelectedSubmissions.delete(subId); cb.checked = false; return; }
-    // parse uid/assessmentId from the onchange attribute encoded values
-    const onchange = cb.getAttribute('onchange') || '';
-    const m = onchange.match(/_bulkToggleSubmission\("([^"]+)","([^"]+)","([^"]+)"/);
-    if (m) {
-      _bulkSelectedSubmissions.set(subId, { submissionId: m[1], studentUid: m[2], assessmentId: m[3] });
-    }
+    // Read identifiers straight from data attributes — no fragile parsing of the
+    // onchange string, which broke when the arguments were HTML-escaped.
+    const studentUid = cb.dataset.bulkUid || '';
+    const assessmentId = cb.dataset.bulkAssessment || '';
+    _bulkSelectedSubmissions.set(subId, { submissionId: subId, studentUid, assessmentId });
     cb.checked = true;
   });
   _refreshReviewer();

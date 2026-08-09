@@ -3,14 +3,65 @@
 // Shared AI utility — Google Gemini API.
 // ─────────────────────────────────────────────
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+const GEMINI_API_KEY = import.meta.env?.VITE_GEMINI_API_KEY?.trim();
 const MODEL = 'gemini-2.5-flash';
+export const AI_CHAT_CONFIGURED = Boolean(GEMINI_API_KEY && GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY_HERE');
+
+function _toolResponsePart(message) {
+  return {
+    functionResponse: {
+      name: message.name,
+      response: typeof message.content === 'string' ? { result: message.content } : (message.content || {}),
+    },
+  };
+}
+
+export function _buildGeminiContents(messages) {
+  const contents = [];
+  let pendingToolParts = [];
+
+  const flushToolParts = () => {
+    if (!pendingToolParts.length) return;
+    contents.push({
+      role: 'user',
+      parts: pendingToolParts,
+    });
+    pendingToolParts = [];
+  };
+
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      pendingToolParts.push(_toolResponsePart(m));
+      continue;
+    }
+
+    flushToolParts();
+
+    if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
+      contents.push({
+        role: 'model',
+        parts: m.toolCalls.map(tc => ({
+          functionCall: { name: tc.name, args: tc.args || {} },
+        })),
+      });
+      continue;
+    }
+
+    contents.push({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content || '' }],
+    });
+  }
+
+  flushToolParts();
+  return contents;
+}
 
 /**
  * Send a single-turn prompt to Gemini.
  */
 export async function _aiChat(prompt, { maxTokens = 512, system = '' } = {}) {
-  if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
+  if (!AI_CHAT_CONFIGURED) {
     throw new Error('VITE_GEMINI_API_KEY is not set in .env');
   }
 
@@ -48,14 +99,16 @@ export async function _aiChat(prompt, { maxTokens = 512, system = '' } = {}) {
   return text.trim();
 }
 
-window._aiChat = _aiChat;
+if (typeof window !== 'undefined') {
+  window._aiChat = _aiChat;
+}
 
 /**
  * Send a multi-turn conversation to Gemini.
  * messages: Array of { role: 'user' | 'assistant', content: string }
  */
 export async function _aiChatMultiTurn(messages, { maxTokens = 512, system = '' } = {}) {
-  if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
+  if (!AI_CHAT_CONFIGURED) {
     throw new Error('VITE_GEMINI_API_KEY is not set in .env');
   }
 
@@ -99,7 +152,67 @@ export async function _aiChatMultiTurn(messages, { maxTokens = 512, system = '' 
   return text.trim();
 }
 
-window._aiChatMultiTurn = _aiChatMultiTurn;
+if (typeof window !== 'undefined') {
+  window._aiChatMultiTurn = _aiChatMultiTurn;
+}
+
+/**
+ * Multi-turn Gemini call with tool/function calling support.
+ * Used by Jeeves (the lecturer voice assistant) to run agentic loops.
+ *
+ * @param {Array<{role:'user'|'assistant'|'tool', content?:string, toolCalls?:Array, toolCallId?:string, name?:string}>} messages
+ * @param {Array<{name:string, description:string, parameters:object}>} tools - function declarations
+ * @param {{maxTokens?:number, system?:string}} opts
+ * @returns {Promise<{text:string|null, toolCalls:Array<{name:string,args:object}>, raw:object}>}
+ */
+export async function _aiChatWithTools(messages, tools, { maxTokens = 1024, system = '' } = {}) {
+  if (!AI_CHAT_CONFIGURED) {
+    throw new Error('VITE_GEMINI_API_KEY is not set in .env');
+  }
+
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+  const contents = _buildGeminiContents(messages);
+
+  const body = {
+    contents,
+    generationConfig: { maxOutputTokens: maxTokens },
+  };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  if (tools && tools.length) {
+    body.tools = [{ functionDeclarations: tools }];
+  }
+
+  const res = await fetch(GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `API error ${res.status}`);
+  }
+
+  const data = await res.json();
+  if (data.usageMetadata) _logAIUsage('agent', data.usageMetadata);
+
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const toolCalls = [];
+  let text = null;
+  for (const part of parts) {
+    if (part.functionCall) {
+      toolCalls.push({ name: part.functionCall.name, args: part.functionCall.args || {} });
+    } else if (part.text) {
+      text = (text || '') + part.text;
+    }
+  }
+  return { text: text ? text.trim() : null, toolCalls, raw: data };
+}
+
+if (typeof window !== 'undefined') {
+  window._aiChatWithTools = _aiChatWithTools;
+}
 
 // ── Coordinator Agent ─────────────────────────
 // Reads STATE.adaptive and returns a personalised recommendation.
@@ -192,7 +305,9 @@ export async function getCoordinatorRecommendation() {
   }
 }
 
-window.getCoordinatorRecommendation = getCoordinatorRecommendation;
+if (typeof window !== 'undefined') {
+  window.getCoordinatorRecommendation = getCoordinatorRecommendation;
+}
 
 // ── Usage Tracking Logic ────────────────────────
 async function _logAIUsage(type, usageMetadata) {

@@ -1,0 +1,16 @@
+<svg width="1600" height="2560" viewBox="0 0 1600 2560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="2560" fill="#081A2B"/>
+  <circle cx="1160" cy="540" r="420" fill="#16395A" fill-opacity="0.45"/>
+  <circle cx="800" cy="1060" r="430" stroke="#244E79" stroke-opacity="0.55" stroke-width="8"/>
+  <circle cx="800" cy="1060" r="318" fill="#153757" fill-opacity="0.84"/>
+  <path d="M800 718L880 798L800 878L720 798L800 718Z" fill="#D3A34D"/>
+  <path d="M524 1406L665 914H741L643 1406H524Z" fill="white"/>
+  <path d="M1076 1406L935 914H859L957 1406H1076Z" fill="#D8E4F1"/>
+  <rect x="772" y="942" width="56" height="464" fill="#D3A34D"/>
+  <path d="M652 1406H948L896 1488H704L652 1406Z" fill="#D8E4F1"/>
+  <rect x="622" y="1576" width="356" height="10" rx="5" fill="#D3A34D"/>
+  <path d="M402 1818H1198V1820C1198 1914.44 1119.44 1991 1025 1991H575C480.56 1991 402 1914.44 402 1820V1818Z" fill="#0F2C46" fill-opacity="0.72"/>
+  <text x="800" y="1828" text-anchor="middle" fill="#FFFFFF" font-family="Georgia, 'Times New Roman', serif" font-size="154" font-weight="700" letter-spacing="8">ALE00Y1</text>
+  <text x="800" y="1932" text-anchor="middle" fill="#D8E4F1" font-family="'Trebuchet MS', 'Segoe UI', sans-serif" font-size="52" letter-spacing="5">ACADEMIC LITERACIES</text>
+  <text x="800" y="2068" text-anchor="middle" fill="#D3A34D" font-family="'Trebuchet MS', 'Segoe UI', sans-serif" font-size="36" letter-spacing="10">READ  •  WRITE  •  THINK</text>
+</svg>
