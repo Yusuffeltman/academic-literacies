@@ -1367,6 +1367,71 @@ function _resolvedRecordMark(record = {}) {
   return null;
 }
 
+function _prepareModeratedMarkChangeUpdate({
+  assessmentId,
+  studentUid,
+  submissionId,
+  existing = {},
+  payload = {},
+  meta = _reviewerMeta('lecturer'),
+  now = _nowIso(),
+} = {}) {
+  const reason = _cleanText(payload.reason, 1200);
+  if (!reason) return { ok: false, error: 'Add a short justification before changing this mark.' };
+
+  const mark = Number(payload.mark);
+  if (!Number.isFinite(mark) || mark < 0 || mark > 100) {
+    return { ok: false, error: 'Enter a mark between 0 and 100.' };
+  }
+
+  const previousMark = _resolvedRecordMark(existing);
+  const wasPosted = _cleanText(existing?.status, 80) === GRADING_STATUS.POSTED;
+  const recordPath = `grading-records/${assessmentId}/${studentUid}/${submissionId}`;
+  const source = _cleanText(payload.source, 80) || 'mark-change';
+  const updates = {
+    [`${recordPath}/moderation/mark`]: mark,
+    [`${recordPath}/moderation/moderatorUid`]: meta.uid,
+    [`${recordPath}/moderation/moderatorName`]: meta.name,
+    [`${recordPath}/moderation/moderatorRole`]: meta.role,
+    [`${recordPath}/moderation/moderatedAt`]: now,
+    [`${recordPath}/moderation/markChangeReason`]: reason,
+    [`${recordPath}/moderation/source`]: source,
+    [`${recordPath}/postingDraft/mark`]: mark,
+    [`${recordPath}/moderatedAt`]: now,
+    [`${recordPath}/moderatedByUid`]: meta.uid,
+    [`${recordPath}/moderatedByName`]: meta.name,
+    [`${recordPath}/updatedAt`]: now,
+    [`${recordPath}/workflowHistory`]: _workflowHistoryWithEvent(existing, {
+      at: now,
+      action: 'mark_changed',
+      fromStatus: existing?.status || '',
+      toStatus: existing?.status || GRADING_STATUS.MODERATED,
+      byUid: meta.uid,
+      byName: meta.name,
+      byRole: meta.role,
+      note: `Mark changed ${previousMark != null ? `from ${previousMark}% ` : ''}to ${mark}%. Reason: ${reason}`,
+    }),
+  };
+
+  if (wasPosted) {
+    updates[`submissions/${assessmentId}/${studentUid}/${submissionId}/feedback/mark`] = mark;
+    updates[`submissions/${assessmentId}/${studentUid}/${submissionId}/feedback/amendedAt`] = now;
+    updates[`submissions/${assessmentId}/${studentUid}/${submissionId}/feedback/amendedByUid`] = meta.uid;
+    updates[`submissions/${assessmentId}/${studentUid}/${submissionId}/feedback/amendedByName`] = meta.name;
+    updates[`submissions/${assessmentId}/${studentUid}/${submissionId}/feedback/amendmentReason`] = reason;
+  }
+
+  return {
+    ok: true,
+    mark,
+    previousMark,
+    wasPosted,
+    reason,
+    source,
+    updates,
+  };
+}
+
 // Single-step, fully audited mark change. Requires a written justification,
 // keeps the posting draft in sync so a later release posts the new mark, and
 // amends already-released feedback in place (no retract/re-release cycle).
@@ -1374,55 +1439,118 @@ export async function applyModeratedMarkChange(assessmentId, studentUid, submiss
   try {
     const meta = _reviewerMeta('lecturer');
     const now = _nowIso();
-    const reason = _cleanText(payload.reason, 1200);
-    if (!reason) return { ok: false, error: 'Add a short justification before changing this mark.' };
-    const mark = Number(payload.mark);
-    if (!Number.isFinite(mark) || mark < 0 || mark > 100) {
-      return { ok: false, error: 'Enter a mark between 0 and 100.' };
-    }
-
     const existing = await _getExistingGradingRecord(assessmentId, studentUid, submissionId);
-    const previousMark = _resolvedRecordMark(existing);
-    const wasPosted = _cleanText(existing?.status, 80) === GRADING_STATUS.POSTED;
-
-    await update(ref(db, `grading-records/${assessmentId}/${studentUid}/${submissionId}`), {
-      'moderation/mark': mark,
-      'moderation/moderatorUid': meta.uid,
-      'moderation/moderatorName': meta.name,
-      'moderation/moderatorRole': meta.role,
-      'moderation/moderatedAt': now,
-      'moderation/markChangeReason': reason,
-      'moderation/source': _cleanText(payload.source, 80) || 'mark-change',
-      'postingDraft/mark': mark,
-      moderatedAt: now,
-      moderatedByUid: meta.uid,
-      moderatedByName: meta.name,
-      updatedAt: now,
-      workflowHistory: _workflowHistoryWithEvent(existing, {
-        at: now,
-        action: 'mark_changed',
-        fromStatus: existing?.status || '',
-        toStatus: existing?.status || GRADING_STATUS.MODERATED,
-        byUid: meta.uid,
-        byName: meta.name,
-        byRole: meta.role,
-        note: `Mark changed ${previousMark != null ? `from ${previousMark}% ` : ''}to ${mark}%. Reason: ${reason}`,
-      }),
+    const prepared = _prepareModeratedMarkChangeUpdate({
+      assessmentId,
+      studentUid,
+      submissionId,
+      existing,
+      payload,
+      meta,
+      now,
     });
+    if (!prepared.ok) return { ok: false, error: prepared.error };
 
-    if (wasPosted) {
-      await update(ref(db, `submissions/${assessmentId}/${studentUid}/${submissionId}/feedback`), {
-        mark,
-        amendedAt: now,
-        amendedByUid: meta.uid,
-        amendedByName: meta.name,
-        amendmentReason: reason,
-      });
-    }
+    await update(ref(db), prepared.updates);
 
-    return { ok: true, mark, previousMark, amendedReleasedFeedback: wasPosted };
+    return { ok: true, mark: prepared.mark, previousMark: prepared.previousMark, amendedReleasedFeedback: prepared.wasPosted };
   } catch (err) {
     return { ok: false, error: err?.message || 'Failed to apply the mark change.' };
+  }
+}
+
+export async function applyModeratedMarkChanges(edits = []) {
+  try {
+    const meta = _reviewerMeta('lecturer');
+    const now = _nowIso();
+    const inputEdits = Array.isArray(edits) ? edits : [];
+    const normalized = inputEdits
+      .map((edit, index) => ({
+        index,
+        key: _cleanText(edit?.key, 160) || `${_cleanText(edit?.uid || edit?.studentUid, 120)}__${_cleanText(edit?.assessmentId, 120)}`,
+        assessmentId: _cleanText(edit?.assessmentId, 120),
+        studentUid: _cleanText(edit?.uid || edit?.studentUid, 120),
+        submissionId: _cleanText(edit?.submissionId, 120),
+        mark: edit?.mark,
+        reason: _cleanText(edit?.reason, 1200),
+        source: _cleanText(edit?.source, 80) || 'mark-change',
+      }))
+      .filter((edit) => edit.assessmentId && edit.studentUid && edit.submissionId);
+
+    if (!normalized.length) {
+      return { ok: true, results: [] };
+    }
+
+    const existingRecords = await Promise.all(normalized.map((edit) => _getExistingGradingRecord(edit.assessmentId, edit.studentUid, edit.submissionId)));
+    const updates = {};
+    const results = inputEdits.map((edit) => ({
+      ok: false,
+      key: _cleanText(edit?.key, 160) || `${_cleanText(edit?.uid || edit?.studentUid, 120)}__${_cleanText(edit?.assessmentId, 120)}`,
+      uid: _cleanText(edit?.uid || edit?.studentUid, 120),
+      assessmentId: _cleanText(edit?.assessmentId, 120),
+      submissionId: _cleanText(edit?.submissionId, 120),
+      mark: Number(edit?.mark),
+      previousMark: null,
+      amendedReleasedFeedback: false,
+      error: '',
+    }));
+    const normalizedIndexes = new Set(normalized.map((edit) => edit.index));
+
+    inputEdits.forEach((edit, index) => {
+      if (normalizedIndexes.has(index)) return;
+      results[index] = {
+        ...results[index],
+        error: 'Missing assessment, student, or submission details for this mark change.',
+      };
+    });
+
+    normalized.forEach((edit, index) => {
+      const existing = existingRecords[index] || {};
+      const prepared = _prepareModeratedMarkChangeUpdate({
+        assessmentId: edit.assessmentId,
+        studentUid: edit.studentUid,
+        submissionId: edit.submissionId,
+        existing,
+        payload: {
+          mark: edit.mark,
+          reason: edit.reason,
+          source: edit.source,
+        },
+        meta,
+        now,
+      });
+
+      const target = results[edit.index];
+      if (!prepared.ok) {
+        results[edit.index] = {
+          ...target,
+          error: prepared.error,
+          previousMark: _resolvedRecordMark(existing),
+        };
+        return;
+      }
+
+      Object.assign(updates, prepared.updates);
+      results[edit.index] = {
+        ok: true,
+        key: edit.key,
+        uid: edit.studentUid,
+        assessmentId: edit.assessmentId,
+        submissionId: edit.submissionId,
+        mark: prepared.mark,
+        previousMark: prepared.previousMark,
+        amendedReleasedFeedback: prepared.wasPosted,
+        error: '',
+      };
+    });
+
+    if (Object.keys(updates).length) {
+      await update(ref(db), updates);
+    }
+
+    return { ok: true, results };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Failed to apply the mark changes.' };
   }
 }
 

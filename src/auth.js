@@ -8,7 +8,6 @@ import {
   isSignInWithEmailLink,
   sendSignInLinkToEmail,
   updateProfile,
-  sendPasswordResetEmail,
 } from 'firebase/auth';
 import { ref, get, set, remove } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
@@ -17,6 +16,7 @@ import { initApp } from './app.js';
 import { loadActiveRosterRows, writeResetLinkSignInEvent } from './analytics.js';
 import { buildStudentProfileDraft, findRosterEntry, isValidStudentUsername, loadStudentProfileContext, normalizeStudentUsername, syncStudentProfileFromContext } from './profile.js';
 import { getAppSurface } from './platform.js';
+import { requestPasswordResetEmail } from './password-reset.js';
 
 const VITE_FIREBASE = import.meta.env.VITE_USE_FIREBASE;
 const DEV_MODE = false;
@@ -145,32 +145,8 @@ function _emailLinkActionSettings() {
   };
 }
 
-function _passwordResetContinueUrl() {
-  const appUrl = import.meta.env.VITE_APP_URL || '';
-  const useConfiguredOrigin = Boolean(appUrl) && window.location.hostname !== 'localhost';
-  const origin = useConfiguredOrigin ? appUrl : window.location.origin;
-  const url = new URL(origin);
-  url.searchParams.set('passwordReset', '1');
-  return url.toString();
-}
-
 async function _requestStaffPasswordReset(email = '') {
-  const normalizedEmail = _normalizeLoginIdentifier(email);
-  const sendStaffPasswordReset = httpsCallable(functions, 'sendStaffPasswordReset');
-  try {
-    await sendStaffPasswordReset({
-      email: normalizedEmail,
-      continueUrl: _passwordResetContinueUrl(),
-    });
-    return { ok: true };
-  } catch (err) {
-    const code = String(err?.code || '');
-    if (code === 'functions/unimplemented' || code === 'functions/not-found') {
-      await sendPasswordResetEmail(auth, normalizedEmail);
-      return { ok: true, fallback: true };
-    }
-    throw err;
-  }
+  return requestPasswordResetEmail(_normalizeLoginIdentifier(email));
 }
 
 function _assertFirebaseAuthReady() {
