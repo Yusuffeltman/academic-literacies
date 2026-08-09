@@ -301,6 +301,13 @@
       }
     },
 
+    "account-merges": {
+      ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
+      "$mergeId": {
+        ".write": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')"
+      }
+    },
+
     "users": {
       ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator')",
       "$uid": {

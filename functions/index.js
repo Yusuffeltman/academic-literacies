@@ -3148,6 +3148,98 @@ exports.deleteUserAccountRecord = onCall(
   }
 );
 
+// ── Reassign a merged student's sign-in email ─
+// After two duplicate accounts are merged (see src/account-merge.js) only the
+// keeper holds the student's work, but verifyOtp resolves the uid purely by
+// getUserByEmail. If the student had been signing in on the account that lost,
+// this hands that email to the keeper so they keep using the inbox they know.
+//
+// The losing Auth user is parked and disabled rather than deleted: the email
+// has to be freed before it can be assigned, and parking keeps the step
+// reversible if the second write fails.
+exports.reassignMergedAccountEmail = onCall(
+  {
+    region: "us-central1",
+    cors: true,
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    const requesterRole = await requireStaffRole(request.auth.uid);
+    if (!["lecturer", "moderator"].includes(requesterRole)) {
+      throw new HttpsError("permission-denied", "Lecturer or moderator access required.");
+    }
+
+    const keeperUid = cleanText(request.data?.keeperUid, 160);
+    const loserUid = cleanText(request.data?.loserUid, 160);
+    if (!keeperUid || !loserUid || keeperUid === loserUid) {
+      throw new HttpsError("invalid-argument", "Distinct keeperUid and loserUid are required.");
+    }
+
+    const db = adminDatabase();
+
+    // Only ever run against a pair the merge has already tombstoned, so this
+    // cannot be used to move an email between two live accounts.
+    const tombstoneSnap = await db.ref(`users/${loserUid}/profile/mergedIntoUid`).once("value");
+    if (tombstoneSnap.val() !== keeperUid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "That account has not been merged into this keeper. Run the account merge first."
+      );
+    }
+
+    const auth = adminAuth();
+    let loserUser;
+    try {
+      loserUser = await auth.getUser(loserUid);
+    } catch (err) {
+      if (err?.code === "auth/user-not-found") {
+        throw new HttpsError("not-found", "The merged account no longer exists in Firebase Auth.");
+      }
+      throw new HttpsError("internal", `Could not read the merged account: ${err?.message || err}`);
+    }
+
+    const targetEmail = normalizeEmail(loserUser.email || "");
+    if (!targetEmail) {
+      throw new HttpsError("failed-precondition", "The merged account has no email to reassign.");
+    }
+
+    const parkedEmail = `merged-${loserUid}@merged.invalid`.toLowerCase();
+    const nowIso = new Date().toISOString();
+
+    // 1. Free the email.
+    await auth.updateUser(loserUid, { email: parkedEmail, emailVerified: false, disabled: true });
+
+    // 2. Hand it to the keeper. On failure, put it back so the student is not
+    //    left unable to sign in with either address.
+    try {
+      await auth.updateUser(keeperUid, { email: targetEmail, emailVerified: true });
+    } catch (err) {
+      await auth.updateUser(loserUid, { email: targetEmail, emailVerified: true, disabled: true }).catch(() => {});
+      throw new HttpsError("internal", `Could not move the email to the keeper: ${err?.message || err}`);
+    }
+
+    // 3. Keep the RTDB profile consistent with Auth. username is left alone: it
+    //    holds the canonical UJ address used for roster matching.
+    await db.ref(`users/${keeperUid}/profile`).update({
+      authEmail: targetEmail,
+      email: targetEmail,
+      loginEmail: targetEmail,
+      updatedAt: nowIso,
+    });
+    await db.ref(`users/${loserUid}/profile`).update({
+      authEmail: parkedEmail,
+      parkedAt: nowIso,
+      updatedAt: nowIso,
+    });
+
+    return { ok: true, keeperUid, loserUid, reassignedEmail: targetEmail, parkedEmail };
+  }
+);
+
 // ── ELT Assessment Specialist ─────────────────
 exports.generateEltAssessmentReview = onCall(
   {

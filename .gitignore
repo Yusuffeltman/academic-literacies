@@ -18,6 +18,10 @@ android/distribution/
 # One-off data migration snapshots — contain student PII, never commit
 .migration-*.json
 
+# Account merge plans and patches — full account snapshots, never commit
+.merge-plan-*.json
+.merge-patch-*.json
+
 # Signing keys
 keys/
 *.jks
