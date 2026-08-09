@@ -3207,11 +3207,24 @@ exports.reassignMergedAccountEmail = onCall(
       throw new HttpsError("failed-precondition", "The merged account has no email to reassign.");
     }
 
-    const parkedEmail = `merged-${loserUid}@merged.invalid`.toLowerCase();
+    let keeperUser;
+    try {
+      keeperUser = await auth.getUser(keeperUid);
+    } catch (err) {
+      throw new HttpsError("internal", `Could not read the kept account: ${err?.message || err}`);
+    }
+    const previousEmail = normalizeEmail(keeperUser.email || "");
+
+    // The two addresses are exchanged rather than one being parked on a
+    // synthetic domain. Leaving the keeper's old address unowned would let a
+    // student signing in with it out of habit bootstrap a fresh empty account,
+    // recreating the duplicate this merge just removed. Sitting on the
+    // disabled tombstone it is refused instead.
+    const scratchEmail = `merged-${loserUid}@merged.invalid`.toLowerCase();
     const nowIso = new Date().toISOString();
 
-    // 1. Free the email.
-    await auth.updateUser(loserUid, { email: parkedEmail, emailVerified: false, disabled: true });
+    // 1. Free the target address.
+    await auth.updateUser(loserUid, { email: scratchEmail, emailVerified: false, disabled: true });
 
     // 2. Hand it to the keeper. On failure, put it back so the student is not
     //    left unable to sign in with either address.
@@ -3222,7 +3235,11 @@ exports.reassignMergedAccountEmail = onCall(
       throw new HttpsError("internal", `Could not move the email to the keeper: ${err?.message || err}`);
     }
 
-    // 3. Keep the RTDB profile consistent with Auth. username is left alone: it
+    // 3. Give the keeper's freed address to the disabled tombstone.
+    const parkedEmail = previousEmail || scratchEmail;
+    await auth.updateUser(loserUid, { email: parkedEmail, emailVerified: false, disabled: true }).catch(() => {});
+
+    // 4. Keep the RTDB profile consistent with Auth. username is left alone: it
     //    holds the canonical UJ address used for roster matching.
     await db.ref(`users/${keeperUid}/profile`).update({
       authEmail: targetEmail,
