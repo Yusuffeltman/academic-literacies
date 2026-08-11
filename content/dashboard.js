@@ -2,6 +2,14 @@
 export const DASHBOARD_CONTENT = {
   announcements: [
     {
+      id: 5,
+      icon: '🗓️',
+      title: 'Assessment 3 Deadline Extended — Friday 14 August',
+      content: 'The submission deadline for Assessment 3 (The Source Verification Dossier) has been extended to Friday 14 August 2026 at 23:59. Use the extra time to finish your Integrative Introduction and verify every source in your APA 7th reference list. Submissions after this time are blocked unless you have an approved late-submission exception.',
+      ctaLabel: 'Open Assessment 3',
+      ctaAction: 'assessment-a3',
+    },
+    {
       id: 4,
       icon: '🚨',
       title: 'Group Restructure & Assessment Notice',

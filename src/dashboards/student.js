@@ -1859,9 +1859,13 @@ function _initAnnouncementRotator() {
       const action = String(button.dataset.announcementAction || '').trim();
       if (action === 'governance-rewards') {
         window.goToGovernanceFramework?.();
-      } else if (action === 'assessment-a1') {
-        window.goToCourse?.();
-        setTimeout(() => window.navigateTo?.(3), 200);
+      } else if (action.startsWith('assessment-')) {
+        const targetId = action.slice('assessment-'.length);
+        const targetIndex = UNITS.findIndex((u) => u?.id === targetId);
+        if (targetIndex >= 0) {
+          window.goToCourse?.();
+          setTimeout(() => window.navigateTo?.(targetIndex), 200);
+        }
       }
     });
   });
