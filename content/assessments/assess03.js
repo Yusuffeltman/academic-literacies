@@ -9,7 +9,7 @@ const CFG = {
   subtitle: 'An individual, cross-disciplinary fact-check of contested education claims',
   icon: '🔎', color: 'linear-gradient(135deg,#3b0764,#7c3aed)',
   marks: 100,
-  deadline: '2026-08-14T21:59:00Z', // 14 Aug 2026, 23:59 Africa/Johannesburg
+  deadline: '2026-08-16T21:59:00Z', // Sun 16 Aug 2026, 23:59 Africa/Johannesburg
   skills: ['SIFT framework', 'Lateral reading', 'APA 7th citation', 'Analytical writing'],
   courseOutcomes: [
     'Apply the full SIFT framework and lateral reading practices to investigate contested educational claims rigorously.',

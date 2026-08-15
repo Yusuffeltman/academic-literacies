@@ -54,6 +54,8 @@ const CFG = {
     legacyAssessmentId: 'a1',
     label: 'Assessment 1 Group Platform',
     intro: 'Create or join a named research team of exactly five students. Each team should eventually include one student per platform role before you move into the cross-platform comparison work.',
+    compactLaunch: true,
+    launchLabel: 'Open Assessment 1 groups',
   },
 
   workspaceTemplates: {
