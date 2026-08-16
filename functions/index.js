@@ -2040,6 +2040,10 @@ async function processAssessmentAutoGradeQueue(assessmentId = "") {
   const { queueRef, runId, queue } = lock;
   const cycleId = cleanText(queue.cycleId, 160) || autoGradeRunId("cycle");
   const forceRefresh = queue.forceRefresh === true;
+  // Snapshot of the last enqueue seen by this run. The completion write below
+  // compares against it to tell "nobody asked for anything while I worked"
+  // apart from "a refresh was requested mid-run and must not be discarded".
+  const lockLastEnqueuedAt = cleanText(queue.lastEnqueuedAt, 80);
   let processed = safeNumber(queue.processedInCurrentCycle, 0);
   let success = safeNumber(queue.successInCurrentCycle, 0);
   let failed = safeNumber(queue.failedInCurrentCycle, 0);
@@ -2118,24 +2122,42 @@ async function processAssessmentAutoGradeQueue(assessmentId = "") {
       return { ok: true, state: "queued", processed, success, failed, pendingCount, repairedLegacyStatuses };
     }
 
-    await queueRef.update({
-      state: "idle",
-      activeRunId: "",
-      lockedAt: "",
-      updatedAt: finishedAt,
-      cycleId: "",
-      forceRefresh: false,
-      processedInCurrentCycle: processed,
-      successInCurrentCycle: success,
-      failedInCurrentCycle: failed,
-      pendingCount: 0,
-      lastSummary: failed
-        ? `Background AI marking finished. ${success} updated, ${failed} need retry, ${repairedLegacyStatuses} legacy status record(s) repaired.`
-        : `Background AI marking finished. ${success} latest submission(s) updated and ${repairedLegacyStatuses} legacy status record(s) repaired.`,
-      lastFinishedAt: finishedAt,
-      lastCompletedAt: finishedAt,
-    });
-    return { ok: true, state: "idle", processed, success, failed, pendingCount: 0, repairedLegacyStatuses };
+    // `forceRefresh` was read at lock time, so writing it back as false here
+    // would silently discard a refresh requested *during* this run: the run
+    // reports a clean finish, the flag is gone, and the pass never happens.
+    // A transaction re-reads the queue so a mid-run request is detected, and
+    // the run re-queues itself instead of settling. cycleId is cleared either
+    // way, so the next pass sees records this cycle already stamped.
+    const completion = await queueRef.transaction((current) => {
+      const base = current && typeof current === "object" ? current : {};
+      const reRequested = cleanText(base.lastEnqueuedAt, 80) !== lockLastEnqueuedAt;
+      const keepForce = reRequested && base.forceRefresh === true;
+      return {
+        ...base,
+        state: keepForce ? "queued" : "idle",
+        activeRunId: "",
+        lockedAt: "",
+        updatedAt: finishedAt,
+        cycleId: "",
+        forceRefresh: keepForce,
+        processedInCurrentCycle: processed,
+        successInCurrentCycle: success,
+        failedInCurrentCycle: failed,
+        pendingCount: 0,
+        lastSummary: keepForce
+          ? `Background AI marking finished ${success} submission(s); a refresh was requested while it ran, so another pass is queued.`
+          : failed
+            ? `Background AI marking finished. ${success} updated, ${failed} need retry, ${repairedLegacyStatuses} legacy status record(s) repaired.`
+            : `Background AI marking finished. ${success} latest submission(s) updated and ${repairedLegacyStatuses} legacy status record(s) repaired.`,
+        lastFinishedAt: finishedAt,
+        lastCompletedAt: keepForce ? cleanText(base.lastCompletedAt, 80) : finishedAt,
+      };
+    }, undefined, false);
+
+    const settledState = cleanText(completion?.snapshot?.val()?.state, 40).toLowerCase() === "queued"
+      ? "queued"
+      : "idle";
+    return { ok: true, state: settledState, processed, success, failed, pendingCount: 0, repairedLegacyStatuses };
   } catch (err) {
     const failedAt = new Date().toISOString();
     await queueRef.update({
@@ -2981,6 +3003,30 @@ exports.verifyOtp = onCall(
         createdUser = true;
       } else {
         throw err;
+      }
+    }
+
+    // A merged-away account forwards to its keeper rather than refusing the
+    // sign-in. reassignMergedAccountEmail parks the keeper's former address on
+    // the disabled tombstone so it cannot bootstrap a fresh duplicate, but for
+    // most merged students that parked address is their official UJ one — the
+    // address they are most likely to type. Following the tombstone lets either
+    // address reach the work while still never creating a second account.
+    const seenUids = new Set([user.uid]);
+    for (;;) {
+      const mergedIntoSnap = await db
+        .ref(`users/${user.uid}/profile/mergedIntoUid`)
+        .once("value");
+      const keeperUid = cleanText(mergedIntoSnap.val(), 160);
+      if (!keeperUid || seenUids.has(keeperUid)) break;
+      seenUids.add(keeperUid);
+      try {
+        user = await auth.getUser(keeperUid);
+      } catch (err) {
+        // Keeper unreadable: stay on the account we resolved rather than
+        // failing the sign-in outright.
+        console.warn("[verifyOtp] merged keeper lookup failed", keeperUid, err?.message || err);
+        break;
       }
     }
 
