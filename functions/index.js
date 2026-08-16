@@ -3006,6 +3006,30 @@ exports.verifyOtp = onCall(
       }
     }
 
+    // A merged-away account forwards to its keeper rather than refusing the
+    // sign-in. reassignMergedAccountEmail parks the keeper's former address on
+    // the disabled tombstone so it cannot bootstrap a fresh duplicate, but for
+    // most merged students that parked address is their official UJ one — the
+    // address they are most likely to type. Following the tombstone lets either
+    // address reach the work while still never creating a second account.
+    const seenUids = new Set([user.uid]);
+    for (;;) {
+      const mergedIntoSnap = await db
+        .ref(`users/${user.uid}/profile/mergedIntoUid`)
+        .once("value");
+      const keeperUid = cleanText(mergedIntoSnap.val(), 160);
+      if (!keeperUid || seenUids.has(keeperUid)) break;
+      seenUids.add(keeperUid);
+      try {
+        user = await auth.getUser(keeperUid);
+      } catch (err) {
+        // Keeper unreadable: stay on the account we resolved rather than
+        // failing the sign-in outright.
+        console.warn("[verifyOtp] merged keeper lookup failed", keeperUid, err?.message || err);
+        break;
+      }
+    }
+
     const profileRef = db.ref(`users/${user.uid}/profile`);
     const profileSnap = await profileRef.once("value");
     if (!profileSnap.exists()) {
