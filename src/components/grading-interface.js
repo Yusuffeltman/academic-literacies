@@ -10,6 +10,7 @@ import {
 } from '../submissions.js';
 import { extractSubmissionBundle } from '../document-text.js';
 import { STATE } from '../state.js';
+import { findQuoteMatches } from '../quote-match.js';
 
 // ── Module-level state ───────────────────────
 window._giState = window._giState || {};
@@ -48,24 +49,6 @@ function _stamp() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// Quote matching — adapted from submission-reviewer.js _findAllQuoteMatches
-function _giFindAllQuoteMatches(text = '', quote = '', caseInsensitive = false) {
-  const source = String(text || '');
-  const target = String(quote || '');
-  if (!source || !target) return [];
-  const haystack = caseInsensitive ? source.toLowerCase() : source;
-  const needle = caseInsensitive ? target.toLowerCase() : target;
-  const matches = [];
-  let start = 0;
-  while (start < haystack.length) {
-    const idx = haystack.indexOf(needle, start);
-    if (idx === -1) break;
-    matches.push({ start: idx, end: idx + target.length });
-    start = idx + Math.max(target.length, 1);
-  }
-  return matches;
-}
-
 // Build highlighted HTML from annotations — supports multi-source (AI + tutor)
 // Each annotation must have: { id, quote, comment, source: 'ai'|'tutor' }
 function _giBuildHighlightedHtml(submissionId, studentText, allAnnotations) {
@@ -75,9 +58,7 @@ function _giBuildHighlightedHtml(submissionId, studentText, allAnnotations) {
   const candidateHits = [];
   const annotationMap = allAnnotations.map((annotation, idx) => {
     const quote = String(annotation?.quote || '');
-    const exactHits = _giFindAllQuoteMatches(text, quote, false);
-    const fallbackHits = exactHits.length ? [] : _giFindAllQuoteMatches(text, quote, true);
-    const matches = exactHits.length ? exactHits : fallbackHits;
+    const matches = findQuoteMatches(text, quote);
     matches.forEach((hit, hitIdx) => {
       candidateHits.push({
         annotationIdx: idx,
@@ -482,9 +463,7 @@ export function buildAnnotatedHtmlReadOnly(submissionText, annotations) {
   const candidateHits = [];
   const annotationMap = annotations.map((ann, idx) => {
     const quote = String(ann?.quote || '');
-    const exact = _giFindAllQuoteMatches(text, quote, false);
-    const fallback = exact.length ? [] : _giFindAllQuoteMatches(text, quote, true);
-    const matches = exact.length ? exact : fallback;
+    const matches = findQuoteMatches(text, quote);
     matches.forEach((hit, hitIdx) => {
       candidateHits.push({ annotationIdx: idx, start: hit.start, end: hit.end, length: hit.end - hit.start, hitId: `ro-hit-${idx}-${hitIdx}` });
     });
