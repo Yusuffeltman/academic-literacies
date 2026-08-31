@@ -4,8 +4,8 @@ export const DASHBOARD_CONTENT = {
     {
       id: 5,
       icon: '🗓️',
-      title: 'Assessment 3 Deadline Extended — Sunday 16 August',
-      content: 'The submission deadline for Assessment 3 (The Source Verification Dossier) has been extended to Sunday 16 August 2026 at 23:59. Use the extra time to finish your Integrative Introduction and verify every source in your APA 7th reference list. Submissions after this time are blocked unless you have an approved late-submission exception.',
+      title: 'Assessment 3 — The Submission Portal Is Still Open',
+      content: 'The deadline for Assessment 3 (The Source Verification Dossier) was Sunday 16 August 2026 at 23:59, but the submission portal has not closed — you can still upload your dossier now. Finish your Integrative Introduction, verify every source in your APA 7th reference list, and submit as soon as you can. Speak to your lecturer if you need to discuss late work.',
       ctaLabel: 'Open Assessment 3',
       ctaAction: 'assessment-a3',
     },

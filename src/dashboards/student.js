@@ -92,6 +92,7 @@ import { writeAttendanceCheckinEvent } from '../analytics.js';
 import { getAppSurface, setAppSurfaceRoute } from '../platform.js';
 import { renderChallengeArena } from '../components/challenge-arena.js';
 import { isOpenByDefault } from '../unit-access.js';
+import { showToast } from '../components/toaster.js';
 
 function _studentAnalyticsProfile() {
   return STATE.user?._studentProfileContext?.profile || {
@@ -1800,6 +1801,32 @@ function _watchLiveSessions() {
   });
 }
 
+// Opening an assessment from the announcement banner used to be
+// `window.goToCourse?.(); setTimeout(() => window.navigateTo?.(i), 200)`. Both
+// calls were optional, so when either handler was not yet on window the click
+// did nothing whatsoever — no navigation, no error, nothing in the console —
+// and a student could press the button over and over with no feedback, which is
+// exactly how it was reported ("I have pressed on Assessment 3 several times,
+// but nothing happens").
+//
+// goToCourse() renders the shell synchronously and wires navigateTo, so the
+// second call can follow immediately rather than racing a 200ms timer. Anything
+// still missing is reported instead of swallowed.
+function _openAnnouncedAssessment(assessmentId = '') {
+  const targetId = String(assessmentId || '').trim();
+  const targetIndex = UNITS.findIndex((u) => u?.id === targetId);
+  if (targetIndex < 0) {
+    showToast(`${targetId.toUpperCase() || 'That assessment'} is not part of this course.`, 'error');
+    return;
+  }
+  if (typeof window.goToCourse !== 'function' || typeof window.navigateTo !== 'function') {
+    showToast('The course view is still loading. Please reload the page and try again.', 'error');
+    return;
+  }
+  window.goToCourse();
+  window.navigateTo(targetIndex);
+}
+
 function _initAnnouncementRotator() {
   const banner = document.getElementById('student-announcement-banner');
   const track = document.getElementById('student-announcement-track');
@@ -1858,14 +1885,13 @@ function _initAnnouncementRotator() {
     button.addEventListener('click', () => {
       const action = String(button.dataset.announcementAction || '').trim();
       if (action === 'governance-rewards') {
-        window.goToGovernanceFramework?.();
-      } else if (action.startsWith('assessment-')) {
-        const targetId = action.slice('assessment-'.length);
-        const targetIndex = UNITS.findIndex((u) => u?.id === targetId);
-        if (targetIndex >= 0) {
-          window.goToCourse?.();
-          setTimeout(() => window.navigateTo?.(targetIndex), 200);
+        if (typeof window.goToGovernanceFramework !== 'function') {
+          showToast('That page could not be opened. Please reload and try again.', 'error');
+          return;
         }
+        window.goToGovernanceFramework();
+      } else if (action.startsWith('assessment-')) {
+        _openAnnouncedAssessment(action.slice('assessment-'.length));
       }
     });
   });
