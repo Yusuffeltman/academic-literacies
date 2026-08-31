@@ -790,7 +790,15 @@ window._atFinalSubmit = async (id) => {
   const st  = window._atState[id];
   const btn = document.getElementById(`at-submit-${id}`);
 
-  if (!cfg.checklist.every((_, i) => st.checklist[i])) return;
+  // A bare `return` here meant the button did nothing at all when the checklist
+  // was incomplete — or when saved state had drifted from the current config,
+  // which the student cannot see or fix. The button is also disabled in that
+  // case, so a click produced silence twice over. Say what is missing instead.
+  const unticked = cfg.checklist.filter((_, i) => !st.checklist[i]).length;
+  if (unticked > 0) {
+    _atShowSaveError(id, `Tick all ${cfg.checklist.length} checklist items to open the submission portal — ${unticked} still ${unticked === 1 ? 'needs' : 'need'} ticking.`);
+    return;
+  }
 
   btn.textContent = 'Opening…';
   btn.disabled    = true;
