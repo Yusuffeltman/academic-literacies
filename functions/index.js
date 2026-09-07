@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const mammoth = require("mammoth");
+const { resolveMergedActiveSubmission } = require("./submission-merge.js");
 
 let _adminReady = false;
 let _adminApp = null;
@@ -1930,27 +1931,23 @@ async function listLatestAutoGradeCandidates(assessmentId, options = {}) {
   const candidates = [];
 
   Object.entries(byStudent).forEach(([studentUid, rawBySubmission]) => {
-    let latest = null;
-    Object.entries(rawBySubmission || {}).forEach(([rawSubmissionId, submission]) => {
-      if (!submission || typeof submission !== "object") return;
-      if (cleanText(submission?.status, 40).toLowerCase() === "cleared") return;
-      const submissionId = cleanText(submission?.id || rawSubmissionId, 160);
-      const submittedAtMs = isoMs(submission?.submittedAt || submission?.updatedAt);
-      if (!submissionId || !submittedAtMs) return;
-      if (!latest || submittedAtMs > latest.submittedAtMs) {
-        latest = { submissionId, submission, submittedAtMs };
-      }
-    });
-    if (!latest) return;
+    // Resolve the newest ("anchor") active submission with its files unioned
+    // across the student's active submissions, so a student who split their
+    // upload across several submissions is graded on the WHOLE assignment rather
+    // than a lone latest fragment. The grading record stays keyed to the anchor's
+    // id, and the merged submission flows into both submissionNeedsAutoGrade and
+    // autoGradeSubmission -> buildSubmissionSignature, so idempotency is preserved.
+    const resolved = resolveMergedActiveSubmission(rawBySubmission);
+    if (!resolved) return;
 
-    const record = gradingByStudent?.[studentUid]?.[latest.submissionId] || {};
-    if (!submissionNeedsAutoGrade(latest.submission, record, options)) return;
+    const record = gradingByStudent?.[studentUid]?.[resolved.submissionId] || {};
+    if (!submissionNeedsAutoGrade(resolved.submission, record, options)) return;
 
     candidates.push({
       studentUid,
-      submissionId: latest.submissionId,
-      submission: latest.submission,
-      submittedAtMs: latest.submittedAtMs,
+      submissionId: resolved.submissionId,
+      submission: resolved.submission,
+      submittedAtMs: resolved.submittedAtMs,
     });
   });
 
