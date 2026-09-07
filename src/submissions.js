@@ -721,6 +721,10 @@ export async function getMySubmissions(assessmentId) {
   }
 }
 
+// Resubmission carry-forward helpers live in a Firebase-free module so they can
+// be unit-tested in isolation. Re-exported here so callers have one entry point.
+export { mapSubmittedFilesToUploadEntries, resolveInitialSubmissionFiles } from './submission-files.js';
+
 export async function getMySubmissionIndex() {
   const uid = _uid();
   if (!uid) return {};

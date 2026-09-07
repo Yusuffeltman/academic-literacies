@@ -10,6 +10,7 @@ import {
   clearDraft,
   getMySubmissions,
   getMySubmissionIndex,
+  resolveInitialSubmissionFiles,
   isAllowedFile,
   ALLOWED_EXTENSIONS,
   MAX_FILE_SIZE,
@@ -177,14 +178,26 @@ function _hasPendingDraftUploads() {
   return _uploadedFiles.some((file) => file?.pendingUpload);
 }
 
+async function _getLatestActiveSubmission(assessmentId) {
+  try {
+    const subs = await getMySubmissions(assessmentId); // newest-first, only real submissions
+    return subs.find((s) => s && s.status !== 'cleared') || null;
+  } catch {
+    return null;
+  }
+}
+
 async function _syncSubmissionDraftIntoUi(assessmentId) {
   if (!assessmentId || _selectedAssessment !== assessmentId) return;
   const draft = await loadDraft(assessmentId);
   const isSlotBased = assessmentId === 'a1';
-  _uploadedFiles = Array.isArray(draft?.files)
+  const draftFiles = Array.isArray(draft?.files)
     ? (isSlotBased ? draft.files.filter((file) => file.slot) : draft.files)
     : [];
-  _submissionNote = draft?.note || '';
+  // Only overwrite the staged files when the draft actually has files. An empty
+  // draft (e.g. a note-only save) must not wipe carried-forward submission files.
+  if (draftFiles.length) _uploadedFiles = draftFiles;
+  _submissionNote = draft?.note || _submissionNote;
   const uploadArea = document.getElementById('submission-upload-area');
   if (uploadArea) _renderUploadArea(uploadArea);
 }
@@ -304,15 +317,15 @@ window._selectSubmissionAssessment = async function (assessmentId) {
   }
   window._submissionLateWarning = _showLateBanner;
 
-  // Load draft if exists
+  // Load draft (in-progress edits) and, for non-slot assessments, the files from
+  // the latest active submission. A resubmission must start from the COMPLETE set
+  // the student already submitted so adding one more file does not create a new
+  // latest submission holding only that fragment.
+  const isSlotBased = assessmentId === 'a1';
   const draft = await loadDraft(assessmentId);
-  if (draft) {
-    const isSlotBased = assessmentId === 'a1';
-    _uploadedFiles = isSlotBased
-      ? (draft.files || []).filter((f) => f.slot)
-      : (draft.files || []);
-    _submissionNote = draft.note || '';
-  }
+  const latestSubmission = isSlotBased ? null : await _getLatestActiveSubmission(assessmentId);
+  _uploadedFiles = resolveInitialSubmissionFiles({ draft, latestSubmission, slotBased: isSlotBased });
+  _submissionNote = draft?.note || '';
 
   _renderUploadArea(uploadArea);
   if (_hasPendingDraftUploads() && typeof navigator !== 'undefined' && navigator.onLine) {
@@ -352,6 +365,17 @@ function _renderUploadArea(el) {
 
   const restrictedAcceptedExts = _portalAcceptedExtensions();
 
+  const carriedCount = _uploadedFiles.filter((f) => f?.carriedForward).length;
+  const carryForwardBanner = (!isAssessment1 && carriedCount) ? `
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:14px;padding:14px 16px;margin-bottom:18px;display:flex;gap:12px;align-items:flex-start;">
+      <div style="font-size:20px;line-height:1;">📎</div>
+      <div>
+        <div style="font-weight:800;color:#1e40af;font-size:14px;margin-bottom:4px;">Your ${carriedCount} previously submitted file${carriedCount === 1 ? '' : 's'} ${carriedCount === 1 ? 'is' : 'are'} loaded below</div>
+        <div style="font-size:13px;color:#1e40af;line-height:1.6;">Add or remove files, then submit again to update your submission with the <strong>complete set</strong>. Submitting only a new file would replace — not add to — your earlier work. Every previous version is always kept.</div>
+      </div>
+    </div>
+  ` : '';
+
   const hasLateException = _hasActiveLateException(_activeLateException);
   const lateBanner = window._submissionLateWarning ? (hasLateException ? `
     <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:14px;padding:16px 18px;margin-bottom:18px;display:flex;gap:12px;align-items:flex-start;">
@@ -377,6 +401,7 @@ function _renderUploadArea(el) {
       <p style="margin:0 0 14px 0;color:var(--muted);font-size:12px;">Accepted: ${_portalAcceptedLabel()}. Up to ${MAX_FILES_PER_SUBMISSION} files. Maximum file size: ${Math.round(MAX_FILE_SIZE / 1024 / 1024)} MB each.</p>
 
       ${lateBanner}
+      ${carryForwardBanner}
       ${specificInstructions}
 
       <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px;margin-bottom:16px;">
@@ -566,6 +591,7 @@ function _renderFileList() {
             <div style="font-size:13px;font-weight:700;color:var(--navy);word-break:break-all;">${_esc(f.name)}</div>
             <div style="font-size:11px;color:var(--muted);">${_fmtSize(f.size)} · ${f.pendingUpload ? 'Saved locally' : 'Uploaded'} ${_fmtDate(f.uploadedAt)}</div>
             <div style="font-size:11px;font-weight:700;color:${f.pendingUpload ? '#1d4ed8' : '#166534'};">${f.pendingUpload ? 'Waiting to sync to Firebase' : 'Cloud copy synced'}</div>
+            ${f.carriedForward ? `<div style="font-size:10px;font-weight:700;color:#1e40af;">Previously submitted</div>` : ''}
           </div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
