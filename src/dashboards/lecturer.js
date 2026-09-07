@@ -449,6 +449,7 @@ import { httpsCallable } from 'firebase/functions';
 import { requestPasswordResetEmail } from '../password-reset.js';
 import { ref, get, set, update, remove } from 'firebase/database';
 import { buildMergePlan } from '../account-merge.js';
+import { resolveMergedActiveSubmission } from '../submission-merge.js';
 import { SEED_RESOURCES } from '../../content/resources.js';
 import { addResource, vettResource, removeResource } from '../resources.js';
 import { TUTOR_GROUP_ASSIGNMENTS } from '../../content/tutorial-groups/assignments.js';
@@ -6911,10 +6912,13 @@ function _gradebookStatusLabel(record = {}, submission = {}) {
 }
 
 function _gradebookLatestSubmission(rawBySubmission = {}) {
-  return Object.entries(rawBySubmission || {})
-    .map(([submissionId, submission]) => ({ ...(submission || {}), _submissionId: submissionId }))
-    .filter((submission) => submission && submission.submittedAt && submission.status !== 'cleared')
-    .sort((a, b) => _gradebookMs(b.submittedAt || b.updatedAt) - _gradebookMs(a.submittedAt || a.updatedAt))[0] || null;
+  // Newest ("anchor") active submission, but with files[] unioned across the
+  // student's active submissions so a late one-file fragment does not mask the
+  // earlier complete work in the gradebook / marking platform / file preview.
+  // Mark resolution is unchanged — it stays keyed to the anchor's _submissionId.
+  const resolved = resolveMergedActiveSubmission(rawBySubmission);
+  if (!resolved) return null;
+  return { ...resolved.submission, _submissionId: resolved.submissionId };
 }
 
 function _gradebookSelectedRecord(rawBySubmission = {}, preferredSubmissionId = '') {
