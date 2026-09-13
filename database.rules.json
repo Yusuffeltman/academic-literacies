@@ -436,6 +436,26 @@
           ".write": "auth != null && auth.uid === $uid"
         }
       }
+    },
+
+    "quiz-attempts": {
+      "$quizId": {
+        ".read": "auth != null && (root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
+        "$uid": {
+          ".read": "auth != null && (auth.uid === $uid || root.child('users/' + auth.uid + '/profile/role').val() === 'lecturer' || root.child('users/' + auth.uid + '/profile/role').val() === 'moderator' || root.child('users/' + auth.uid + '/profile/role').val() === 'tutor')",
+          "counted": {
+            "$slot": {
+              ".write": "auth != null && auth.uid === $uid && !data.exists() && ($slot === '1' || $slot === '2')",
+              ".validate": "newData.hasChildren(['mode','scorePct','submittedAt']) && newData.child('mode').val() === 'counted' && newData.child('scorePct').isNumber() && newData.child('scorePct').val() >= 0 && newData.child('scorePct').val() <= 100"
+            }
+          },
+          "practice": {
+            "$attemptId": {
+              ".write": "auth != null && auth.uid === $uid"
+            }
+          }
+        }
+      }
     }
   }
 }
