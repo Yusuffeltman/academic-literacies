@@ -1,0 +1,111 @@
+// Tests for src/quiz-grading.js — graded-quiz core (best-of-two, 60% pass,
+// submit-only-consumes-attempt, practice excluded, mean-of-best weighting).
+// Run with: node --test src/__tests__/quiz-grading.test.js
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  normalizeQuiz, sampleItemIds, scoreAttempt, countedAttempts, attemptsUsed,
+  remainingAttempts, canStartCountedAttempt, resolveQuizResult,
+  quizBlockPercent, quizContributionPoints, QUIZ_DEFAULTS,
+} from '../quiz-grading.js';
+
+function bank(n) {
+  return Array.from({ length: n }, (_, i) => ({ id: `q${i}`, stem: `Q${i}`, options: ['a', 'b', 'c', 'd'], correctIndex: i % 4 }));
+}
+const QUIZ = { quizId: 'q-unit03', itemBank: bank(10), itemsPerAttempt: 5 };
+
+function attempt(mode, scorePct, submitted = true, extra = {}) {
+  return { mode, scorePct, submittedAt: submitted ? '2026-09-13T10:00:00Z' : null, ...extra };
+}
+
+test('defaults: two attempts, 60% pass', () => {
+  const q = normalizeQuiz(QUIZ);
+  assert.equal(q.maxAttempts, 2);
+  assert.equal(q.passMark, 60);
+  assert.equal(QUIZ_DEFAULTS.maxAttempts, 2);
+});
+
+test('sampleItemIds: deterministic, correct size, subset of bank', () => {
+  const a = sampleItemIds(QUIZ, 'seed-1');
+  const b = sampleItemIds(QUIZ, 'seed-1');
+  const c = sampleItemIds(QUIZ, 'seed-2');
+  assert.deepEqual(a, b, 'same seed -> same sample');
+  assert.equal(a.length, 5);
+  assert.ok(a.every((id) => QUIZ.itemBank.some((it) => it.id === id)));
+  assert.notDeepEqual(a, c, 'different seed -> (very likely) different sample');
+});
+
+test('scoreAttempt: percentage over the sampled items', () => {
+  const ids = ['q0', 'q1', 'q2', 'q3']; // correctIndex 0,1,2,3
+  const answers = { q0: 0, q1: 1, q2: 9, q3: 3 }; // 3 of 4 correct
+  assert.deepEqual(scoreAttempt(QUIZ, ids, answers), { correct: 3, total: 4, pct: 75 });
+});
+
+test('practice and unsubmitted attempts are excluded from counted/score', () => {
+  const attempts = [
+    attempt('practice', 100),
+    attempt('counted', 90, false), // in-progress, not submitted
+    attempt('counted', 55),
+  ];
+  assert.equal(attemptsUsed(attempts), 1, 'only the submitted counted attempt counts');
+  assert.equal(countedAttempts(attempts).length, 1);
+});
+
+test('best-of-two: higher of two counted attempts is recorded', () => {
+  const attempts = [attempt('counted', 52), attempt('counted', 71)];
+  const r = resolveQuizResult(QUIZ, attempts);
+  assert.equal(r.bestPct, 71);
+  assert.equal(r.passed, true); // 71 >= 60
+  assert.equal(r.attemptsUsed, 2);
+  assert.equal(r.remaining, 0);
+});
+
+test('pass threshold is inclusive at 60', () => {
+  assert.equal(resolveQuizResult(QUIZ, [attempt('counted', 60)]).passed, true);
+  assert.equal(resolveQuizResult(QUIZ, [attempt('counted', 59)]).passed, false);
+});
+
+test('no counted attempt -> null best, not passed', () => {
+  const r = resolveQuizResult(QUIZ, [attempt('practice', 100)]);
+  assert.equal(r.bestPct, null);
+  assert.equal(r.passed, false);
+  assert.equal(r.remaining, 2);
+});
+
+test('attempt cap: two submitted attempts exhaust; practice never consumes one', () => {
+  const two = [attempt('counted', 40), attempt('counted', 50)];
+  assert.equal(remainingAttempts(QUIZ, two), 0);
+  assert.equal(canStartCountedAttempt(QUIZ, two).ok, false);
+  const withPractice = [attempt('counted', 40), attempt('practice', 100), attempt('practice', 100)];
+  assert.equal(remainingAttempts(QUIZ, withPractice), 1);
+  assert.equal(canStartCountedAttempt(QUIZ, withPractice).ok, true);
+});
+
+test('an interrupted (unsubmitted) attempt does not consume one', () => {
+  const attempts = [attempt('counted', 0, false)];
+  assert.equal(attemptsUsed(attempts), 0);
+  assert.equal(canStartCountedAttempt(QUIZ, attempts).ok, true);
+});
+
+test('minGapHours blocks a too-soon second attempt', () => {
+  const q = { ...QUIZ, minGapHours: 24 };
+  const last = Date.parse('2026-09-13T10:00:00Z');
+  const attempts = [{ mode: 'counted', scorePct: 50, submittedAt: '2026-09-13T10:00:00Z' }];
+  assert.equal(canStartCountedAttempt(q, attempts, last + 3600000).ok, false); // 1h later
+  assert.equal(canStartCountedAttempt(q, attempts, last + 25 * 3600000).ok, true); // 25h later
+});
+
+test('quizBlockPercent: mean of best scores; missing quiz counts as 0', () => {
+  const quizzes = [{ quizId: 'qa', itemBank: bank(4) }, { quizId: 'qb', itemBank: bank(4) }];
+  const attemptsBy = {
+    qa: [attempt('counted', 80), attempt('counted', 90)], // best 90
+    // qb: no attempt -> 0
+  };
+  assert.equal(quizBlockPercent(quizzes, attemptsBy), 45); // (90 + 0)/2
+});
+
+test('quizContributionPoints: block% x weight', () => {
+  assert.equal(quizContributionPoints(90, 0.10), 9);
+  assert.equal(quizContributionPoints(45, 0.10), 4.5);
+});
