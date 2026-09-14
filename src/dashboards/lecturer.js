@@ -6916,6 +6916,13 @@ window._loadQuizMarks = async () => {
             <tbody>${bodyRows || '<tr><td style="padding:16px;color:var(--muted);">No students found.</td></tr>'}</tbody>
           </table>
         </div>
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:16px 20px;">
+          <div style="font-weight:800;color:var(--navy);font-size:14px;margin-bottom:4px;">Merge a quiz into a MAMS template</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Upload the blank MAMS roster for a quiz — each student's best % is written into the NOM column by student number; everything else in the file is left untouched.</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            ${quizzes.map((q) => `<label class="btn-prev" style="display:inline-flex;cursor:pointer;">⬆ ${_esc(q.title || q.quizId)}<input type="file" accept=".xls,.xlsx" style="display:none;" onchange="_handleQuizMamsUpload(event, '${_esc(q.quizId)}')" /></label>`).join('')}
+          </div>
+        </div>
         <div style="font-size:12px;color:var(--muted);line-height:1.6;">Note: the full weighted final mark also needs the Assessment 1–3 weights; this view shows the quiz contribution only. Scores are authoritative (recomputed from answers), so a tampered client score cannot inflate a mark.</div>
       </div>`;
   } catch (err) {
@@ -6935,6 +6942,70 @@ window._downloadQuizMarksExcel = () => {
   ]));
   downloadXlsx([{ name: 'Quiz Marks', headers, rows: out }], 'quiz-marks.xlsx');
   _showLecturerToast(`Exported quiz marks for ${rows.length} student${rows.length === 1 ? '' : 's'}.`, 'success', 2600);
+};
+
+// Write a Map(studentNumberDigits -> mark) into a MAMS template's NOM column by
+// matching student number. Mirrors the assessment MAMS merge; used for quizzes.
+async function _mergeMarksIntoMamsTemplate(file, marksByStudentNumber, label) {
+  const XLSX = await import('xlsx');
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array', cellStyles: true });
+  const sheetName = workbook.SheetNames?.[0];
+  const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+  if (!sheet || !sheet['!ref']) { _showLecturerToast('That workbook does not contain a readable sheet.', 'warn', 3200); return; }
+  const range = XLSX.utils.decode_range(sheet['!ref']);
+  let headerRow = -1, studColIdx = -1, nomColIdx = -1;
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    let rs = -1, rn = -1;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const v = String(sheet[XLSX.utils.encode_cell({ r, c })]?.v ?? '').trim().toLowerCase();
+      if (v === 'stud number') rs = c;
+      if (v === 'nom') rn = c;
+    }
+    if (rs >= 0 && rn >= 0) { headerRow = r; studColIdx = rs; nomColIdx = rn; break; }
+  }
+  if (headerRow < 0) { _showLecturerToast('Could not find "Stud Number" and "NOM" columns in that template.', 'warn', 3600); return; }
+  let matched = 0, unmatched = 0;
+  for (let r = headerRow + 1; r <= range.e.r; r++) {
+    const rawStud = sheet[XLSX.utils.encode_cell({ r, c: studColIdx })]?.v;
+    if (rawStud == null || rawStud === '') continue;
+    const digits = String(rawStud).replace(/\D/g, '');
+    if (!digits) continue;
+    if (marksByStudentNumber.has(digits)) {
+      const nomRef = XLSX.utils.encode_cell({ r, c: nomColIdx });
+      const existing = sheet[nomRef] || {};
+      sheet[nomRef] = { ...existing, t: 'n', v: marksByStudentNumber.get(digits) };
+      delete sheet[nomRef].w;
+      matched += 1;
+    } else { unmatched += 1; }
+  }
+  const ext = /\.xlsx$/i.test(file.name) ? 'xlsx' : 'xls';
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  XLSX.writeFile(workbook, `${baseName} - ${label} merged.${ext}`, { bookType: ext });
+  _showLecturerToast(`Merged ${matched} mark${matched === 1 ? '' : 's'} into the template (${unmatched} student number${unmatched === 1 ? '' : 's'} had no mark to merge).`, 'success', 4600);
+}
+
+window._handleQuizMamsUpload = async (event, quizId) => {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const rows = Array.isArray(_cachedQuizMarkRows) ? _cachedQuizMarkRows : [];
+    if (!rows.length) { _showLecturerToast('Open the Quiz Marks view first so marks are loaded.', 'warn', 2800); return; }
+    const map = new Map();
+    for (const r of rows) {
+      const best = r.perQuiz?.[quizId]?.bestPct;
+      const digits = String(r.studentNumber || '').replace(/\D/g, '');
+      if (best != null && digits) map.set(digits, best);
+    }
+    if (!map.size) { _showLecturerToast('No counted quiz marks to merge for that quiz yet.', 'warn', 3000); return; }
+    const label = (_cachedQuizDefs.find((q) => q.quizId === quizId)?.title) || quizId;
+    await _mergeMarksIntoMamsTemplate(file, map, label);
+  } catch (err) {
+    console.error('Quiz MAMS merge failed:', err);
+    _showLecturerToast(`Could not merge marks into that template: ${err.message || err}`, 'warn', 3800);
+  } finally {
+    if (event?.target) event.target.value = '';
+  }
 };
 
 function _gradebookAssessmentList() {
