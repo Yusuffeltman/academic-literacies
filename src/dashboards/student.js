@@ -983,6 +983,13 @@ export function renderStudentDashboard() {
                 <p style="font-size:13px;color:rgba(255,255,255,.85);line-height:1.6;margin:0;">Skill-mapped games with XP scoring. Push yourself beyond the curriculum.</p>
               </div>
             </button>
+            <button class="dash-card" style="text-align:left;cursor:pointer;background:linear-gradient(135deg,#0ea5e9 0%,#0284c7 50%,#0369a1 100%);border:none;" onclick="window.goToQuizzes()">
+              <div class="dash-card-body">
+                <div style="font-size:12px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.08em;">Assessed</div>
+                <h3 style="margin:8px 0 6px 0;color:white;">📝 Quizzes</h3>
+                <p style="font-size:13px;color:rgba(255,255,255,.85);line-height:1.6;margin:0;">Two attempts, best score counts. Practise as much as you like first.</p>
+              </div>
+            </button>
           </div>
         </section>
 

@@ -25,6 +25,7 @@ import { renderGalleryWalk } from './components/gallery-walk.js';
 import { renderSessionPlan } from './components/session-plan.js';
 import { renderGovernanceFramework } from './components/governance-framework.js';
 import { renderChallengeArena } from './components/challenge-arena.js';
+import { renderGradedQuizzes } from './components/graded-quiz.js';
 import { loadAssessmentSettingsOverrides } from './assessment-settings.js';
 import { ER_TIERS } from '../content/readings.js';
 import { _aiChat } from './ai.js';
@@ -439,6 +440,14 @@ function _wireStudentView() {
     app.innerHTML = '<div id="challenge-arena-root" class="anim-fade" style="min-height:100vh;"></div>';
     const root = document.getElementById('challenge-arena-root');
     renderChallengeArena(root);
+  };
+  window.goToQuizzes = () => {
+    window._androidStudentReturnTab = 'home';
+    setAppSurfaceRoute('student-quizzes');
+    const app = document.getElementById('app');
+    app.innerHTML = '<div id="graded-quiz-root" class="anim-fade" style="min-height:100vh;"></div>';
+    const root = document.getElementById('graded-quiz-root');
+    renderGradedQuizzes(root);
   };
   window.goToSubmissions = (assessmentId = '') => {
     window._androidStudentReturnTab = 'home';
