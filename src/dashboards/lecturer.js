@@ -457,6 +457,7 @@ import { uploadGalleryAsset } from '../gallery.js';
 import { rebuildDerivedMetricsForDate } from '../analytics.js';
 import { generateQrDataUrl } from '../qr.js';
 import { downloadXlsx } from '../xlsx.js';
+import { buildQuizMarksRows, gradedQuizzes } from '../quiz-gradebook.js';
 import { renderGoLiveToggle } from '../components/chat-panel.js';
 import { autoCloseDashboardSidebar, initDashboardFocusChrome } from './dashboard-focus.js';
 import {
@@ -6267,6 +6268,10 @@ function _buildAnalyticsSidebar() {
           <div class="dash-nav-id">🗓️</div>
           <div class="dash-nav-label">Attendance</div>
         </div>
+        <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadQuizMarks()">
+          <div class="dash-nav-id">📝</div>
+          <div class="dash-nav-label">Quiz Marks</div>
+        </div>
         <div class="dash-nav-item" onclick="document.querySelectorAll('.dash-nav-item').forEach(e=>e.classList.remove('active')); this.classList.add('active'); _loadLiveSessions()">
           <div class="dash-nav-id">📹</div>
           <div class="dash-nav-label">Live Sessions</div>
@@ -6858,6 +6863,78 @@ window._loadAttendanceImportManager = async () => {
       </div>
     </div>
   `;
+};
+
+// ── Quiz Marks (graded-quiz gradebook view + export) ──────────────────────
+let _cachedQuizMarkRows = [];
+let _cachedQuizDefs = [];
+
+window._loadQuizMarks = async () => {
+  const mount = document.getElementById('analytics-mount');
+  if (!mount) return;
+  mount.innerHTML = '<div style="padding:30px;color:var(--muted);"><div class="rec-spinner" style="width:20px;height:20px;margin:0 auto 8px auto;"></div>Loading quiz marks…</div>';
+  try {
+    const quizzes = gradedQuizzes();
+    const students = await _loadAttendanceImportStudents();
+    const rows = await buildQuizMarksRows(students);
+    rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    _cachedQuizMarkRows = rows;
+    _cachedQuizDefs = quizzes;
+
+    const attemptedRows = rows.filter((r) => quizzes.some((q) => r.perQuiz?.[q.quizId]?.attemptsUsed > 0));
+    const quizHeaders = quizzes.map((q) => `<th style="padding:10px 12px;text-align:center;">${_esc(q.title || q.quizId)}<div style="font-size:10px;color:var(--muted);font-weight:600;">best % · ${Math.round((q.weight || 0) * 100)}%</div></th>`).join('');
+    const maxPoints = quizzes.reduce((s, q) => s + (q.weight || 0) * 100, 0);
+
+    const bodyRows = rows.map((r) => {
+      const cells = quizzes.map((q) => {
+        const pq = r.perQuiz?.[q.quizId] || {};
+        const val = pq.bestPct == null ? '—' : `${pq.bestPct}%`;
+        const color = pq.bestPct == null ? 'var(--muted)' : (pq.passed ? '#166534' : '#991b1b');
+        return `<td style="padding:10px 12px;border-top:1px solid var(--border);text-align:center;color:${color};font-weight:700;">${val}<div style="font-size:10px;color:var(--muted);font-weight:600;">${pq.attemptsUsed || 0}/${q.maxAttempts} used</div></td>`;
+      }).join('');
+      return `<tr>
+        <td style="padding:10px 12px;border-top:1px solid var(--border);color:var(--navy);font-size:13px;">${_esc(r.name || '—')}<div style="font-size:11px;color:var(--muted);">${_esc(r.studentNumber || 'No number')}${r.tutorialGroup ? ' · ' + _esc(r.tutorialGroup) : ''}</div></td>
+        ${cells}
+        <td style="padding:10px 12px;border-top:1px solid var(--border);text-align:center;font-weight:900;color:var(--navy);">${r.contributionPoints}<div style="font-size:10px;color:var(--muted);font-weight:600;">of ${maxPoints}</div></td>
+      </tr>`;
+    }).join('');
+
+    mount.innerHTML = `
+      <div style="display:grid;gap:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+          <div>
+            <h1 style="margin:0;color:var(--navy);font-family:var(--font-heading);font-size:30px;">Quiz Marks</h1>
+            <p style="margin:8px 0 0 0;color:var(--muted);line-height:1.6;max-width:760px;">Best-of-two per quiz, recomputed from stored answers. Each quiz contributes its own weight to the final mark (currently ${quizzes.map((q) => Math.round((q.weight || 0) * 100) + '%').join(' + ')} = ${maxPoints} points). Students with at least one counted attempt: <strong>${attemptedRows.length}</strong> of ${rows.length}.</p>
+          </div>
+          <button class="btn-prev" style="display:inline-flex;" onclick="_downloadQuizMarksExcel()">⬇ Export Excel</button>
+        </div>
+        <div style="background:white;border:1px solid var(--border);border-radius:16px;padding:12px;overflow:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:#f8fafc;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px;">
+              <th style="padding:10px 12px;text-align:left;">Student</th>${quizHeaders}<th style="padding:10px 12px;text-align:center;">Contribution</th>
+            </tr></thead>
+            <tbody>${bodyRows || '<tr><td style="padding:16px;color:var(--muted);">No students found.</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;">Note: the full weighted final mark also needs the Assessment 1–3 weights; this view shows the quiz contribution only. Scores are authoritative (recomputed from answers), so a tampered client score cannot inflate a mark.</div>
+      </div>`;
+  } catch (err) {
+    mount.innerHTML = `<div style="padding:24px;color:#991b1b;">Could not load quiz marks: ${_esc(err?.message || String(err))}</div>`;
+  }
+};
+
+window._downloadQuizMarksExcel = () => {
+  const rows = Array.isArray(_cachedQuizMarkRows) ? _cachedQuizMarkRows : [];
+  const quizzes = Array.isArray(_cachedQuizDefs) ? _cachedQuizDefs : [];
+  if (!rows.length) { _showLecturerToast('Load the quiz marks first.', 'warn', 2600); return; }
+  const headers = ['Student Number', 'Name', 'Tutorial Group', ...quizzes.map((q) => `${q.title || q.quizId} (best %)`), 'Quiz contribution (points)'];
+  const out = rows.map((r) => ([
+    r.studentNumber || '', r.name || '', r.tutorialGroup || '',
+    ...quizzes.map((q) => { const b = r.perQuiz?.[q.quizId]?.bestPct; return b == null ? '' : b; }),
+    r.contributionPoints,
+  ]));
+  downloadXlsx([{ name: 'Quiz Marks', headers, rows: out }], 'quiz-marks.xlsx');
+  _showLecturerToast(`Exported quiz marks for ${rows.length} student${rows.length === 1 ? '' : 's'}.`, 'success', 2600);
 };
 
 function _gradebookAssessmentList() {

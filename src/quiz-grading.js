@@ -152,3 +152,60 @@ export function quizBlockPercent(quizzes = [], attemptsByQuizId = {}) {
 export function quizContributionPoints(quizBlockPct, weight = QUIZ_DEFAULTS.weight) {
   return Math.round(_num(quizBlockPct, 0) * _num(weight, QUIZ_DEFAULTS.weight) * 100) / 100;
 }
+
+// ── Authoritative (server-verified) scoring ──────────────────────────────────
+// Recompute a stored attempt's score from its answers + the item bank, ignoring
+// any client-written scorePct. Used by the gradebook so a tampered scorePct
+// cannot inflate a mark.
+export function authoritativeAttemptPct(quiz, attempt = {}) {
+  return scoreAttempt(quiz, attempt.itemIds || [], attempt.answers || {}).pct;
+}
+
+// Best-of-two using authoritative recomputation from stored answers.
+export function resolveQuizResultAuthoritative(quiz, attempts = []) {
+  const q = normalizeQuiz(quiz);
+  const counted = countedAttempts(attempts);
+  const bestPct = counted.length ? Math.max(...counted.map((a) => authoritativeAttemptPct(q, a))) : null;
+  return {
+    quizId: q.quizId,
+    bestPct,
+    passed: bestPct != null && bestPct >= q.passMark,
+    attemptsUsed: counted.length,
+    remaining: Math.max(0, q.maxAttempts - counted.length),
+  };
+}
+
+// Per-quiz WEIGHTED contribution to the final mark. Each quiz contributes its
+// own weight (e.g. two quizzes at 0.10 each -> up to 20 final-mark points).
+// A quiz with no counted attempt contributes 0. Returns final-mark points and a
+// per-quiz breakdown. Set authoritative:false to trust stored scorePct instead.
+export function weightedQuizContribution(quizzes = [], attemptsByQuizId = {}, { authoritative = true } = {}) {
+  const perQuiz = {};
+  let points = 0, maxPoints = 0;
+  for (const quiz of (Array.isArray(quizzes) ? quizzes : [])) {
+    const q = normalizeQuiz(quiz);
+    const attempts = attemptsByQuizId[q.quizId] || [];
+    const r = authoritative ? resolveQuizResultAuthoritative(q, attempts) : resolveQuizResult(q, attempts);
+    const best = r.bestPct == null ? 0 : r.bestPct;
+    const qPoints = Math.round(best * q.weight * 100) / 100;
+    perQuiz[q.quizId] = { bestPct: r.bestPct, passed: r.passed, weight: q.weight, points: qPoints, attemptsUsed: r.attemptsUsed };
+    points += qPoints;
+    maxPoints += q.weight * 100;
+  }
+  return { points: Math.round(points * 100) / 100, maxPoints: Math.round(maxPoints * 100) / 100, perQuiz };
+}
+
+// Weighted final mark, for when the other assessments' weights are supplied.
+// assessments: [{ mark: 0-100, weight: 0-1 }]. Returns points (out of 100) and
+// the total weight covered so callers can see whether weights sum to 1.
+export function computeFinalMark({ assessments = [], quizBlockPct = 0, quizWeight = 0 } = {}) {
+  let points = 0, weightCovered = 0;
+  for (const a of (Array.isArray(assessments) ? assessments : [])) {
+    const w = _num(a.weight, 0);
+    points += _num(a.mark, 0) * w;
+    weightCovered += w;
+  }
+  points += _num(quizBlockPct, 0) * _num(quizWeight, 0);
+  weightCovered += _num(quizWeight, 0);
+  return { points: Math.round(points * 100) / 100, weightCovered: Math.round(weightCovered * 1000) / 1000 };
+}

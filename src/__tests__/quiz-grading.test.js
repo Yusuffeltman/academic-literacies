@@ -8,6 +8,7 @@ import {
   normalizeQuiz, sampleItemIds, scoreAttempt, countedAttempts, attemptsUsed,
   remainingAttempts, canStartCountedAttempt, resolveQuizResult,
   quizBlockPercent, quizContributionPoints, QUIZ_DEFAULTS,
+  authoritativeAttemptPct, resolveQuizResultAuthoritative, weightedQuizContribution, computeFinalMark,
 } from '../quiz-grading.js';
 
 function bank(n) {
@@ -108,4 +109,38 @@ test('quizBlockPercent: mean of best scores; missing quiz counts as 0', () => {
 test('quizContributionPoints: block% x weight', () => {
   assert.equal(quizContributionPoints(90, 0.10), 9);
   assert.equal(quizContributionPoints(45, 0.10), 4.5);
+});
+
+test('authoritative scoring recomputes from answers and ignores a tampered scorePct', () => {
+  const ids = ['q0', 'q1', 'q2', 'q3']; // correctIndex 0,1,2,3
+  const attempt = { mode: 'counted', submittedAt: 't', itemIds: ids, answers: { q0: 0, q1: 1, q2: 2, q3: 9 }, scorePct: 100 };
+  assert.equal(authoritativeAttemptPct(QUIZ, attempt), 75, 'recomputed 3/4 despite scorePct=100');
+  const r = resolveQuizResultAuthoritative(QUIZ, [attempt]);
+  assert.equal(r.bestPct, 75);
+  assert.equal(r.passed, true);
+});
+
+test('weightedQuizContribution: each quiz contributes its own weight; missing = 0', () => {
+  const q1 = { quizId: 'q1', itemBank: bank(4), weight: 0.10 };
+  const q2 = { quizId: 'q2', itemBank: bank(4), weight: 0.10 };
+  const byId = new Map(bank(4).map((it) => [it.id, it]));
+  const perfect = Object.fromEntries([...byId.keys()].map((id) => [id, byId.get(id).correctIndex]));
+  const attemptsBy = {
+    q1: [{ mode: 'counted', submittedAt: 't', itemIds: [...byId.keys()], answers: perfect }], // 100
+    // q2: none -> 0
+  };
+  const c = weightedQuizContribution([q1, q2], attemptsBy, { authoritative: true });
+  assert.equal(c.perQuiz.q1.bestPct, 100);
+  assert.equal(c.perQuiz.q2.bestPct, null);
+  assert.equal(c.points, 10);      // 100*0.10 + 0
+  assert.equal(c.maxPoints, 20);   // two quizzes x 10 points
+});
+
+test('computeFinalMark: weighted blend of assessments + quiz block', () => {
+  const r = computeFinalMark({
+    assessments: [{ mark: 70, weight: 0.30 }, { mark: 60, weight: 0.30 }, { mark: 50, weight: 0.20 }],
+    quizBlockPct: 80, quizWeight: 0.20,
+  });
+  assert.equal(r.points, 21 + 18 + 10 + 16); // 65
+  assert.equal(r.weightCovered, 1);
 });
