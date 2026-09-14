@@ -9,7 +9,9 @@ import {
   remainingAttempts, canStartCountedAttempt, resolveQuizResult,
   quizBlockPercent, quizContributionPoints, QUIZ_DEFAULTS,
   authoritativeAttemptPct, resolveQuizResultAuthoritative, weightedQuizContribution, computeFinalMark,
+  computeModuleFinal,
 } from '../quiz-grading.js';
+import { flatWeights, MODULE_WEIGHTING } from '../../content/assessments/weighting.js';
 
 function bank(n) {
   return Array.from({ length: n }, (_, i) => ({ id: `q${i}`, stem: `Q${i}`, options: ['a', 'b', 'c', 'd'], correctIndex: i % 4 }));
@@ -134,6 +136,18 @@ test('weightedQuizContribution: each quiz contributes its own weight; missing = 
   assert.equal(c.perQuiz.q2.bestPct, null);
   assert.equal(c.points, 10);      // 100*0.10 + 0
   assert.equal(c.maxPoints, 20);   // two quizzes x 10 points
+});
+
+test('module weighting sums to 1 and computeModuleFinal gives a running total', () => {
+  const weights = flatWeights(MODULE_WEIGHTING);
+  const total = Object.values(weights).reduce((s, w) => s + w, 0);
+  assert.ok(Math.abs(total - 1) < 1e-9, 'weights should sum to 100%');
+  // Only a1–a3 + both quizzes marked so far (a4 + capstone pending).
+  const marks = { a1: 70, a2: 60, a3: 80, quiz1: 90, quiz2: 50 };
+  const r = computeModuleFinal(marks, weights);
+  assert.equal(r.weightCovered, 0.5);           // 5 × 10%
+  assert.equal(r.points, 7 + 6 + 8 + 9 + 5);    // 35 points of the final so far
+  assert.equal(r.currentPercent, 70);           // 35 / 0.5 average over assessed portion
 });
 
 test('computeFinalMark: weighted blend of assessments + quiz block', () => {

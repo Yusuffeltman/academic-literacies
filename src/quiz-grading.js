@@ -195,6 +195,31 @@ export function weightedQuizContribution(quizzes = [], attemptsByQuizId = {}, { 
   return { points: Math.round(points * 100) / 100, maxPoints: Math.round(maxPoints * 100) / 100, perQuiz };
 }
 
+// Running weighted module mark from a flat { componentId: markPct(0-100)|null }
+// and a flat { componentId: weight(0-1) } map. Components with no mark yet are
+// excluded, so this is meaningful before every component exists:
+//   • points        – final-mark points earned so far (out of 100)
+//   • weightCovered – fraction of the module assessed so far (0-1)
+//   • totalWeight    – sum of all configured weights (should be ~1)
+//   • currentPercent – average % over the assessed portion (points/weightCovered)
+export function computeModuleFinal(componentMarks = {}, weights = {}) {
+  let points = 0, weightCovered = 0, totalWeight = 0;
+  for (const [id, w] of Object.entries(weights)) {
+    const wt = _num(w, 0);
+    totalWeight += wt;
+    const mark = componentMarks[id];
+    if (mark == null || Number.isNaN(Number(mark))) continue;
+    points += _num(mark, 0) * wt;
+    weightCovered += wt;
+  }
+  return {
+    points: Math.round(points * 100) / 100,
+    weightCovered: Math.round(weightCovered * 1000) / 1000,
+    totalWeight: Math.round(totalWeight * 1000) / 1000,
+    currentPercent: weightCovered > 0 ? Math.round((points / weightCovered) * 100) / 100 : 0,
+  };
+}
+
 // Weighted final mark, for when the other assessments' weights are supplied.
 // assessments: [{ mark: 0-100, weight: 0-1 }]. Returns points (out of 100) and
 // the total weight covered so callers can see whether weights sum to 1.
