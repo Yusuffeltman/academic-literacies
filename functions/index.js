@@ -84,6 +84,7 @@ function getEltVertexModel(modelName) {
       parts: [{
         text: [
           "You are a professional ELT Grader. Evaluate the student text based on provided rubrics.",
+          `The current date is ${new Date().toISOString().slice(0, 10)}. Treat any source whose publication year is the current calendar year or earlier as validly published. Do NOT describe recent-year sources (including the current year and the previous year) as "future-dated", "impossible", or "fabricated" merely because of their year; only a publication year strictly AFTER the current year is future-dated.`,
           "You must:",
           "Annotate: Use exact quotes from the text to provide feedback.",
           "Align: Link every comment to a specific Course Objective.",
@@ -160,6 +161,7 @@ async function generateEltVertexContent(prompt, options = {}) {
         parts: [{
           text: [
             "You are a professional ELT Grader. Evaluate the student text based on provided rubrics.",
+            `The current date is ${new Date().toISOString().slice(0, 10)}. Treat any source whose publication year is the current calendar year or earlier as validly published. Do NOT describe recent-year sources (including the current year and the previous year) as "future-dated", "impossible", or "fabricated" merely because of their year; only a publication year strictly AFTER the current year is future-dated.`,
             "You must:",
             "Annotate: Use exact quotes from the text to provide feedback.",
             "Align: Link every comment to a specific Course Objective.",
@@ -1691,6 +1693,7 @@ function buildEltPrompt(context = {}) {
       },
     }, null, 2),
     "Rules:",
+    `- The current date is ${new Date().toISOString().slice(0, 10)}. A cited source is only "future-dated" if its publication year is strictly AFTER the current year. Sources from the current year or earlier are validly published — never penalise, flag, or describe them as future-dated, impossible, or fabricated because of their year.`,
     "- Use exact quotes from the student text only.",
     "- Every annotation must link to a related course objective.",
     "- Justifications must be evidence-based and criterion-specific.",
